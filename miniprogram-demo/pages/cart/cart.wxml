@@ -1,0 +1,26 @@
+<view class="container">
+  <view class="card">
+    <view class="title">购物车</view>
+  </view>
+
+  <block wx:if="{{cart.length === 0}}">
+    <view class="card">
+      <view class="empty">购物车为空</view>
+    </view>
+  </block>
+
+  <block wx:for="{{cart}}" wx:key="index">
+    <view class="card item">
+      <view class="p-name">{{item.name}}</view>
+      <view class="p-price">{{item.actualPrice}}</view>
+    </view>
+  </block>
+
+  <view class="card">
+    <view class="p-name">总计</view>
+    <view class="p-price" id="totalPrice">{{total}}</view>
+    <view class="btn-primary" bindtap="checkout">结算</view>
+  </view>
+
+  <view id="cartMessage" class="{{msgClass}}">{{message}}</view>
+</view>

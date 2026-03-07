@@ -507,6 +507,228 @@ def create_router(
             logger.error("手机蓝本测试执行失败: {}", e)
             raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
 
+    # ── 小程序蓝本测试（v10.2）───────────────────────────
+
+    @router.post("/test/miniprogram-blueprint", response_model=TestReportResponse, tags=["测试"])
+    async def run_miniprogram_blueprint_test(req: dict) -> TestReportResponse:
+        """小程序蓝本测试：通过微信开发者工具 + miniprogram-automator 执行。
+
+        需要：微信开发者工具已安装、已开启服务端口。
+        """
+        from src.testing.blueprint import BlueprintParser
+        from src.controller.miniprogram import MiniProgramController, MiniProgramConfig
+
+        blueprint_path = req.get("blueprint_path", "")
+        project_path = req.get("project_path", "")
+        base_url_override = req.get("base_url", "")
+
+        bp_file = Path(blueprint_path)
+        if not bp_file.exists():
+            raise HTTPException(status_code=400, detail=f"蓝本文件不存在: {blueprint_path}")
+
+        try:
+            blueprint = BlueprintParser.parse_file(str(bp_file))
+            base_url = base_url_override or blueprint.base_url
+
+            # 从 base_url 推断项目路径（miniprogram://path 格式）
+            if not project_path and base_url.startswith("miniprogram://"):
+                project_path = base_url.replace("miniprogram://", "")
+
+            if not project_path:
+                project_path = str(bp_file.parent)
+
+            config = MiniProgramConfig(project_path=project_path)
+            controller = MiniProgramController(config)
+
+            # 简化执行：记录步骤结果
+            from src.testing.models import StepResult, TestReport, BugReport
+            import time
+
+            start = time.time()
+            steps_results = []
+            bugs = []
+
+            await controller.launch()
+
+            for page in blueprint.pages:
+                for scenario in page.scenarios:
+                    for i, step in enumerate(scenario.steps):
+                        step_start = time.time()
+                        try:
+                            action = step.action
+                            if action == "navigate":
+                                await controller.navigate(step.value or "")
+                            elif action == "click":
+                                await controller.tap(step.target or "")
+                            elif action == "fill":
+                                await controller.input_text(step.target or "", step.value or "")
+                            elif action == "screenshot":
+                                await controller.screenshot()
+                            elif action == "assert_text":
+                                source = await controller.get_page_source()
+                                if step.expected and step.expected not in (source or ""):
+                                    raise AssertionError(f"预期文本未找到: {step.expected}")
+
+                            steps_results.append(StepResult(
+                                step_number=len(steps_results) + 1,
+                                action=action,
+                                status="passed",
+                                duration=time.time() - step_start,
+                            ))
+                        except Exception as e:
+                            steps_results.append(StepResult(
+                                step_number=len(steps_results) + 1,
+                                action=step.action,
+                                status="failed",
+                                error=str(e),
+                                duration=time.time() - step_start,
+                            ))
+                            bugs.append(BugReport(
+                                severity="medium",
+                                title=f"步骤{len(steps_results)}失败: {step.action}",
+                                description=str(e),
+                            ))
+
+            await controller.close()
+
+            total = len(steps_results)
+            passed = sum(1 for s in steps_results if s.status == "passed")
+            duration = time.time() - start
+
+            report = TestReport(
+                test_name=f"小程序蓝本测试-{blueprint.app_name}",
+                url=base_url,
+                total_steps=total,
+                passed_steps=passed,
+                failed_steps=total - passed,
+                bugs=bugs,
+                duration_seconds=duration,
+                steps=steps_results,
+            )
+
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("小程序蓝本测试执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"小程序蓝本测试执行失败: {e}")
+
+    # ── 桌面应用蓝本测试（v10.2）───────────────────────────
+
+    @router.post("/test/desktop-blueprint", response_model=TestReportResponse, tags=["测试"])
+    async def run_desktop_blueprint_test(req: dict) -> TestReportResponse:
+        """桌面应用蓝本测试：通过 pywinauto 操控 Windows 桌面应用窗口。"""
+        from src.testing.blueprint import BlueprintParser
+        from src.controller.desktop import DesktopController, DesktopConfig
+
+        blueprint_path = req.get("blueprint_path", "")
+        window_title = req.get("window_title", "")
+        base_url_override = req.get("base_url", "")
+
+        bp_file = Path(blueprint_path)
+        if not bp_file.exists():
+            raise HTTPException(status_code=400, detail=f"蓝本文件不存在: {blueprint_path}")
+
+        try:
+            blueprint = BlueprintParser.parse_file(str(bp_file))
+            base_url = base_url_override or blueprint.base_url
+
+            if not window_title:
+                window_title = blueprint.app_name
+
+            config = DesktopConfig(window_title=window_title)
+            controller = DesktopController(config)
+
+            from src.testing.models import StepResult, TestReport, BugReport
+            import time
+
+            start = time.time()
+            steps_results = []
+            bugs = []
+
+            await controller.connect()
+
+            for page in blueprint.pages:
+                for scenario in page.scenarios:
+                    for i, step in enumerate(scenario.steps):
+                        step_start = time.time()
+                        try:
+                            action = step.action
+                            if action == "click":
+                                await controller.click(step.target or "")
+                            elif action == "fill":
+                                await controller.input_text(step.target or "", step.value or "")
+                            elif action == "screenshot":
+                                await controller.screenshot()
+                            elif action == "assert_text":
+                                texts = await controller.get_visible_text()
+                                if step.expected and step.expected not in (texts or ""):
+                                    raise AssertionError(f"预期文本未找到: {step.expected}")
+
+                            steps_results.append(StepResult(
+                                step_number=len(steps_results) + 1,
+                                action=action,
+                                status="passed",
+                                duration=time.time() - step_start,
+                            ))
+                        except Exception as e:
+                            steps_results.append(StepResult(
+                                step_number=len(steps_results) + 1,
+                                action=step.action,
+                                status="failed",
+                                error=str(e),
+                                duration=time.time() - step_start,
+                            ))
+                            bugs.append(BugReport(
+                                severity="medium",
+                                title=f"步骤{len(steps_results)}失败: {step.action}",
+                                description=str(e),
+                            ))
+
+            await controller.close()
+
+            total = len(steps_results)
+            passed = sum(1 for s in steps_results if s.status == "passed")
+            duration = time.time() - start
+
+            report = TestReport(
+                test_name=f"桌面蓝本测试-{blueprint.app_name}",
+                url=base_url,
+                total_steps=total,
+                passed_steps=passed,
+                failed_steps=total - passed,
+                bugs=bugs,
+                duration_seconds=duration,
+                steps=steps_results,
+            )
+
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("桌面蓝本测试执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"桌面蓝本测试执行失败: {e}")
+
     # ── 快速探索（意外模式）───────────────────────────
 
     @router.post("/test/explore", response_model=TestReportResponse, tags=["测试"])

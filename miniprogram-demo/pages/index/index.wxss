@@ -1,0 +1,5 @@
+.title { font-size: 36rpx; font-weight: bold; color: #1e1b4b; }
+.sub { font-size: 24rpx; color: #888; margin-top: 8rpx; }
+.product { display: flex; align-items: center; justify-content: space-between; }
+.p-name { font-size: 28rpx; color: #333; flex: 1; }
+.p-price { font-size: 32rpx; color: #e44; font-weight: bold; margin: 0 20rpx; }

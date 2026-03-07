@@ -5,11 +5,14 @@ TestPilot AI MCP Server
 实现双向闭环：编程AI写代码 → TestPilot测试 → 报Bug → 编程AI修复 → 再测。
 
 工具列表：
-- run_blueprint_test: 按蓝本执行测试，返回Bug列表
+- run_blueprint_test: 按蓝本执行Web测试，返回Bug列表
+- run_mobile_blueprint_test: 在Android手机浏览器上按蓝本测试
+- run_miniprogram_test: 在微信小程序上按蓝本测试
+- run_desktop_test: 在Windows桌面应用上按蓝本测试
 - run_quick_test: 无蓝本快速测试（盲测模式）
 - get_test_report: 获取最近的测试报告
-- check_health: 检查TestPilot引擎是否运行中
-- generate_blueprint: AI自动生成蓝本（给URL全自动）
+- check_engine_health: 检查TestPilot引擎是否运行中
+- generate_blueprint: AI自动生成蓝本（给URL全自动，兜底用）
 - generate_blueprint_template: 生成蓝本模板框架（需手动补选择器）
 
 启动方式：
@@ -423,6 +426,120 @@ def generate_blueprint_template(
         f"4. 支持的 action: navigate, click, fill, select, wait, screenshot, assert_text, assert_visible\n"
         f"5. 保存为 testpilot.json 后调用 run_blueprint_test 执行测试"
     )
+
+
+@mcp.tool()
+def run_miniprogram_test(
+    blueprint_path: str,
+    project_path: str = "",
+    base_url: str = "",
+) -> str:
+    """在微信小程序上按蓝本执行测试。
+
+    需要：微信开发者工具已安装并开启服务端口。
+    蓝本中 platform 应为 "miniprogram"。
+
+    Args:
+        blueprint_path: testpilot.json 蓝本文件的绝对路径
+        project_path: 小程序项目目录路径（空则从蓝本 base_url 推断）
+        base_url: 覆盖蓝本中的 base_url（可选）
+
+    Returns:
+        测试报告
+    """
+    global _last_report
+
+    if not Path(blueprint_path).exists():
+        return f"❌ 蓝本文件不存在: {blueprint_path}"
+
+    try:
+        payload: dict = {"blueprint_path": blueprint_path}
+        if project_path:
+            payload["project_path"] = project_path
+        if base_url:
+            payload["base_url"] = base_url
+
+        status, text = _http_post_json(
+            f"{ENGINE_URL}/api/v1/test/miniprogram-blueprint",
+            payload,
+            timeout=600,
+        )
+
+        if status != 200:
+            return f"❌ 小程序测试执行失败: {text}"
+
+        data = json.loads(text)
+        _last_report = data
+        return _format_report(data).replace(
+            "# TestPilot 测试报告",
+            "# TestPilot 小程序测试报告",
+            1,
+        )
+
+    except ConnectionError:
+        return (
+            "❌ 无法连接 TestPilot 引擎。\n"
+            "请确保引擎已启动：poetry run python main.py"
+        )
+    except Exception as e:
+        return f"❌ 小程序测试异常: {str(e)}"
+
+
+@mcp.tool()
+def run_desktop_test(
+    blueprint_path: str,
+    window_title: str = "",
+    base_url: str = "",
+) -> str:
+    """在 Windows 桌面应用上按蓝本执行测试。
+
+    通过 DesktopController（pywinauto）操控桌面应用窗口。
+    蓝本中 platform 应为 "desktop"。
+
+    Args:
+        blueprint_path: testpilot.json 蓝本文件的绝对路径
+        window_title: 桌面应用窗口标题（用于定位窗口）
+        base_url: 覆盖蓝本中的 base_url（可选）
+
+    Returns:
+        测试报告
+    """
+    global _last_report
+
+    if not Path(blueprint_path).exists():
+        return f"❌ 蓝本文件不存在: {blueprint_path}"
+
+    try:
+        payload: dict = {"blueprint_path": blueprint_path}
+        if window_title:
+            payload["window_title"] = window_title
+        if base_url:
+            payload["base_url"] = base_url
+
+        status, text = _http_post_json(
+            f"{ENGINE_URL}/api/v1/test/desktop-blueprint",
+            payload,
+            timeout=600,
+        )
+
+        if status != 200:
+            return f"❌ 桌面测试执行失败: {text}"
+
+        data = json.loads(text)
+        _last_report = data
+        return _format_report(data).replace(
+            "# TestPilot 测试报告",
+            "# TestPilot 桌面应用测试报告",
+            1,
+        )
+
+    except ConnectionError:
+        return (
+            "❌ 无法连接 TestPilot 引擎。\n"
+            "请确保引擎已启动：poetry run python main.py"
+        )
+    except Exception as e:
+        return f"❌ 桌面测试异常: {str(e)}"
 
 
 def _format_report(data: dict) -> str:

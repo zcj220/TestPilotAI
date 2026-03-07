@@ -85,3 +85,25 @@ button { padding:8px 16px; border:none; border-radius:8px; cursor:pointer; font-
 .empty { text-align:center; color:#aaa; padding:40px; background:#fff;
   border-radius:10px; margin-top:4px; }
 #orderTotal { text-align:right; margin-top:12px; font-size:14px; color:#555; }
+
+/* ── 响应式布局（手机端） ── */
+@media (max-width: 768px) {
+  .login-box { width:90%; margin:60px auto; padding:24px; }
+  .sidebar { width:100%; height:auto; position:relative; flex-direction:row;
+    flex-wrap:wrap; padding:10px; align-items:center; }
+  .sidebar .logo { padding:0 10px 0 0; border:none; font-size:16px; }
+  .sidebar ul { display:flex; flex-wrap:wrap; gap:4px; margin:0; }
+  .nav { padding:8px 12px; font-size:13px; }
+  #logoutBtn { padding:8px 12px; font-size:12px; }
+  .content { margin-left:0; padding:16px; }
+  .stats { flex-wrap:wrap; gap:8px; }
+  .stat { min-width:calc(50% - 4px); padding:14px; }
+  .stat .num { font-size:20px; }
+  .toolbar { flex-wrap:wrap; }
+  .toolbar input { width:100%; }
+  .row { flex-direction:column; }
+  .field input, .field select { min-width:auto; width:100%; }
+  table { font-size:12px; }
+  th, td { padding:8px 6px; }
+  .tab h2 { font-size:18px; }
+}

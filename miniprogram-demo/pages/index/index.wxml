@@ -1,0 +1,22 @@
+<view class="container">
+  <view class="card">
+    <view class="title">BuggyMini 测试商城</view>
+    <view class="sub">含4个预埋Bug的小程序</view>
+  </view>
+
+  <block wx:for="{{products}}" wx:key="id">
+    <view class="card product">
+      <view class="p-name">{{item.name}}</view>
+      <view class="p-price" id="price-{{item.id}}">{{item.price}}</view>
+      <view class="btn-primary" bindtap="addToCart" data-id="{{item.id}}">加入购物车</view>
+    </view>
+  </block>
+
+  <view class="card">
+    <view class="p-name">购物车 ({{cartCount}} 件)</view>
+    <view class="p-price" id="cartTotal">总计: {{cartTotal}}</view>
+    <view class="btn-primary" bindtap="goCart">查看购物车</view>
+  </view>
+
+  <view id="message" class="{{msgClass}}">{{message}}</view>
+</view>

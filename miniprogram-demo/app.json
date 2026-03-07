@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/cart/cart"
+  ],
+  "window": {
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#4f46e5",
+    "navigationBarTitleText": "BuggyMini 测试小程序",
+    "navigationBarTextStyle": "white"
+  }
+}

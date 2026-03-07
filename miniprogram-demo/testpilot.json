@@ -1,0 +1,62 @@
+{
+  "app_name": "BuggyMini 测试小程序",
+  "base_url": "miniprogram://D:/projects/TestPilotAI/miniprogram-demo",
+  "version": "1.0",
+  "platform": "miniprogram",
+  "pages": [
+    {
+      "url": "/pages/index/index",
+      "title": "首页-商品列表",
+      "elements": {
+        "商品价格-无线耳机": "#price-1",
+        "商品价格-机械键盘": "#price-2",
+        "商品价格-扩展坞": "#price-3",
+        "购物车总计": "#cartTotal",
+        "消息提示": "#message"
+      },
+      "scenarios": [
+        {
+          "name": "Bug1-机械键盘价格不一致",
+          "description": "页面显示199但加入购物车变599",
+          "steps": [
+            {"action": "navigate", "value": "/pages/index/index"},
+            {"action": "assert_text", "target": "#price-2", "expected": "显示199"},
+            {"action": "click", "target": ".product[data-id='2'] .btn-primary"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "总计应为199"}
+          ]
+        },
+        {
+          "name": "Bug2-浮点精度",
+          "description": "添加耳机+扩展坞总价应为458整数",
+          "steps": [
+            {"action": "navigate", "value": "/pages/index/index"},
+            {"action": "click", "target": ".product[data-id='1'] .btn-primary"},
+            {"action": "click", "target": ".product[data-id='3'] .btn-primary"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "总计458，整数无小数"}
+          ]
+        },
+        {
+          "name": "Bug3-空购物车跳转",
+          "description": "购物车为空时点查看购物车应提示而非跳空白页",
+          "steps": [
+            {"action": "navigate", "value": "/pages/index/index"},
+            {"action": "click", "target": ".btn-primary[bindtap='goCart']"},
+            {"action": "assert_text", "target": "#message", "expected": "应提示购物车为空"}
+          ]
+        },
+        {
+          "name": "Bug4-大金额结算报错",
+          "description": "总价超500时结算应成功但系统报500错误",
+          "steps": [
+            {"action": "navigate", "value": "/pages/index/index"},
+            {"action": "click", "target": ".product[data-id='1'] .btn-primary"},
+            {"action": "click", "target": ".product[data-id='2'] .btn-primary"},
+            {"action": "click", "target": ".product[data-id='3'] .btn-primary"},
+            {"action": "screenshot"},
+            {"action": "assert_text", "target": "#message", "expected": "订单提交成功"}
+          ]
+        }
+      ]
+    }
+  ]
+}
