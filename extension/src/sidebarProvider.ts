@@ -51,6 +51,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "blueprintTest":
           await this._handleBlueprintTest(msg);
           break;
+        case "blueprintBatchTest":
+          await this._handleBlueprintBatchTest(msg);
+          break;
         case "controlTest":
           await this._handleControlTest(msg.action);
           break;
@@ -159,6 +162,78 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async _handleBlueprintBatchTest(msg: {
+    blueprint_paths: string[];
+    base_url?: string;
+  }): Promise<void> {
+    try {
+      this._postMessage({ command: "testStarted" });
+
+      // 依次执行每个蓝本，汇总结果
+      const results: TestReportResponse[] = [];
+      for (const bp of msg.blueprint_paths) {
+        try {
+          const report = await this._client.startBlueprintTest({
+            blueprint_path: bp,
+            base_url: msg.base_url || undefined,
+          });
+          results.push(report);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          results.push({
+            test_name: bp.split(/[/\\]/).pop() || bp,
+            url: "",
+            total_steps: 0,
+            passed_steps: 0,
+            failed_steps: 0,
+            bug_count: 0,
+            pass_rate: 0,
+            duration_seconds: 0,
+            report_markdown: `❌ 执行失败: ${errMsg}`,
+          } as TestReportResponse);
+        }
+      }
+
+      // 汇总报告
+      const totalSteps = results.reduce((n, r) => n + (r.total_steps || 0), 0);
+      const passedSteps = results.reduce((n, r) => n + (r.passed_steps || 0), 0);
+      const failedSteps = results.reduce((n, r) => n + (r.failed_steps || 0), 0);
+      const totalBugs = results.reduce((n, r) => n + (r.bug_count || 0), 0);
+      const totalDuration = results.reduce((n, r) => n + (r.duration_seconds || 0), 0);
+      const passRate = totalSteps > 0 ? (passedSteps / totalSteps * 100) : 0;
+
+      let md = `# 批量蓝本测试汇总\n\n`;
+      md += `- 蓝本数: ${results.length}\n`;
+      md += `- 总步骤: ${totalSteps}（通过 ${passedSteps} / 失败 ${failedSteps}）\n`;
+      md += `- 总Bug数: ${totalBugs}\n`;
+      md += `- 总通过率: ${passRate.toFixed(0)}%\n`;
+      md += `- 总耗时: ${totalDuration.toFixed(1)}秒\n\n`;
+      results.forEach((r, i) => {
+        const icon = (r.bug_count || 0) === 0 && (r.total_steps || 0) > 0 ? "✅" : "❌";
+        md += `## ${i + 1}. ${icon} ${r.test_name}\n`;
+        md += `通过率: ${(r.pass_rate || 0).toFixed(0)}% | Bug: ${r.bug_count || 0}\n\n`;
+      });
+
+      // 用最后一个报告的格式返回汇总
+      const summary: TestReportResponse = {
+        test_name: `批量测试（${results.length}个蓝本）`,
+        url: "",
+        total_steps: totalSteps,
+        passed_steps: passedSteps,
+        failed_steps: failedSteps,
+        bug_count: totalBugs,
+        pass_rate: passRate,
+        duration_seconds: totalDuration,
+        report_markdown: md,
+      } as TestReportResponse;
+
+      this._postMessage({ command: "testResult", data: summary });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._postMessage({ command: "testError", data: { error: message } });
+    }
+  }
+
   private async _handleControlTest(action: string): Promise<void> {
     try {
       const result = await this._client.controlTest(action);
@@ -229,25 +304,45 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleScanBlueprints(): Promise<void> {
-    const entries: { path: string; mtime: number }[] = [];
+    const entries: { path: string; mtime: number; appName: string; description: string; platform: string; scenarioCount: number; stepCount: number }[] = [];
     const folders = vscode.workspace.workspaceFolders;
     if (folders) {
       for (const folder of folders) {
-        const pattern = new vscode.RelativePattern(folder, "**/testpilot.json");
-        const files = await vscode.workspace.findFiles(pattern, "**/node_modules/**", 20);
-        for (const f of files) {
-          try {
-            const stat = await vscode.workspace.fs.stat(f);
-            entries.push({ path: f.fsPath, mtime: stat.mtime });
-          } catch {
-            entries.push({ path: f.fsPath, mtime: 0 });
+        // 扫描 testpilot.json 和 *.testpilot.json
+        const patterns = [
+          new vscode.RelativePattern(folder, "**/testpilot.json"),
+          new vscode.RelativePattern(folder, "**/*.testpilot.json"),
+        ];
+        const seen = new Set<string>();
+        for (const pattern of patterns) {
+          const files = await vscode.workspace.findFiles(pattern, "**/node_modules/**", 50);
+          for (const f of files) {
+            if (seen.has(f.fsPath)) { continue; }
+            seen.add(f.fsPath);
+            let mtime = 0;
+            let appName = "";
+            let description = "";
+            let platform = "web";
+            let scenarioCount = 0;
+            let stepCount = 0;
+            try {
+              const stat = await vscode.workspace.fs.stat(f);
+              mtime = stat.mtime;
+              const raw = await vscode.workspace.fs.readFile(f);
+              const json = JSON.parse(Buffer.from(raw).toString("utf-8"));
+              appName = json.app_name || "";
+              description = json.description || "";
+              platform = json.platform || "web";
+              scenarioCount = (json.pages || []).reduce((n: number, p: any) => n + (p.scenarios || []).length, 0);
+              stepCount = (json.pages || []).reduce((n: number, p: any) => n + (p.scenarios || []).reduce((m: number, s: any) => m + (s.steps || []).length, 0), 0);
+            } catch { /* ignore parse errors */ }
+            entries.push({ path: f.fsPath, mtime, appName, description, platform, scenarioCount, stepCount });
           }
         }
       }
     }
-    // 按最近修改时间排序（最新的排最前，自动选中）
     entries.sort((a, b) => b.mtime - a.mtime);
-    this._postMessage({ command: "blueprintList", data: entries.map(e => e.path) });
+    this._postMessage({ command: "blueprintList", data: entries });
   }
 
   private async _handleBrowseBlueprint(): Promise<void> {
@@ -274,8 +369,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 格式：
 {
   "app_name": "应用名称",
+  "description": "蓝本功能说明（50-200字，描述本蓝本覆盖哪些功能模块和测试范围）",
   "base_url": "http://localhost:端口",
   "version": "1.0",
+  "platform": "web",
   "pages": [
     {
       "url": "/",
@@ -456,18 +553,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     <!-- 蓝本模式 -->
     <div class="tab-content active" id="panelBlueprint">
-      <label>蓝本文件路径 *</label>
-      <div class="input-row">
-        <select id="selectBlueprint" style="flex:1"><option value="">扫描中...</option></select>
+      <label>蓝本列表
+        <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
+      </label>
+      <div id="blueprintList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px;margin-bottom:8px;background:var(--bg-secondary,#1e1e1e)">
+        <div style="color:var(--muted);padding:8px;text-align:center;font-size:12px">扫描中...</div>
+      </div>
+      <div class="input-row" style="gap:4px">
         <button id="btnScanBp" title="扫描工作区" style="min-width:32px;padding:4px">🔍</button>
         <button id="btnBrowseBp" title="手动浏览" style="min-width:32px;padding:4px">📂</button>
+        <button id="btnSelectAll" title="全选/取消全选" style="min-width:32px;padding:4px;font-size:11px">☑</button>
       </div>
       <input type="text" id="inputBlueprintPath" placeholder="或手动输入路径..." style="font-size:11px;margin-top:4px" />
 
       <label>覆盖 base_url（可选）</label>
       <input type="text" id="inputBpBaseUrl" placeholder="http://localhost:3000" />
 
-      <button id="btnBlueprintTest">▶ 蓝本测试</button>
+      <button id="btnBlueprintTest">▶ 运行选中蓝本</button>
       <hr style="border:0;border-top:1px solid var(--border);margin:10px 0" />
       <button id="btnCopyBlueprintPrompt" class="btn-secondary" style="background:#8b5cf6">📋 复制蓝本生成提示词</button>
     </div>
@@ -591,20 +693,22 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       panelExplore.classList.add("active"); panelBlueprint.classList.remove("active");
     });
 
-    // 蓝本自动扫描
-    const selectBlueprint = document.getElementById("selectBlueprint");
+    // 蓝本多选列表
+    const blueprintListEl = document.getElementById("blueprintList");
     const inputBlueprintPath = document.getElementById("inputBlueprintPath");
+    let blueprintEntries = []; // 存储蓝本元数据
 
-    // 下拉选择 → 同步到手动输入框
-    selectBlueprint.addEventListener("change", () => {
-      if (selectBlueprint.value) {
-        inputBlueprintPath.value = selectBlueprint.value;
-      }
-    });
+    // 获取所有选中的蓝本路径
+    function getSelectedBlueprints() {
+      const cbs = blueprintListEl.querySelectorAll('input[type="checkbox"]:checked');
+      return Array.from(cbs).map(cb => cb.value);
+    }
 
-    // 手动输入 → 清除下拉选中
-    inputBlueprintPath.addEventListener("input", () => {
-      selectBlueprint.value = "";
+    // 全选/取消全选
+    document.getElementById("btnSelectAll").addEventListener("click", () => {
+      const cbs = blueprintListEl.querySelectorAll('input[type="checkbox"]');
+      const allChecked = Array.from(cbs).every(cb => cb.checked);
+      cbs.forEach(cb => { cb.checked = !allChecked; });
     });
 
     // 扫描按钮
@@ -729,15 +833,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       addLog("正在断开引擎...", "info");
     });
 
-    // 蓝本测试
+    // 蓝本测试（支持多选批量）
     document.getElementById("btnBlueprintTest").addEventListener("click", () => {
-      const bp = document.getElementById("inputBlueprintPath").value.trim();
-      if (!bp) { addLog("请输入蓝本文件路径", "error"); return; }
-      vscode.postMessage({
-        command: "blueprintTest",
-        blueprint_path: bp,
-        base_url: document.getElementById("inputBpBaseUrl").value.trim() || undefined,
-      });
+      const selected = getSelectedBlueprints();
+      const manualPath = document.getElementById("inputBlueprintPath").value.trim();
+      const baseUrl = document.getElementById("inputBpBaseUrl").value.trim() || undefined;
+
+      if (selected.length > 1) {
+        // 多选：批量执行
+        vscode.postMessage({
+          command: "blueprintBatchTest",
+          blueprint_paths: selected,
+          base_url: baseUrl,
+        });
+      } else if (selected.length === 1) {
+        // 单选：单个执行
+        vscode.postMessage({
+          command: "blueprintTest",
+          blueprint_path: selected[0],
+          base_url: baseUrl,
+        });
+      } else if (manualPath) {
+        // 无勾选但有手动输入
+        vscode.postMessage({
+          command: "blueprintTest",
+          blueprint_path: manualPath,
+          base_url: baseUrl,
+        });
+      } else {
+        addLog("请勾选蓝本或输入蓝本路径", "error");
+      }
     });
 
     // 复制蓝本生成提示词
@@ -786,48 +911,76 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    function onBlueprintList(paths) {
-      selectBlueprint.innerHTML = "";
-      if (paths.length === 0) {
-        const opt = document.createElement("option");
-        opt.value = "";
-        opt.textContent = "未找到 testpilot.json";
-        selectBlueprint.appendChild(opt);
+    function onBlueprintList(entries) {
+      blueprintListEl.innerHTML = "";
+      blueprintEntries = entries;
+      if (!entries || entries.length === 0) {
+        blueprintListEl.innerHTML = '<div style="color:var(--muted);padding:8px;text-align:center;font-size:12px">未找到蓝本文件</div>';
         return;
       }
-      paths.forEach((p, i) => {
-        const opt = document.createElement("option");
-        opt.value = p;
-        // 显示简短路径
-        const parts = p.replace(/\\\\/g, "/").split("/");
-        const short = parts.slice(-3).join("/");
-        opt.textContent = short;
-        selectBlueprint.appendChild(opt);
+      entries.forEach((entry, i) => {
+        const path = typeof entry === "string" ? entry : entry.path;
+        const appName = entry.appName || "";
+        const desc = entry.description || "";
+        const platform = entry.platform || "web";
+        const scenarios = entry.scenarioCount || 0;
+        const steps = entry.stepCount || 0;
+
+        const parts = path.replace(/\\\\/g, "/").split("/");
+        const shortPath = parts.slice(-3).join("/");
+        const displayName = appName || shortPath;
+
+        const platformBadge = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"}[platform] || "📄";
+        const tooltipText = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
+
+        const item = document.createElement("label");
+        item.style.cssText = "display:flex;align-items:flex-start;gap:6px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4";
+        item.title = tooltipText;
+        item.addEventListener("mouseenter", () => { item.style.background = "var(--hover-bg,#2a2d2e)"; });
+        item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.value = path;
+        cb.checked = (i === 0); // 默认选中第一个
+        cb.style.cssText = "margin-top:2px;flex-shrink:0";
+
+        const info = document.createElement("div");
+        info.style.cssText = "flex:1;min-width:0";
+        info.innerHTML = '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + platformBadge + " " + displayName + '</div>'
+          + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + desc + '</div>' : '')
+          + '<div style="color:var(--muted);font-size:10px;margin-top:1px">' + scenarios + '场景 ' + steps + '步骤 · ' + shortPath + '</div>';
+
+        item.appendChild(cb);
+        item.appendChild(info);
+        blueprintListEl.appendChild(item);
       });
-      // 自动选中第一个并填入输入框
-      selectBlueprint.selectedIndex = 0;
-      inputBlueprintPath.value = paths[0];
-      addLog("找到 " + paths.length + " 个蓝本文件", "info");
+      // 填入第一个路径到手动输入框
+      const firstPath = typeof entries[0] === "string" ? entries[0] : entries[0].path;
+      inputBlueprintPath.value = firstPath;
+      addLog("找到 " + entries.length + " 个蓝本文件", "info");
     }
 
     function onBlueprintSelected(path) {
       inputBlueprintPath.value = path;
-      // 在下拉里也加上（如果不在列表中）
+      // 确保在列表中勾选
+      const cbs = blueprintListEl.querySelectorAll('input[type="checkbox"]');
       let found = false;
-      for (let i = 0; i < selectBlueprint.options.length; i++) {
-        if (selectBlueprint.options[i].value === path) {
-          selectBlueprint.selectedIndex = i;
-          found = true;
-          break;
-        }
-      }
+      cbs.forEach(cb => {
+        if (cb.value === path) { cb.checked = true; found = true; }
+      });
       if (!found) {
-        const opt = document.createElement("option");
-        opt.value = path;
+        // 手动添加一个条目
+        const item = document.createElement("label");
+        item.style.cssText = "display:flex;align-items:flex-start;gap:6px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4";
         const parts = path.replace(/\\\\/g, "/").split("/");
-        opt.textContent = parts.slice(-3).join("/");
-        selectBlueprint.appendChild(opt);
-        selectBlueprint.value = path;
+        item.title = path;
+        const cb = document.createElement("input");
+        cb.type = "checkbox"; cb.value = path; cb.checked = true; cb.style.cssText = "margin-top:2px;flex-shrink:0";
+        const info = document.createElement("div");
+        info.innerHTML = '<div style="font-weight:600">📄 ' + parts.slice(-3).join("/") + '</div>';
+        item.appendChild(cb); item.appendChild(info);
+        blueprintListEl.appendChild(item);
       }
     }
 

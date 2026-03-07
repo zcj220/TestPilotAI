@@ -13,6 +13,10 @@ from fastapi import APIRouter, HTTPException
 from loguru import logger
 
 from src.api.models import (
+    BatchReportItem,
+    BatchTestReportResponse,
+    BlueprintListResponse,
+    BlueprintSummary,
     BrowserResponse,
     ClickRequest,
     CommandResponse,
@@ -24,6 +28,7 @@ from src.api.models import (
     GenerateBlueprintResponse,
     HealthResponse,
     NavigateRequest,
+    RunBlueprintBatchRequest,
     RunBlueprintRequest,
     RunMobileBlueprintRequest,
     RunTestRequest,
@@ -728,6 +733,186 @@ def create_router(
         except Exception as e:
             logger.error("桌面蓝本测试执行失败: {}", e)
             raise HTTPException(status_code=500, detail=f"桌面蓝本测试执行失败: {e}")
+
+    # ── 蓝本列表与批量执行（v10.2）───────────────────────
+
+    @router.get("/blueprint/list", response_model=BlueprintListResponse, tags=["蓝本管理"])
+    async def list_blueprints(directory: str) -> BlueprintListResponse:
+        """扫描目录下所有蓝本文件，返回摘要列表。
+
+        扫描规则：
+        1. 目录下的 testpilot.json
+        2. 目录下 testpilot/ 子目录中的 *.testpilot.json
+        3. 目录下 testpilot/ 子目录中的 testpilot.json
+        """
+        import glob
+
+        dir_path = Path(directory)
+        if not dir_path.exists():
+            raise HTTPException(status_code=400, detail=f"目录不存在: {directory}")
+
+        bp_files = []
+
+        # 规则1: 根目录 testpilot.json
+        root_bp = dir_path / "testpilot.json"
+        if root_bp.exists():
+            bp_files.append(root_bp)
+
+        # 规则2+3: testpilot/ 子目录
+        tp_dir = dir_path / "testpilot"
+        if tp_dir.is_dir():
+            for f in sorted(tp_dir.glob("*.testpilot.json")):
+                bp_files.append(f)
+            tp_json = tp_dir / "testpilot.json"
+            if tp_json.exists() and tp_json not in bp_files:
+                bp_files.append(tp_json)
+
+        summaries = []
+        for bp_file in bp_files:
+            try:
+                bp = BlueprintParser.parse_file(str(bp_file))
+                summaries.append(BlueprintSummary(
+                    file_path=str(bp_file),
+                    file_name=bp_file.name,
+                    app_name=bp.app_name,
+                    description=bp.description,
+                    platform=bp.platform,
+                    version=bp.version,
+                    scenario_count=bp.total_scenarios,
+                    step_count=bp.total_steps,
+                ))
+            except Exception as e:
+                logger.warning("解析蓝本失败 {}: {}", bp_file, e)
+                summaries.append(BlueprintSummary(
+                    file_path=str(bp_file),
+                    file_name=bp_file.name,
+                    description=f"解析失败: {e}",
+                ))
+
+        return BlueprintListResponse(blueprints=summaries, total=len(summaries))
+
+    @router.post("/test/blueprint-batch", response_model=BatchTestReportResponse, tags=["测试"])
+    async def run_blueprint_batch(req: RunBlueprintBatchRequest) -> BatchTestReportResponse:
+        """批量执行多个蓝本测试，按顺序依次执行，汇总报告。
+
+        支持混合平台蓝本（web/miniprogram/desktop/android），
+        根据每个蓝本的 platform 字段自动分发到对应的测试端点。
+        """
+        import time as _time
+
+        results: list[BatchReportItem] = []
+        total_start = _time.time()
+
+        for bp_path in req.blueprint_paths:
+            bp_file = Path(bp_path)
+            if not bp_file.exists():
+                results.append(BatchReportItem(
+                    blueprint_path=bp_path,
+                    app_name="未知",
+                    platform="unknown",
+                    total_steps=0, passed_steps=0, failed_steps=0,
+                    bug_count=0, pass_rate=0, duration_seconds=0,
+                    report_markdown=f"❌ 蓝本文件不存在: {bp_path}",
+                ))
+                continue
+
+            try:
+                blueprint = BlueprintParser.parse_file(str(bp_file))
+                platform = blueprint.platform or "web"
+
+                # 根据平台分发到对应端点（复用内部逻辑）
+                if platform == "web":
+                    endpoint_url = "/test/blueprint"
+                    payload = {"blueprint_path": bp_path, "base_url": req.base_url}
+                elif platform == "miniprogram":
+                    endpoint_url = "/test/miniprogram-blueprint"
+                    payload = {"blueprint_path": bp_path, "base_url": req.base_url}
+                elif platform == "desktop":
+                    endpoint_url = "/test/desktop-blueprint"
+                    payload = {"blueprint_path": bp_path, "base_url": req.base_url}
+                elif platform in ("android", "ios"):
+                    endpoint_url = "/test/mobile-blueprint"
+                    payload = {"blueprint_path": bp_path, "base_url": req.base_url, "mobile_session_id": ""}
+                else:
+                    endpoint_url = "/test/blueprint"
+                    payload = {"blueprint_path": bp_path, "base_url": req.base_url}
+
+                # 直接内部调用对应函数（避免HTTP自调用）
+                import urllib.request
+                import urllib.error
+
+                body = json.dumps(payload).encode("utf-8")
+                internal_req = urllib.request.Request(
+                    f"http://127.0.0.1:8900/api/v1{endpoint_url}",
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                )
+                with urllib.request.urlopen(internal_req, timeout=600) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+
+                results.append(BatchReportItem(
+                    blueprint_path=bp_path,
+                    app_name=data.get("test_name", blueprint.app_name),
+                    platform=platform,
+                    total_steps=data.get("total_steps", 0),
+                    passed_steps=data.get("passed_steps", 0),
+                    failed_steps=data.get("failed_steps", 0),
+                    bug_count=data.get("bug_count", 0),
+                    pass_rate=data.get("pass_rate", 0),
+                    duration_seconds=data.get("duration_seconds", 0),
+                    report_markdown=data.get("report_markdown", ""),
+                ))
+
+            except Exception as e:
+                logger.error("批量测试-蓝本执行失败 {}: {}", bp_path, e)
+                results.append(BatchReportItem(
+                    blueprint_path=bp_path,
+                    app_name=bp_file.stem,
+                    platform="unknown",
+                    total_steps=0, passed_steps=0, failed_steps=0,
+                    bug_count=0, pass_rate=0, duration_seconds=0,
+                    report_markdown=f"❌ 执行异常: {e}",
+                ))
+
+        total_duration = _time.time() - total_start
+        total_steps = sum(r.total_steps for r in results)
+        passed_steps = sum(r.passed_steps for r in results)
+        failed_steps = sum(r.failed_steps for r in results)
+        total_bugs = sum(r.bug_count for r in results)
+        passed_bps = sum(1 for r in results if r.bug_count == 0 and r.total_steps > 0)
+        failed_bps = len(results) - passed_bps
+        overall_rate = (passed_steps / total_steps * 100) if total_steps > 0 else 0
+
+        # 生成汇总Markdown
+        lines = [
+            f"# 批量蓝本测试汇总报告",
+            f"",
+            f"- **蓝本数**: {len(results)}（通过 {passed_bps} / 失败 {failed_bps}）",
+            f"- **总步骤**: {total_steps}（通过 {passed_steps} / 失败 {failed_steps}）",
+            f"- **总Bug数**: {total_bugs}",
+            f"- **总通过率**: {overall_rate:.0f}%",
+            f"- **总耗时**: {total_duration:.1f}秒",
+            f"",
+        ]
+        for i, r in enumerate(results, 1):
+            status = "✅" if r.bug_count == 0 and r.total_steps > 0 else "❌"
+            lines.append(f"## {i}. {status} {r.app_name}（{r.platform}）")
+            lines.append(f"- 通过率: {r.pass_rate:.0f}% | Bug数: {r.bug_count} | 耗时: {r.duration_seconds:.1f}s")
+            lines.append("")
+
+        return BatchTestReportResponse(
+            total_blueprints=len(results),
+            passed_blueprints=passed_bps,
+            failed_blueprints=failed_bps,
+            total_steps=total_steps,
+            passed_steps=passed_steps,
+            failed_steps=failed_steps,
+            total_bugs=total_bugs,
+            overall_pass_rate=overall_rate,
+            total_duration_seconds=total_duration,
+            results=results,
+            summary_markdown="\n".join(lines),
+        )
 
     # ── 快速探索（意外模式）───────────────────────────
 

@@ -53,9 +53,10 @@ class Blueprint(BaseModel):
     """测试蓝本（testpilot.json 的完整结构）。"""
 
     app_name: str = Field(description="应用名称")
+    description: str = Field(default="", description="蓝本功能说明（50-200字，描述本蓝本覆盖的功能范围）")
     base_url: str = Field(default="", description="基础URL（如 http://localhost:3001）")
     version: str = Field(default="1.0", description="蓝本版本")
-    platform: str = Field(default="web", description="测试平台: web/android/ios")
+    platform: str = Field(default="web", description="测试平台: web/android/ios/miniprogram/desktop")
     pages: list[BlueprintPage] = Field(default_factory=list, description="页面列表")
     global_elements: dict[str, str] = Field(default_factory=dict, description="全局元素映射（所有页面共享）")
     permissions: list[str] = Field(default_factory=list, description="Android权限列表，launch时通过adb批量授权，如 android.permission.CAMERA")

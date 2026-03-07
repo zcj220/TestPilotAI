@@ -124,6 +124,59 @@ class GenerateBlueprintResponse(BaseModel):
     saved_path: str = Field(default="", description="保存路径（如已保存）")
 
 
+class RunBlueprintBatchRequest(BaseModel):
+    """批量蓝本测试请求体。"""
+    blueprint_paths: list[str] = Field(..., description="蓝本文件路径列表")
+    base_url: str = Field(default="", description="基础URL（覆盖所有蓝本中的base_url）")
+
+
+class BlueprintSummary(BaseModel):
+    """蓝本摘要信息（用于列表展示）。"""
+    file_path: str = Field(description="蓝本文件绝对路径")
+    file_name: str = Field(description="文件名")
+    app_name: str = Field(default="", description="应用名称")
+    description: str = Field(default="", description="功能说明")
+    platform: str = Field(default="web", description="测试平台")
+    version: str = Field(default="1.0", description="蓝本版本")
+    scenario_count: int = Field(default=0, description="场景数")
+    step_count: int = Field(default=0, description="步骤数")
+
+
+class BlueprintListResponse(BaseModel):
+    """蓝本列表响应体。"""
+    blueprints: list[BlueprintSummary] = Field(default_factory=list)
+    total: int = Field(default=0)
+
+
+class BatchReportItem(BaseModel):
+    """批量测试中单个蓝本的结果。"""
+    blueprint_path: str
+    app_name: str
+    platform: str
+    total_steps: int
+    passed_steps: int
+    failed_steps: int
+    bug_count: int
+    pass_rate: float
+    duration_seconds: float
+    report_markdown: str
+
+
+class BatchTestReportResponse(BaseModel):
+    """批量测试汇总响应体。"""
+    total_blueprints: int
+    passed_blueprints: int
+    failed_blueprints: int
+    total_steps: int
+    passed_steps: int
+    failed_steps: int
+    total_bugs: int
+    overall_pass_rate: float
+    total_duration_seconds: float
+    results: list[BatchReportItem] = Field(default_factory=list)
+    summary_markdown: str = Field(default="")
+
+
 class RunTestRequest(BaseModel):
     """启动测试任务的请求体。"""
     url: str = Field(..., description="被测应用的 URL")

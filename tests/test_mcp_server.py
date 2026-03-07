@@ -12,6 +12,8 @@ from src.mcp_server import (
     check_engine_health,
     generate_blueprint_template,
     get_test_report,
+    list_blueprints,
+    run_blueprint_batch,
     run_miniprogram_test,
     run_desktop_test,
 )
@@ -302,5 +304,126 @@ class TestRunDesktopTest:
             json.dump({"app_name": "test"}, f)
             f.flush()
             result = run_desktop_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "无法连接" in result
+
+
+# ── list_blueprints ──
+
+class TestListBlueprints:
+    @patch("src.mcp_server._http_get")
+    def test_success(self, mock_get):
+        mock_get.return_value = (200, json.dumps({
+            "blueprints": [
+                {
+                    "file_path": "/app/testpilot.json",
+                    "file_name": "testpilot.json",
+                    "app_name": "商城",
+                    "description": "测试登录和购物车功能",
+                    "platform": "web",
+                    "scenario_count": 3,
+                    "step_count": 12,
+                },
+                {
+                    "file_path": "/app/testpilot/cart.testpilot.json",
+                    "file_name": "cart.testpilot.json",
+                    "app_name": "购物车",
+                    "description": "",
+                    "platform": "web",
+                    "scenario_count": 2,
+                    "step_count": 8,
+                },
+            ],
+            "total": 2,
+        }))
+        result = list_blueprints(directory="/app")
+        assert "2 个蓝本" in result
+        assert "商城" in result
+        assert "购物车" in result
+
+    @patch("src.mcp_server._http_get")
+    def test_empty(self, mock_get):
+        mock_get.return_value = (200, json.dumps({"blueprints": [], "total": 0}))
+        result = list_blueprints(directory="/empty")
+        assert "未找到" in result
+
+    @patch("src.mcp_server._http_get")
+    def test_connection_error(self, mock_get):
+        mock_get.side_effect = ConnectionError("refused")
+        result = list_blueprints(directory="/app")
+        assert "无法连接" in result
+
+
+# ── run_blueprint_batch ──
+
+class TestRunBlueprintBatch:
+    def test_missing_files(self):
+        result = run_blueprint_batch(
+            blueprint_paths=["D:/not_exist/a.json", "D:/not_exist/b.json"],
+        )
+        assert "不存在" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_success(self, mock_post):
+        mock_post.return_value = (200, json.dumps({
+            "total_blueprints": 2,
+            "passed_blueprints": 1,
+            "failed_blueprints": 1,
+            "total_steps": 10,
+            "passed_steps": 8,
+            "failed_steps": 2,
+            "total_bugs": 1,
+            "overall_pass_rate": 80,
+            "total_duration_seconds": 5.0,
+            "results": [],
+            "summary_markdown": "# 批量蓝本测试汇总报告\n\n- 蓝本数: 2",
+        }))
+        import tempfile, os
+        files = []
+        for _ in range(2):
+            f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            files.append(f.name)
+            f.close()
+        result = run_blueprint_batch(blueprint_paths=files)
+        for f in files:
+            os.unlink(f)
+        assert "批量蓝本测试汇总" in result
+        assert "请修复" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_all_passed(self, mock_post):
+        mock_post.return_value = (200, json.dumps({
+            "total_blueprints": 1,
+            "passed_blueprints": 1,
+            "failed_blueprints": 0,
+            "total_steps": 5,
+            "passed_steps": 5,
+            "failed_steps": 0,
+            "total_bugs": 0,
+            "overall_pass_rate": 100,
+            "total_duration_seconds": 2.0,
+            "results": [],
+            "summary_markdown": "# 批量蓝本测试汇总报告",
+        }))
+        import tempfile, os
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"app_name": "test"}, f)
+        f.flush()
+        f.close()
+        result = run_blueprint_batch(blueprint_paths=[f.name])
+        os.unlink(f.name)
+        assert "所有蓝本测试通过" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_connection_error(self, mock_post):
+        mock_post.side_effect = ConnectionError("refused")
+        import tempfile, os
+        f = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+        json.dump({"app_name": "test"}, f)
+        f.flush()
+        f.close()
+        result = run_blueprint_batch(blueprint_paths=[f.name])
         os.unlink(f.name)
         assert "无法连接" in result

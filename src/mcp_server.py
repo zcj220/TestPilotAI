@@ -542,6 +542,108 @@ def run_desktop_test(
         return f"❌ 桌面测试异常: {str(e)}"
 
 
+@mcp.tool()
+def list_blueprints(directory: str) -> str:
+    """扫描目录下所有蓝本文件，返回摘要列表。
+
+    扫描目录下的 testpilot.json 和 testpilot/*.testpilot.json。
+    每个蓝本显示名称、功能说明、平台、场景数。
+
+    Args:
+        directory: 项目目录的绝对路径
+
+    Returns:
+        蓝本摘要列表（Markdown格式）
+    """
+    try:
+        status, text = _http_get(
+            f"{ENGINE_URL}/api/v1/blueprint/list?directory={directory}",
+        )
+        if status != 200:
+            return f"❌ 扫描失败: {text}"
+
+        data = json.loads(text)
+        bps = data.get("blueprints", [])
+        if not bps:
+            return f"📂 目录 {directory} 下未找到蓝本文件。"
+
+        lines = [f"📋 找到 {len(bps)} 个蓝本：\n"]
+        for i, bp in enumerate(bps, 1):
+            desc = bp.get("description", "") or "（无说明）"
+            lines.append(
+                f"{i}. **{bp.get('app_name', bp.get('file_name', '?'))}**"
+                f"（{bp.get('platform', 'web')}）\n"
+                f"   - 说明: {desc}\n"
+                f"   - 场景: {bp.get('scenario_count', 0)} | 步骤: {bp.get('step_count', 0)}\n"
+                f"   - 路径: `{bp.get('file_path', '')}`"
+            )
+        return "\n".join(lines)
+
+    except ConnectionError:
+        return "❌ 无法连接 TestPilot 引擎。"
+    except Exception as e:
+        return f"❌ 扫描异常: {e}"
+
+
+@mcp.tool()
+def run_blueprint_batch(
+    blueprint_paths: list[str],
+    base_url: str = "",
+) -> str:
+    """批量执行多个蓝本测试，按顺序依次运行，汇总报告。
+
+    支持混合平台（web/miniprogram/desktop/android），
+    根据每个蓝本的 platform 字段自动分发。
+
+    Args:
+        blueprint_paths: 蓝本文件路径列表（绝对路径）
+        base_url: 基础URL（可选，覆盖所有蓝本的base_url）
+
+    Returns:
+        批量测试汇总报告
+    """
+    global _last_report
+
+    # 检查文件是否存在
+    missing = [p for p in blueprint_paths if not Path(p).exists()]
+    if missing:
+        return f"❌ 以下蓝本文件不存在:\n" + "\n".join(f"- {p}" for p in missing)
+
+    try:
+        status, text = _http_post_json(
+            f"{ENGINE_URL}/api/v1/test/blueprint-batch",
+            {"blueprint_paths": blueprint_paths, "base_url": base_url},
+            timeout=1800,
+        )
+
+        if status != 200:
+            return f"❌ 批量测试执行失败: {text}"
+
+        data = json.loads(text)
+        _last_report = data
+
+        summary = data.get("summary_markdown", "")
+        total_bugs = data.get("total_bugs", 0)
+
+        if total_bugs > 0:
+            summary += (
+                f"\n---\n"
+                f"**下一步：请修复以上Bug，然后再次调用 run_blueprint_batch 重新测试。**"
+            )
+        else:
+            summary += f"\n---\n✅ **所有蓝本测试通过！**"
+
+        return summary
+
+    except ConnectionError:
+        return (
+            "❌ 无法连接 TestPilot 引擎。\n"
+            "请确保引擎已启动：poetry run python main.py"
+        )
+    except Exception as e:
+        return f"❌ 批量测试异常: {e}"
+
+
 def _format_report(data: dict) -> str:
     """格式化测试报告给编程AI阅读。"""
     total = data.get("total_steps", 0)
