@@ -304,11 +304,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleScanBlueprints(): Promise<void> {
-    // 按项目文件夹分组扫描蓝本
-    type BlueprintEntry = { path: string; mtime: number; appName: string; description: string; platform: string; scenarioCount: number; stepCount: number };
-    type ProjectGroup = { projectDir: string; projectName: string; platform: string; blueprints: BlueprintEntry[] };
+    type BpEntry = { path: string; mtime: number; appName: string; description: string; platform: string; scenarioCount: number; stepCount: number };
+    type ProjectGroup = { projectDir: string; projectName: string; platform: string; blueprints: BpEntry[] };
     const projectMap = new Map<string, ProjectGroup>();
-
     const folders = vscode.workspace.workspaceFolders;
     if (folders) {
       for (const folder of folders) {
@@ -339,43 +337,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
               scenarioCount = (json.pages || []).reduce((n: number, p: any) => n + (p.scenarios || []).length, 0);
               stepCount = (json.pages || []).reduce((n: number, p: any) => n + (p.scenarios || []).reduce((m: number, s: any) => m + (s.steps || []).length, 0), 0);
             } catch { /* ignore parse errors */ }
-
-            // 确定项目目录：蓝本文件的父目录（如果在testpilot/子目录里则取上一级）
-            const filePath = f.fsPath.replace(/\\/g, "/");
-            const parts = filePath.split("/");
-            const fileName = parts.pop() || "";
-            let dir = parts.join("/");
-            // 如果蓝本在 testpilot/ 子目录里，项目目录取上一级
-            if (parts.length > 0 && parts[parts.length - 1] === "testpilot") {
-              parts.pop();
-              dir = parts.join("/");
-            }
-
-            const entry: BlueprintEntry = { path: f.fsPath, mtime, appName, description, platform, scenarioCount, stepCount };
-
+            // 确定项目目录（testpilot/子目录取上一级）
+            const fPath = f.fsPath.replace(/\\/g, "/");
+            const parts = fPath.split("/");
+            parts.pop(); // 移除文件名
+            if (parts.length > 0 && parts[parts.length - 1] === "testpilot") { parts.pop(); }
+            const dir = parts.join("/");
+            const entry: BpEntry = { path: f.fsPath, mtime, appName, description, platform, scenarioCount, stepCount };
             if (projectMap.has(dir)) {
               projectMap.get(dir)!.blueprints.push(entry);
             } else {
-              // 项目名优先用蓝本的app_name，兜底用目录名
               const dirName = dir.split("/").pop() || dir;
-              projectMap.set(dir, {
-                projectDir: dir,
-                projectName: appName || dirName,
-                platform: platform,
-                blueprints: [entry],
-              });
+              projectMap.set(dir, { projectDir: dir, projectName: appName || dirName, platform, blueprints: [entry] });
             }
           }
         }
       }
     }
-
-    // 转为数组，按蓝本总数降序排列
     const projects = Array.from(projectMap.values());
     projects.sort((a, b) => b.blueprints.length - a.blueprints.length);
-    // 每个项目内蓝本按修改时间降序
     projects.forEach(p => p.blueprints.sort((a, b) => b.mtime - a.mtime));
-
     this._postMessage({ command: "blueprintList", data: projects });
   }
 
@@ -593,12 +574,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <select id="projectSelect" style="flex:1;font-size:12px;padding:4px 6px" disabled>
         <option value="">暂无测试项目</option>
       </select>
-      <button id="btnRefreshProjects" class="btn-secondary" style="width:32px;min-width:32px;margin:0;padding:4px;font-size:14px" title="刷新项目列表">🔄</button>
+      <button id="btnRefreshProjects" class="btn-secondary" style="width:28px;min-width:28px;margin:0;padding:3px;font-size:13px" title="刷新项目列表">🔄</button>
     </div>
-    <div class="btn-row">
-      <button class="btn-secondary" id="btnCheckEngine" style="flex:1">检查连接</button>
-      <button id="btnLaunchEngine" style="flex:1;background:#22c55e">🚀 启动引擎</button>
-    </div>
+    <button class="btn-secondary" id="btnCheckEngine">检查连接</button>
+    <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
     <button id="btnStopEngine" class="hidden" style="background:#ef4444;margin-top:6px">⏹ 断开引擎</button>
   </div>
 
@@ -615,6 +594,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
       </label>
       <div id="blueprintList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px"></div>
+      <div class="btn-row" style="margin-top:4px">
+        <button class="btn-secondary" id="btnScanBp" style="flex:1;font-size:11px;padding:4px">🔍 扫描蓝本</button>
+        <button class="btn-secondary" id="btnBrowseBp" style="flex:1;font-size:11px;padding:4px">📂 浏览文件</button>
+      </div>
       <input type="text" id="inputBlueprintPath" placeholder="或手动输入路径..." style="font-size:11px;margin-top:4px" />
 
       <label>覆盖 base_url（可选）</label>
@@ -748,14 +731,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const blueprintListEl = document.getElementById("blueprintList");
     const inputBlueprintPath = document.getElementById("inputBlueprintPath");
     const projectSelect = document.getElementById("projectSelect");
-    let allProjects = []; // 存储分组后的项目数据
-    let currentProjectIdx = 0; // 当前选中项目索引
+    let allProjects = [];
+    let currentProjectIdx = 0;
     let blueprintEntries = []; // 当前项目的蓝本列表
 
-    // 获取当前项目的平台
+    // 获取当前项目平台
     function getCurrentPlatform() {
       if (allProjects.length === 0) { return "web"; }
-      return allProjects[currentProjectIdx]?.platform || "web";
+      return allProjects[currentProjectIdx] ? allProjects[currentProjectIdx].platform : "web";
     }
 
     // 获取所有选中的蓝本路径
@@ -772,17 +755,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     projectSelect.addEventListener("change", () => {
       currentProjectIdx = projectSelect.selectedIndex;
       if (allProjects.length > 0 && allProjects[currentProjectIdx]) {
-        blueprintEntries = allProjects[currentProjectIdx].blueprints;
+        blueprintEntries = allProjects[currentProjectIdx].blueprints || [];
         renderBlueprintList(blueprintEntries);
       }
     });
 
-    // 刷新按钮
+    // 刷新项目按钮
     document.getElementById("btnRefreshProjects").addEventListener("click", () => {
       vscode.postMessage({ command: "scanBlueprints" });
     });
 
-    // 扫描按钮（蓝本区域内的）
+    // 扫描按钮
     document.getElementById("btnScanBp").addEventListener("click", () => {
       vscode.postMessage({ command: "scanBlueprints" });
     });
@@ -975,37 +958,30 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     function onBlueprintList(projects) {
       allProjects = projects || [];
-
       // 更新项目下拉框
       projectSelect.innerHTML = "";
       if (allProjects.length === 0) {
         projectSelect.innerHTML = '<option value="">暂无测试项目</option>';
         projectSelect.disabled = true;
-        blueprintListEl.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center;font-size:12px;line-height:1.6">暂无测试项目<br><br>请在项目中创建蓝本文件，<br>或点击下方「📋 复制蓝本生成提示词」<br>让编程AI自动生成。</div>';
         blueprintEntries = [];
+        blueprintListEl.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center;font-size:12px;line-height:1.6">暂无测试项目<br><br>请在项目中创建蓝本文件，<br>或点击下方「📋 复制蓝本生成提示词」<br>让编程AI自动生成。</div>';
         return;
       }
-
-      const platformBadges = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"};
-      allProjects.forEach((proj, i) => {
-        const opt = document.createElement("option");
-        opt.value = i;
-        const badge = platformBadges[proj.platform] || "📄";
-        const bpCount = proj.blueprints ? proj.blueprints.length : 0;
+      var platformBadges = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"};
+      allProjects.forEach(function(proj, i) {
+        var opt = document.createElement("option");
+        opt.value = String(i);
+        var badge = platformBadges[proj.platform] || "📄";
+        var bpCount = proj.blueprints ? proj.blueprints.length : 0;
         opt.textContent = badge + " " + proj.projectName + " (" + bpCount + ")";
         projectSelect.appendChild(opt);
       });
-
-      // 单项目时锁定不可选
       projectSelect.disabled = allProjects.length <= 1;
       currentProjectIdx = 0;
       projectSelect.selectedIndex = 0;
-
-      // 渲染第一个项目的蓝本
       blueprintEntries = allProjects[0].blueprints || [];
       renderBlueprintList(blueprintEntries);
-
-      const totalBp = allProjects.reduce((n, p) => n + (p.blueprints ? p.blueprints.length : 0), 0);
+      var totalBp = allProjects.reduce(function(n, p) { return n + (p.blueprints ? p.blueprints.length : 0); }, 0);
       addLog("找到 " + allProjects.length + " 个项目，共 " + totalBp + " 个蓝本", "info");
     }
 
@@ -1017,17 +993,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // 全局蓝本选项（固定在顶部）
-      const globalItem = document.createElement("label");
+      var globalItem = document.createElement("label");
       globalItem.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 4px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);margin-bottom:4px";
       globalItem.title = "勾选后将测试当前项目所有蓝本";
       
-      const globalCb = document.createElement("input");
+      var globalCb = document.createElement("input");
       globalCb.type = "checkbox";
       globalCb.id = "cbGlobalBlueprint";
       globalCb.checked = true;
       globalCb.style.cssText = "flex-shrink:0;width:14px;height:14px";
       
-      const globalLabel = document.createElement("span");
+      var globalLabel = document.createElement("span");
       globalLabel.textContent = "🌍 全局蓝本（测试所有）";
       globalLabel.style.cssText = "flex:1;color:var(--fg)";
       
@@ -1035,35 +1011,35 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       globalItem.appendChild(globalLabel);
       blueprintListEl.appendChild(globalItem);
 
-      const divider = document.createElement("div");
+      var divider = document.createElement("div");
       divider.style.cssText = "height:1px;background:var(--border);margin:4px 0";
       blueprintListEl.appendChild(divider);
 
-      const platformBadges = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"};
+      var platformBadges = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"};
 
-      entries.forEach((entry, i) => {
-        const path = typeof entry === "string" ? entry : entry.path;
-        const appName = entry.appName || "";
-        const desc = entry.description || "";
-        const platform = entry.platform || "web";
-        const scenarios = entry.scenarioCount || 0;
-        const steps = entry.stepCount || 0;
+      entries.forEach(function(entry, i) {
+        var path = typeof entry === "string" ? entry : entry.path;
+        var appName = entry.appName || "";
+        var desc = entry.description || "";
+        var platform = entry.platform || "web";
+        var scenarios = entry.scenarioCount || 0;
+        var steps = entry.stepCount || 0;
 
-        const parts = path.replace(/\\\\/g, "/").split("/");
-        const shortPath = parts.slice(-3).join("/");
-        const displayName = appName || shortPath;
+        var parts = path.replace(/\\\\/g, "/").split("/");
+        var shortPath = parts.slice(-3).join("/");
+        var displayName = appName || shortPath;
 
-        const platformBadge = platformBadges[platform] || "📄";
-        const tooltipText = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
+        var platformBadge = platformBadges[platform] || "📄";
+        var tooltipText = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
 
-        const item = document.createElement("label");
+        var item = document.createElement("label");
         item.className = "local-blueprint-item";
         item.style.cssText = "display:flex;align-items:flex-start;gap:4px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;overflow:hidden;width:100%;box-sizing:border-box";
         item.title = tooltipText;
-        item.addEventListener("mouseenter", () => { item.style.background = "var(--hover-bg,#2a2d2e)"; });
-        item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
+        item.addEventListener("mouseenter", function() { item.style.background = "var(--hover-bg,#2a2d2e)"; });
+        item.addEventListener("mouseleave", function() { item.style.background = "transparent"; });
 
-        const cb = document.createElement("input");
+        var cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "local-blueprint-cb";
         cb.value = path;
@@ -1071,9 +1047,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         cb.disabled = true;
         cb.style.cssText = "margin-top:2px;flex-shrink:0;width:14px;height:14px";
 
-        const fileName = path.replace(/\\\\/g, "/").split("/").pop() || path;
+        var fileName = path.replace(/\\\\/g, "/").split("/").pop() || path;
 
-        const info = document.createElement("div");
+        var info = document.createElement("div");
         info.style.cssText = "flex:1;min-width:0;overflow:hidden";
         info.innerHTML = '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + platformBadge + ' ' + displayName + '</div>'
           + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + desc + '</div>' : '')
@@ -1085,31 +1061,32 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       });
 
       // 全局蓝本checkbox交互逻辑
-      globalCb.addEventListener("change", () => {
-        const localItems = blueprintListEl.querySelectorAll(".local-blueprint-item");
-        const localCbs = blueprintListEl.querySelectorAll(".local-blueprint-cb");
+      globalCb.addEventListener("change", function() {
+        var localItems = blueprintListEl.querySelectorAll(".local-blueprint-item");
+        var localCbs = blueprintListEl.querySelectorAll(".local-blueprint-cb");
         if (globalCb.checked) {
-          localCbs.forEach(cb => { cb.disabled = true; cb.checked = false; });
-          localItems.forEach(item => { 
+          localCbs.forEach(function(cb) { cb.disabled = true; cb.checked = false; });
+          localItems.forEach(function(item) { 
             item.style.opacity = "0.5"; 
             item.title = "已勾选全局蓝本，无需勾选局部。如需局部测试，请取消全局勾选。";
           });
         } else {
-          localCbs.forEach(cb => { cb.disabled = false; });
-          localItems.forEach((item, i) => { 
+          localCbs.forEach(function(cb) { cb.disabled = false; });
+          localItems.forEach(function(item, i) { 
             item.style.opacity = "1";
-            const entry = entries[i];
-            const desc = entry.description || "";
-            const scenarios = entry.scenarioCount || 0;
-            const steps = entry.stepCount || 0;
-            const path = entry.path;
+            var entry = entries[i];
+            if (!entry) return;
+            var desc = entry.description || "";
+            var scenarios = entry.scenarioCount || 0;
+            var steps = entry.stepCount || 0;
+            var path = entry.path;
             item.title = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
           });
         }
       });
 
       // 填入第一个路径到手动输入框
-      const firstPath = typeof entries[0] === "string" ? entries[0] : entries[0].path;
+      var firstPath = typeof entries[0] === "string" ? entries[0] : entries[0].path;
       inputBlueprintPath.value = firstPath;
     }
 
@@ -1142,7 +1119,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         statusDot.className = "status-dot connected";
         engineStatus.textContent = "v" + (data.version || "?");
         btnLaunchEngine.classList.add("hidden");
-        document.getElementById("btnCheckEngine").classList.add("hidden");
         btnStopEngine.classList.remove("hidden");
         btnStopEngine.textContent = "⏹ 断开引擎";
         btnStopEngine.disabled = false;
@@ -1153,11 +1129,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         statusDot.className = "status-dot disconnected";
         engineStatus.textContent = isStarting ? "启动中..." : "未连接";
         if (!isStarting) {
+          // 只有不在启动中时才恢复启动按钮，避免闪烁
           btnLaunchEngine.classList.remove("hidden");
-          document.getElementById("btnCheckEngine").classList.remove("hidden");
           btnStopEngine.classList.add("hidden");
         }
-        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接", isStarting ? "warn" : "error");
+        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接，点击「一键启动引擎」按钮启动", isStarting ? "warn" : "error");
       }
     }
 
