@@ -8,6 +8,13 @@ dist/
 build/
 *.egg
 
+# Node.js (根目录)
+node_modules/
+package-lock.json
+project.config.json
+project.private.config.json
+src/controller/.miniprogram_state.json
+
 # 虚拟环境
 .venv/
 venv/

@@ -53,19 +53,18 @@ async function main() {
   try {
     switch (action) {
       case 'connect': {
-        const { projectPath, devToolsPath } = params;
-        miniProgram = await automator.launch({
-          projectPath: projectPath,
-          cliPath: devToolsPath,
+        const { projectPath, port } = params;
+        const wsPort = port || 9420;  // 使用传入的端口，默认9420
+        // 直接连接到已启动的开发者工具
+        miniProgram = await automator.connect({
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
-        saveState({ connected: true, projectPath });
+        saveState({ connected: true, projectPath, port: wsPort });
         output({
           success: true,
           page: page ? page.path : '',
         });
-        // 保持进程不退出（不行，单次调用模式）
-        // 实际上每次调用都是新进程，需要重新连接
         await miniProgram.disconnect();
         break;
       }
@@ -78,8 +77,9 @@ async function main() {
 
       case 'navigateTo': {
         const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         await miniProgram.navigateTo(params.url);
         page = await miniProgram.currentPage();
@@ -92,8 +92,10 @@ async function main() {
       }
 
       case 'tap': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         const tapEl = await page.$(params.selector);
@@ -108,8 +110,10 @@ async function main() {
       }
 
       case 'input': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         const inputEl = await page.$(params.selector);
@@ -124,8 +128,10 @@ async function main() {
       }
 
       case 'screenshot': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         await page.screenshot({ path: params.path });
@@ -135,8 +141,10 @@ async function main() {
       }
 
       case 'getWxml': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         const wxml = await page.data();
@@ -146,8 +154,10 @@ async function main() {
       }
 
       case 'getText': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         const textEl = await page.$(params.selector);
@@ -162,8 +172,10 @@ async function main() {
       }
 
       case 'elementExists': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         const el = await page.$(params.selector);
@@ -173,8 +185,10 @@ async function main() {
       }
 
       case 'getCurrentPage': {
+        const state = loadState();
+        const wsPort = state.port || 9420;
         miniProgram = await automator.connect({
-          wsEndpoint: 'ws://localhost:9420',
+          wsEndpoint: `ws://localhost:${wsPort}`,
         });
         page = await miniProgram.currentPage();
         output({

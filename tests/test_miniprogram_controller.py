@@ -71,21 +71,10 @@ class TestMiniProgramController:
         assert ctrl.device_info.screen_width == 375
 
     @pytest.mark.asyncio
-    async def test_launch_no_devtools(self, tmp_path):
-        cfg = MiniProgramConfig(
-            project_path="D:\\test",
-            devtools_path="",
-            screenshot_dir=str(tmp_path / "s"),
-        )
-        ctrl = MiniProgramController(cfg)
-        with pytest.raises(RuntimeError, match="未找到微信开发者工具"):
-            await ctrl.launch()
-
-    @pytest.mark.asyncio
     async def test_launch_no_project(self, tmp_path):
         cfg = MiniProgramConfig(
             project_path="",
-            devtools_path="C:\\cli.bat",
+            devtools_path="",
             screenshot_dir=str(tmp_path / "s"),
         )
         ctrl = MiniProgramController(cfg)
@@ -94,30 +83,41 @@ class TestMiniProgramController:
 
     @pytest.mark.asyncio
     async def test_launch_success(self, config):
+        """测试启动成功（mock HTTP服务器模式）。"""
+        config.automation_port = 9420
         ctrl = MiniProgramController(config)
-        with patch.object(ctrl, "_call_bridge") as mock_bridge, \
-             patch("src.controller.miniprogram.Path.exists", return_value=True):
-            mock_bridge.return_value = {"success": True, "page": "/pages/index/index"}
+        with patch("src.controller.miniprogram.Path.exists", return_value=True), \
+             patch("subprocess.Popen") as mock_popen, \
+             patch("urllib.request.urlopen") as mock_urlopen:
+            mock_popen.return_value = MagicMock(poll=MagicMock(return_value=None))
+            mock_resp = MagicMock()
+            mock_resp.read.return_value = json.dumps({"connected": True}).encode()
+            mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+            mock_resp.__exit__ = MagicMock(return_value=False)
+            mock_urlopen.return_value = mock_resp
             await ctrl.launch()
             assert ctrl.device_info.is_connected is True
 
     @pytest.mark.asyncio
-    async def test_launch_failure(self, config):
+    async def test_launch_server_not_found(self, config):
+        """测试桥接服务器脚本不存在。"""
+        config.automation_port = 9420
         ctrl = MiniProgramController(config)
-        with patch.object(ctrl, "_call_bridge") as mock_bridge, \
-             patch("src.controller.miniprogram.Path.exists", return_value=True):
-            mock_bridge.return_value = {"success": False, "error": "连接超时"}
-            with pytest.raises(RuntimeError, match="连接失败"):
+        with patch("src.controller.miniprogram.Path.exists", return_value=False):
+            with pytest.raises(RuntimeError, match="桥接服务器脚本不存在"):
                 await ctrl.launch()
 
     @pytest.mark.asyncio
     async def test_close(self, config):
         ctrl = MiniProgramController(config)
         ctrl._connected = True
+        ctrl._http_base = "http://127.0.0.1:9421"
+        ctrl._bridge_proc = MagicMock(poll=MagicMock(return_value=None), terminate=MagicMock(), wait=MagicMock())
         with patch.object(ctrl, "_call_bridge") as mock_bridge:
             mock_bridge.return_value = {"success": True}
             await ctrl.close()
             assert ctrl.device_info.is_connected is False
+            assert ctrl._bridge_proc is None
 
     @pytest.mark.asyncio
     async def test_navigate(self, config):
@@ -264,49 +264,29 @@ class TestBridgeCall:
     @pytest.mark.asyncio
     async def test_bridge_success(self, config):
         ctrl = MiniProgramController(config)
-        mock_result = MagicMock()
-        mock_result.stdout = json.dumps({"success": True, "text": "ok"})
-        mock_result.stderr = ""
-        with patch("src.controller.miniprogram.subprocess.run", return_value=mock_result):
+        ctrl._http_base = "http://127.0.0.1:9421"
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = json.dumps({"success": True, "text": "ok"}).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
             result = await ctrl._call_bridge("getText", {"selector": ".x"})
             assert result["success"] is True
 
     @pytest.mark.asyncio
+    async def test_bridge_connection_error(self, config):
+        ctrl = MiniProgramController(config)
+        ctrl._http_base = "http://127.0.0.1:9421"
+        with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("连接被拒绝")):
+            result = await ctrl._call_bridge("tap", {"selector": ".x"})
+            assert result["success"] is False
+
+    @pytest.mark.asyncio
     async def test_bridge_timeout(self, config):
         ctrl = MiniProgramController(config)
-        import subprocess
-        with patch("src.controller.miniprogram.subprocess.run",
-                   side_effect=subprocess.TimeoutExpired(cmd="node", timeout=30)):
-            result = await ctrl._call_bridge("tap", {"selector": ".x"})
-            assert result["success"] is False
-            assert "超时" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_bridge_no_node(self, config):
-        ctrl = MiniProgramController(config)
-        with patch("src.controller.miniprogram.subprocess.run",
-                   side_effect=FileNotFoundError()):
-            result = await ctrl._call_bridge("tap", {"selector": ".x"})
-            assert result["success"] is False
-            assert "Node.js" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_bridge_bad_json(self, config):
-        ctrl = MiniProgramController(config)
-        mock_result = MagicMock()
-        mock_result.stdout = "not json"
-        with patch("src.controller.miniprogram.subprocess.run", return_value=mock_result):
-            result = await ctrl._call_bridge("tap", {"selector": ".x"})
-            assert result["success"] is False
-            assert "JSON" in result["error"]
-
-    @pytest.mark.asyncio
-    async def test_bridge_empty_output(self, config):
-        ctrl = MiniProgramController(config)
-        mock_result = MagicMock()
-        mock_result.stdout = ""
-        mock_result.stderr = "some error"
-        with patch("src.controller.miniprogram.subprocess.run", return_value=mock_result):
+        ctrl._http_base = "http://127.0.0.1:9421"
+        import urllib.error
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("超时")):
             result = await ctrl._call_bridge("tap", {"selector": ".x"})
             assert result["success"] is False
 

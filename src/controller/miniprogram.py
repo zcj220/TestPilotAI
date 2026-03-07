@@ -39,11 +39,13 @@ class MiniProgramConfig:
         screenshot_dir: str = "screenshots/miniprogram",
         timeout_ms: int = 30000,
         account: str = "",
+        automation_port: int = 0,  # 新增：自动化端口，0表示自动检测
     ):
         self.project_path = project_path
         self.devtools_path = devtools_path or self._detect_devtools()
         self.timeout_ms = timeout_ms
         self.account = account
+        self.automation_port = automation_port
         self.screenshot_dir = Path(screenshot_dir)
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
 
@@ -60,6 +62,48 @@ class MiniProgramConfig:
             if Path(p).exists():
                 return p
         return ""
+
+    @staticmethod
+    def _detect_automation_port() -> int:
+        """检测微信开发者工具当前的自动化端口。"""
+        import socket
+        import subprocess
+        
+        # 方法1：从netstat检测微信开发者工具的WebSocket端口
+        try:
+            result = subprocess.run(
+                ["netstat", "-ano"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            # 查找微信开发者工具进程的监听端口
+            # 端口通常在 9420-65535 之间
+            for line in result.stdout.split('\n'):
+                if 'LISTENING' in line and '127.0.0.1:' in line:
+                    parts = line.split()
+                    for part in parts:
+                        if '127.0.0.1:' in part:
+                            try:
+                                port = int(part.split(':')[1])
+                                # 微信开发者工具的自动化端口通常 > 9000
+                                if 9000 <= port <= 65535:
+                                    # 尝试连接验证
+                                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                                    sock.settimeout(0.5)
+                                    if sock.connect_ex(('127.0.0.1', port)) == 0:
+                                        sock.close()
+                                        logger.info(f"检测到可能的自动化端口: {port}")
+                                        return port
+                                    sock.close()
+                            except (ValueError, IndexError):
+                                continue
+        except Exception as e:
+            logger.warning(f"端口检测失败: {e}")
+        
+        # 默认返回 9420
+        return 9420
 
 
 class MiniProgramController(BaseController):
@@ -96,39 +140,71 @@ class MiniProgramController(BaseController):
     # ── BaseController 实现 ──────────────────────
 
     async def launch(self) -> None:
-        """启动小程序自动化连接。"""
-        if not self._config.devtools_path:
-            raise RuntimeError(
-                "未找到微信开发者工具。请安装后在配置中指定路径，"
-                "或安装到默认位置。"
-            )
+        """启动小程序自动化连接（长连接模式）。"""
         if not self._config.project_path:
             raise RuntimeError("请指定小程序项目路径 (project_path)")
 
-        logger.info("启动小程序自动化 | 项目: {}", self._config.project_path)
-
-        # 通过 Node.js 桥接脚本启动 automator
-        bridge_script = Path(__file__).parent / "miniprogram_bridge.js"
-        if not bridge_script.exists():
-            raise RuntimeError(f"桥接脚本不存在: {bridge_script}")
-
-        result = await self._call_bridge("connect", {
-            "projectPath": self._config.project_path,
-            "devToolsPath": self._config.devtools_path,
-        })
-
-        if result.get("success"):
-            self._connected = True
-            self._device.is_connected = True
-            self._device.extra = {"project": self._config.project_path}
-            logger.info("小程序自动化已连接")
+        # 确定使用的端口
+        ws_port = self._config.automation_port
+        if ws_port == 0:
+            ws_port = MiniProgramConfig._detect_automation_port()
+            logger.info("自动检测到端口: {}", ws_port)
         else:
-            raise RuntimeError(f"连接失败: {result.get('error', '未知错误')}")
+            logger.info("使用指定端口: {}", ws_port)
+
+        self._http_port = 9421  # 桥接服务器 HTTP 端口
+        self._http_base = f"http://127.0.0.1:{self._http_port}"
+
+        logger.info("启动桥接服务器 | WS端口: {} | HTTP端口: {}", ws_port, self._http_port)
+
+        # 启动 Node.js 桥接服务器
+        bridge_server = Path(__file__).parent / "miniprogram_bridge_server.js"
+        if not bridge_server.exists():
+            raise RuntimeError(f"桥接服务器脚本不存在: {bridge_server}")
+
+        self._bridge_proc = subprocess.Popen(
+            ["node", str(bridge_server), str(ws_port), str(self._http_port)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        # 等待服务器启动
+        import urllib.request
+        for i in range(20):  # 最多等10秒
+            await asyncio.sleep(0.5)
+            try:
+                req = urllib.request.Request(self._http_base)
+                with urllib.request.urlopen(req, timeout=2) as resp:
+                    data = json.loads(resp.read())
+                    if data.get("connected"):
+                        self._connected = True
+                        self._device.is_connected = True
+                        self._device.extra = {"project": self._config.project_path, "port": ws_port}
+                        logger.info("小程序自动化已连接（长连接模式）")
+                        return
+            except Exception:
+                continue
+
+        # 如果循环结束还没连接成功
+        if self._bridge_proc.poll() is not None:
+            stdout = self._bridge_proc.stdout.read().decode() if self._bridge_proc.stdout else ""
+            stderr = self._bridge_proc.stderr.read().decode() if self._bridge_proc.stderr else ""
+            raise RuntimeError(f"桥接服务器启动失败:\n{stdout}\n{stderr}")
+
+        raise RuntimeError("桥接服务器启动超时")
 
     async def close(self) -> None:
         """关闭小程序自动化连接。"""
         if self._connected:
-            await self._call_bridge("disconnect", {})
+            try:
+                await self._call_bridge("disconnect", {})
+            except Exception:
+                pass
+        # 关闭桥接服务器进程
+        if self._bridge_proc and self._bridge_proc.poll() is None:
+            self._bridge_proc.terminate()
+            self._bridge_proc.wait(timeout=5)
+        self._bridge_proc = None
         self._connected = False
         self._device.is_connected = False
         logger.info("小程序自动化已关闭")
@@ -232,25 +308,23 @@ class MiniProgramController(BaseController):
     # ── 桥接通信 ──────────────────────────────────
 
     async def _call_bridge(self, action: str, params: dict) -> dict:
-        """调用 Node.js 桥接脚本。"""
-        bridge_script = Path(__file__).parent / "miniprogram_bridge.js"
-        payload = json.dumps({"action": action, "params": params})
+        """通过 HTTP 请求调用桥接服务器。"""
+        import urllib.request
+        payload = json.dumps({"action": action, "params": params}).encode("utf-8")
 
         loop = asyncio.get_event_loop()
         try:
-            result = await loop.run_in_executor(None, lambda: subprocess.run(
-                ["node", str(bridge_script), payload],
-                capture_output=True, text=True,
-                timeout=self._config.timeout_ms // 1000 + 5,
-            ))
-            if result.stdout.strip():
-                return json.loads(result.stdout.strip().split("\n")[-1])
-            return {"success": False, "error": result.stderr.strip() or "无输出"}
-        except subprocess.TimeoutExpired:
-            return {"success": False, "error": "桥接脚本超时"}
-        except json.JSONDecodeError as e:
-            return {"success": False, "error": f"JSON解析失败: {e}"}
-        except FileNotFoundError:
-            return {"success": False, "error": "未找到 Node.js，请确保已安装"}
+            def do_request():
+                req = urllib.request.Request(
+                    self._http_base,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                timeout = self._config.timeout_ms // 1000 + 5
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read())
+
+            return await loop.run_in_executor(None, do_request)
         except Exception as e:
             return {"success": False, "error": str(e)}

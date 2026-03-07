@@ -571,14 +571,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <label>蓝本列表
         <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
       </label>
-      <div id="blueprintList" style="max-height:200px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--border);border-radius:6px;padding:4px;margin-bottom:8px;background:var(--bg-secondary,#1e1e1e);width:100%;box-sizing:border-box">
-        <div style="color:var(--muted);padding:8px;text-align:center;font-size:12px">扫描中...</div>
-      </div>
-      <div class="input-row" style="gap:4px">
-        <button id="btnScanBp" title="扫描工作区" style="min-width:32px;padding:4px">🔍</button>
-        <button id="btnBrowseBp" title="手动浏览" style="min-width:32px;padding:4px">📂</button>
-        <button id="btnSelectAll" title="全选/取消全选" style="min-width:32px;padding:4px;font-size:11px">☑</button>
-      </div>
+      <div id="blueprintList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px"></div>
       <input type="text" id="inputBlueprintPath" placeholder="或手动输入路径..." style="font-size:11px;margin-top:4px" />
 
       <label>覆盖 base_url（可选）</label>
@@ -724,19 +717,6 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const cbs = blueprintListEl.querySelectorAll('.local-blueprint-cb:checked');
       return Array.from(cbs).map(cb => cb.value);
     }
-
-    // 全选/取消全选（只影响局部蓝本）
-    document.getElementById("btnSelectAll").addEventListener("click", () => {
-      const globalCb = document.getElementById("cbGlobalBlueprint");
-      if (globalCb && globalCb.checked) {
-        // 如果全局已勾选，提示用户先取消全局
-        addLog("已勾选全局蓝本，无需全选局部。如需局部测试，请先取消全局勾选。", "warn");
-        return;
-      }
-      const localCbs = blueprintListEl.querySelectorAll('.local-blueprint-cb');
-      const allChecked = Array.from(localCbs).every(cb => cb.checked);
-      localCbs.forEach(cb => { cb.checked = !allChecked; });
-    });
 
     // 扫描按钮
     document.getElementById("btnScanBp").addEventListener("click", () => {
