@@ -1,63 +1,76 @@
 {
-  "app_name": "BuggyMini 测试小程序",
-  "description": "微信小程序测试：商品列表、加入购物车价格一致性、总价浮点精度、空购物车跳转提示、大金额结算，含4个预埋Bug",
+  "app_name": "FreshMart 生鲜超市",
+  "description": "生鲜电商小程序，支持商品浏览、搜索排序、会员折扣、购物车、优惠券、配送选择、下单结算等完整购物流程",
   "base_url": "miniprogram://D:/projects/TestPilotAI/miniprogram-demo",
-  "version": "1.0",
+  "version": "2.0",
   "platform": "miniprogram",
   "pages": [
     {
       "url": "/pages/index/index",
       "title": "首页-商品列表",
-      "elements": {
-        "商品价格-无线耳机": "#price-1",
-        "商品价格-机械键盘": "#price-2",
-        "商品价格-扩展坞": "#price-3",
-        "购物车总计": "#cartTotal",
-        "消息提示": "#message"
-      },
-      "scenarios": [
-        {
-          "name": "Bug1-机械键盘价格不一致",
-          "description": "页面显示199但加入购物车变599",
-          "steps": [
-            {"action": "navigate", "value": "/pages/index/index"},
-            {"action": "assert_text", "target": "#price-2", "expected": "显示199"},
-            {"action": "click", "target": ".product[data-id='2'] .btn-primary"},
-            {"action": "assert_text", "target": "#cartTotal", "expected": "总计应为199"}
-          ]
-        },
-        {
-          "name": "Bug2-浮点精度",
-          "description": "添加耳机+扩展坞总价应为458整数",
-          "steps": [
-            {"action": "navigate", "value": "/pages/index/index"},
-            {"action": "click", "target": ".product[data-id='1'] .btn-primary"},
-            {"action": "click", "target": ".product[data-id='3'] .btn-primary"},
-            {"action": "assert_text", "target": "#cartTotal", "expected": "总计458，整数无小数"}
-          ]
-        },
-        {
-          "name": "Bug3-空购物车跳转",
-          "description": "购物车为空时点查看购物车应提示而非跳空白页",
-          "steps": [
-            {"action": "navigate", "value": "/pages/index/index"},
-            {"action": "click", "target": ".btn-primary[bindtap='goCart']"},
-            {"action": "assert_text", "target": "#message", "expected": "应提示购物车为空"}
-          ]
-        },
-        {
-          "name": "Bug4-大金额结算报错",
-          "description": "总价超500时结算应成功但系统报500错误",
-          "steps": [
-            {"action": "navigate", "value": "/pages/index/index"},
-            {"action": "click", "target": ".product[data-id='1'] .btn-primary"},
-            {"action": "click", "target": ".product[data-id='2'] .btn-primary"},
-            {"action": "click", "target": ".product[data-id='3'] .btn-primary"},
-            {"action": "screenshot"},
-            {"action": "assert_text", "target": "#message", "expected": "订单提交成功"}
-          ]
-        }
-      ]
+      "description": "展示所有商品，支持分类筛选、关键词搜索、价格排序。会员用户显示会员价(8折)。可将商品加入购物车。"
+    },
+    {
+      "url": "/pages/detail/detail",
+      "title": "商品详情页",
+      "description": "展示单个商品的详细信息，包括名称、价格、会员价、库存。可加入购物车或跳转购物车。"
+    },
+    {
+      "url": "/pages/cart/cart",
+      "title": "购物车页",
+      "description": "展示购物车中所有商品，自动合并相同商品并显示数量。展示每件商品的小计和总计。可删除商品，可跳转结算。"
+    },
+    {
+      "url": "/pages/checkout/checkout",
+      "title": "结算页",
+      "description": "填写收货地址，选择配送方式(同城配送免费/快递配送10元)，选择优惠券(满减券)，显示最终应付金额。提交订单。"
+    },
+    {
+      "url": "/pages/order/order",
+      "title": "订单结果页",
+      "description": "显示订单提交成功信息，包括订单号、商品数量、配送方式、实付金额。"
+    }
+  ],
+  "test_scenarios": [
+    {
+      "name": "会员价格验证",
+      "description": "页面标注'会员享8折优惠'，验证会员价是否确实为原价的8折",
+      "priority": "high"
+    },
+    {
+      "name": "库存限制验证",
+      "description": "商品有库存限制（如库存10），验证加入购物车时是否正确检查库存上限",
+      "priority": "high"
+    },
+    {
+      "name": "优惠券满减验证",
+      "description": "优惠券标注'满100减20'，验证当商品金额恰好等于100时能否正常使用",
+      "priority": "high"
+    },
+    {
+      "name": "配送费验证",
+      "description": "同城配送标注免费，快递配送10元，验证实际收取的配送费是否与标注一致",
+      "priority": "high"
+    },
+    {
+      "name": "购物车总价精度验证",
+      "description": "验证购物车中多件商品的总价计算是否精确（无浮点误差）",
+      "priority": "medium"
+    },
+    {
+      "name": "搜索排序验证",
+      "description": "搜索商品后按价格从低到高排序，验证排序结果是否正确",
+      "priority": "medium"
+    },
+    {
+      "name": "售罄商品验证",
+      "description": "库存为0的商品应显示'售罄'且不能加入购物车",
+      "priority": "medium"
+    },
+    {
+      "name": "完整下单流程",
+      "description": "从首页选商品→加购物车→结算→填地址→选配送→用优惠券→提交订单→查看订单结果，验证全流程数据一致性",
+      "priority": "high"
     }
   ]
 }

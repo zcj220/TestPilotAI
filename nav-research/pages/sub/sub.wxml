@@ -1,0 +1,14 @@
+<view class="container">
+  <view class="title">导航研究 - 子页</view>
+  <view class="info">页面栈: {{pageStack}}</view>
+
+  <view class="btn green" bindtap="goBack">navigateBack (返回)</view>
+  <view class="btn green" bindtap="goBackDelta10">navigateBack delta=10</view>
+  <view class="btn blue" bindtap="reLaunchHome">reLaunch → 首页</view>
+  <view class="btn blue" bindtap="redirectHome">redirectTo → 首页</view>
+  <view class="btn orange" bindtap="goSubAgain">navigateTo → 再跳子页</view>
+
+  <view class="log-area">
+    <text>{{log}}</text>
+  </view>
+</view>

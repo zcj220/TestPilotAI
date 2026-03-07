@@ -1,0 +1,10 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/sub/sub"
+  ],
+  "window": {
+    "navigationBarTitleText": "导航研究",
+    "navigationBarBackgroundColor": "#333"
+  }
+}

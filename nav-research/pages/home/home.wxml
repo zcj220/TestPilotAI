@@ -1,0 +1,13 @@
+<view class="container">
+  <view class="title">导航研究 - 首页</view>
+  <view class="info">页面栈位置: home</view>
+
+  <view class="btn" bindtap="goSub">navigateTo → 子页</view>
+  <view class="btn" bindtap="testReLaunch">reLaunch → 首页</view>
+  <view class="btn" bindtap="testRedirectTo">redirectTo → 首页</view>
+  <view class="btn clear" bindtap="clearLog">清空日志</view>
+
+  <view class="log-area">
+    <text>{{log}}</text>
+  </view>
+</view>

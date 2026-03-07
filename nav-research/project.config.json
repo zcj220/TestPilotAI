@@ -1,0 +1,9 @@
+{
+  "description": "导航研究 - 专门测试页面跳转和回退",
+  "packOptions": { "ignore": [], "include": [] },
+  "setting": { "urlCheck": false },
+  "compileType": "miniprogram",
+  "appid": "wx61bd4aa7e32a53df",
+  "projectname": "nav-research",
+  "miniprogramRoot": "./"
+}
