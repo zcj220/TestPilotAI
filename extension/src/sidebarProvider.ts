@@ -703,15 +703,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // 获取所有选中的蓝本路径
     function getSelectedBlueprints() {
-      const cbs = blueprintListEl.querySelectorAll('input[type="checkbox"]:checked');
+      const globalCb = document.getElementById("cbGlobalBlueprint");
+      if (globalCb && globalCb.checked) {
+        // 全局蓝本：返回所有蓝本路径
+        return blueprintEntries.map(e => typeof e === "string" ? e : e.path);
+      }
+      // 局部蓝本：返回勾选的
+      const cbs = blueprintListEl.querySelectorAll('.local-blueprint-cb:checked');
       return Array.from(cbs).map(cb => cb.value);
     }
 
-    // 全选/取消全选
+    // 全选/取消全选（只影响局部蓝本）
     document.getElementById("btnSelectAll").addEventListener("click", () => {
-      const cbs = blueprintListEl.querySelectorAll('input[type="checkbox"]');
-      const allChecked = Array.from(cbs).every(cb => cb.checked);
-      cbs.forEach(cb => { cb.checked = !allChecked; });
+      const globalCb = document.getElementById("cbGlobalBlueprint");
+      if (globalCb && globalCb.checked) {
+        // 如果全局已勾选，提示用户先取消全局
+        addLog("已勾选全局蓝本，无需全选局部。如需局部测试，请先取消全局勾选。", "warn");
+        return;
+      }
+      const localCbs = blueprintListEl.querySelectorAll('.local-blueprint-cb');
+      const allChecked = Array.from(localCbs).every(cb => cb.checked);
+      localCbs.forEach(cb => { cb.checked = !allChecked; });
     });
 
     // 扫描按钮
@@ -921,6 +933,32 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         blueprintListEl.innerHTML = '<div style="color:var(--muted);padding:8px;text-align:center;font-size:12px">未找到蓝本文件</div>';
         return;
       }
+
+      // 全局蓝本选项（固定在顶部）
+      const globalItem = document.createElement("label");
+      globalItem.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 4px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);margin-bottom:4px";
+      globalItem.title = "勾选后将测试所有蓝本";
+      
+      const globalCb = document.createElement("input");
+      globalCb.type = "checkbox";
+      globalCb.id = "cbGlobalBlueprint";
+      globalCb.checked = true; // 默认勾选全局
+      globalCb.style.cssText = "flex-shrink:0;width:14px;height:14px";
+      
+      const globalLabel = document.createElement("span");
+      globalLabel.textContent = "🌍 全局蓝本（测试所有）";
+      globalLabel.style.cssText = "flex:1;color:var(--fg)";
+      
+      globalItem.appendChild(globalCb);
+      globalItem.appendChild(globalLabel);
+      blueprintListEl.appendChild(globalItem);
+
+      // 分割线
+      const divider = document.createElement("div");
+      divider.style.cssText = "height:1px;background:var(--border);margin:4px 0";
+      blueprintListEl.appendChild(divider);
+
+      // 局部蓝本列表
       entries.forEach((entry, i) => {
         const path = typeof entry === "string" ? entry : entry.path;
         const appName = entry.appName || "";
@@ -937,6 +975,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const tooltipText = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
 
         const item = document.createElement("label");
+        item.className = "local-blueprint-item";
         item.style.cssText = "display:flex;align-items:flex-start;gap:4px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;overflow:hidden;width:100%;box-sizing:border-box";
         item.title = tooltipText;
         item.addEventListener("mouseenter", () => { item.style.background = "var(--hover-bg,#2a2d2e)"; });
@@ -944,8 +983,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
         const cb = document.createElement("input");
         cb.type = "checkbox";
+        cb.className = "local-blueprint-cb";
         cb.value = path;
-        cb.checked = (i === 0);
+        cb.checked = false; // 默认不选（因为全局已选）
+        cb.disabled = true; // 默认禁用（因为全局已选）
         cb.style.cssText = "margin-top:2px;flex-shrink:0;width:14px;height:14px";
 
         const fileName = path.replace(/\\\\/g, "/").split("/").pop() || path;
@@ -960,6 +1001,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         item.appendChild(info);
         blueprintListEl.appendChild(item);
       });
+
+      // 全局蓝本checkbox交互逻辑
+      globalCb.addEventListener("change", () => {
+        const localItems = blueprintListEl.querySelectorAll(".local-blueprint-item");
+        const localCbs = blueprintListEl.querySelectorAll(".local-blueprint-cb");
+        if (globalCb.checked) {
+          // 勾选全局 → 局部全部禁用+灰化
+          localCbs.forEach(cb => { cb.disabled = true; cb.checked = false; });
+          localItems.forEach(item => { 
+            item.style.opacity = "0.5"; 
+            item.title = "已勾选全局蓝本，无需勾选局部。如需局部测试，请取消全局勾选。";
+          });
+        } else {
+          // 取消全局 → 局部恢复可选
+          localCbs.forEach(cb => { cb.disabled = false; });
+          localItems.forEach((item, i) => { 
+            item.style.opacity = "1";
+            const entry = entries[i];
+            const desc = entry.description || "";
+            const scenarios = entry.scenarioCount || 0;
+            const steps = entry.stepCount || 0;
+            const path = entry.path;
+            item.title = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
+          });
+        }
+      });
+
       // 填入第一个路径到手动输入框
       const firstPath = typeof entries[0] === "string" ? entries[0] : entries[0].path;
       inputBlueprintPath.value = firstPath;
