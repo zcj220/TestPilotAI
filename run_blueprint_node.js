@@ -1,205 +1,266 @@
 /**
- * 小程序蓝本测试 - 单连接版
- * 一个连接跑完所有场景，用 setData+evaluate 重置状态，避免页面跳转超时。
- * Bug3 和 Bug4 需要跳转到 cart 页面，放最后执行。
+ * 小程序蓝本测试执行器 v3
+ *
+ * 设计原则：
+ * 1. 固定端口 9420（通过 cli auto --auto-port 9420 启动）
+ * 2. 自动扫描端口作为备选（如果9420连不上）
+ * 3. 任意场景顺序都能跑
+ * 4. 每步失败记录原因，跳过继续下一个
+ * 5. 输出JSON报告给大模型
+ *
+ * 页面回退策略：
+ * - navigateBack 在自动化模式下不可靠（执行但不生效）
+ * - 解决方案：避免依赖页面跳转，用 callMethod/setData/evaluate 代替
+ * - 会跳转页面的场景放最后执行
+ * - 如果卡在非首页，记录原因跳过，不阻塞后续场景
  */
 const automator = require('miniprogram-automator');
-const WS_PORT = 60427;
 
+const DEFAULT_PORT = 9420;
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+let mp = null;
+const report = { scenarios: [], startTime: 0, endTime: 0 };
+
+// ── 连接（先试固定端口，再扫描） ──
+async function connectToDevTools() {
+  // 方案1: 固定端口
+  const port = process.argv[2] || DEFAULT_PORT;
+  try {
+    console.log(`[连接] 尝试端口 ${port}...`);
+    mp = await automator.connect({ wsEndpoint: `ws://localhost:${port}` });
+    const p = await mp.currentPage();
+    console.log(`[连接] 成功！当前页面: ${p.path}`);
+    return;
+  } catch (e) {
+    console.log(`[连接] 端口 ${port} 失败: ${e.message}`);
+  }
+
+  // 方案2: 扫描微信开发者工具的端口
+  console.log('[连接] 扫描端口...');
+  const { execSync } = require('child_process');
+  const ports = new Set();
+  try {
+    const tasks = execSync('tasklist /FI "IMAGENAME eq wechatdevtools.exe" /FO CSV /NH', { encoding: 'utf8' });
+    const pids = [...tasks.matchAll(/"wechatdevtools\.exe","(\d+)"/gi)].map(m => m[1]);
+    const netstat = execSync('netstat -ano', { encoding: 'utf8' });
+    for (const line of netstat.split('\n')) {
+      if (!line.includes('LISTENING')) continue;
+      for (const pid of pids) {
+        if (line.trim().endsWith(pid)) {
+          const m = line.match(/127\.0\.0\.1:(\d+)/);
+          if (m) ports.add(parseInt(m[1]));
+        }
+      }
+    }
+  } catch (e) {}
+
+  for (const p of [...ports].sort((a, b) => a - b)) {
+    try {
+      mp = await automator.connect({ wsEndpoint: `ws://localhost:${p}` });
+      const page = await mp.currentPage();
+      console.log(`[连接] 端口 ${p} 成功！当前页面: ${page.path}`);
+      return;
+    } catch (e) {}
+  }
+  throw new Error('无法连接微信开发者工具，请用 cli auto --auto-port 9420 启动');
+}
+
+// ── 确保在首页 ──
+async function ensureHomePage() {
+  let page = await mp.currentPage();
+  if (page.path === 'pages/index/index') return page;
+
+  // 尝试 navigateBack（最多2次，每次等3秒）
+  for (let i = 0; i < 2; i++) {
+    try {
+      await mp.navigateBack();
+      await sleep(3000);
+      page = await mp.currentPage();
+      if (page.path === 'pages/index/index') return page;
+    } catch (e) { break; }
+  }
+  throw new Error(`无法回到首页，当前在 ${page.path}`);
+}
+
+// ── 重置购物车 ──
+async function resetState() {
+  await mp.evaluate(() => { getApp().globalData.cart = []; });
+  const page = await mp.currentPage();
+  await page.setData({ cartCount: 0, cartTotal: '0', message: '', msgClass: '' });
+  await sleep(200);
+}
+
+// ── 安全执行场景 ──
+async function runScenario(name, desc, fn) {
+  console.log(`\n${'─'.repeat(50)}`);
+  console.log(`场景: ${name}`);
+  console.log(`描述: ${desc}`);
+  console.log('─'.repeat(50));
+
+  const sr = { name, desc, status: 'unknown', steps: [], bug: null, error: null };
+  try {
+    await ensureHomePage();
+    await resetState();
+    console.log('  [准备] 首页+状态已重置');
+    const result = await fn(sr);
+    sr.status = result.bug ? 'bug_found' : 'passed';
+    sr.bug = result.bug;
+  } catch (e) {
+    console.log(`  ❌ 失败: ${e.message}`);
+    sr.status = 'skipped';
+    sr.error = e.message;
+  }
+  report.scenarios.push(sr);
+  return sr;
+}
+
+// ══════ Bug1: 机械键盘价格不一致 ══════
+async function bug1(sr) {
+  const page = await mp.currentPage();
+  const priceEl = await page.$('#price-2');
+  const price = priceEl ? await priceEl.text() : '';
+  sr.steps.push({ action: '读取键盘价格', result: price });
+  console.log(`  [1] 键盘页面价格: ${price}`);
+
+  const btns = await page.$$('.btn-primary');
+  if (btns[1]) { await btns[1].tap(); await sleep(500); }
+  sr.steps.push({ action: '点击键盘加入购物车', result: 'OK' });
+  console.log('  [2] 点击键盘"加入购物车"');
+
+  const totalEl = await page.$('#cartTotal');
+  const total = totalEl ? await totalEl.text() : '';
+  sr.steps.push({ action: '读取总计', result: total });
+  console.log(`  [3] 购物车总计: ${total}`);
+
+  if (price.includes('199') && !total.includes('199')) {
+    const msg = `页面${price}→购物车${total}，价格不一致`;
+    console.log(`  🐛 ${msg}`);
+    return { bug: { type: '数据不一致', message: msg, severity: 'high' } };
+  }
+  return { bug: null };
+}
+
+// ══════ Bug2: 浮点精度 ══════
+async function bug2(sr) {
+  const page = await mp.currentPage();
+  const btns = await page.$$('.btn-primary');
+  if (btns[0]) { await btns[0].tap(); await sleep(300); }
+  console.log('  [1] 加入耳机(299)');
+  if (btns[2]) { await btns[2].tap(); await sleep(300); }
+  console.log('  [2] 加入扩展坞(159)');
+
+  const totalEl = await page.$('#cartTotal');
+  const total = totalEl ? await totalEl.text() : '';
+  sr.steps.push({ action: '读取总计', result: total });
+  console.log(`  [3] 总计: ${total}`);
+
+  if (!total.includes('458.00')) {
+    const msg = `总计=${total}，期望458.00(299+159)，计算误差`;
+    console.log(`  🐛 ${msg}`);
+    return { bug: { type: '计算错误', message: msg, severity: 'medium' } };
+  }
+  return { bug: null };
+}
+
+// ══════ Bug4: 大金额结算报错（在首页用 callMethod） ══════
+async function bug4(sr) {
+  const page = await mp.currentPage();
+  const btns = await page.$$('.btn-primary');
+  for (let i = 0; i < 3 && i < btns.length - 1; i++) {
+    await btns[i].tap(); await sleep(300);
+  }
+  console.log('  [1] 加入全部3个商品');
+
+  const totalEl = await page.$('#cartTotal');
+  const total = totalEl ? await totalEl.text() : '';
+  sr.steps.push({ action: '读取总计', result: total });
+  console.log(`  [2] 总计: ${total}`);
+
+  await page.callMethod('checkout');
+  await sleep(300);
+  console.log('  [3] 调用checkout()');
+
+  const msgEl = await page.$('#message');
+  const msg = msgEl ? await msgEl.text() : '';
+  sr.steps.push({ action: '结算消息', result: msg });
+  console.log(`  [4] 消息: ${msg}`);
+
+  if (msg.includes('错误') || msg.includes('Error') || msg.includes('500')) {
+    const detail = `总价${total}→"${msg}"，大金额应成功但报错`;
+    console.log(`  🐛 ${detail}`);
+    return { bug: { type: '业务逻辑错误', message: detail, severity: 'high' } };
+  }
+  return { bug: null };
+}
+
+// ══════ Bug3: 空购物车跳转（会跳页面，放最后） ══════
+async function bug3(sr) {
+  let page = await mp.currentPage();
+  console.log(`  [1] 当前: ${page.path}`);
+
+  const btns = await page.$$('.btn-primary');
+  const lastBtn = btns[btns.length - 1];
+  if (lastBtn) { await lastBtn.tap(); await sleep(2000); }
+  console.log('  [2] 点击"查看购物车"');
+
+  page = await mp.currentPage();
+  sr.steps.push({ action: '跳转后页面', result: page.path });
+  console.log(`  [3] 跳转到: ${page.path}`);
+
+  if (page.path.includes('cart/cart')) {
+    const msg = `空购物车直接跳转${page.path}，应提示而非跳转`;
+    console.log(`  🐛 ${msg}`);
+    return { bug: { type: '缺少输入验证', message: msg, severity: 'medium' } };
+  }
+  return { bug: null };
+}
+
+// ── 主流程 ──
 async function main() {
   console.log('============================================================');
-  console.log('  BuggyMini 小程序蓝本测试');
-  console.log('  预埋4个Bug，验证自动化测试能否发现');
+  console.log('  BuggyMini 小程序蓝本测试 v3');
+  console.log('  固定端口9420 | 自动回退 | 任意顺序');
   console.log('============================================================');
 
-  const start = Date.now();
-  const mp = await automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` });
-  let page = await mp.currentPage();
-  console.log(`\n[连接成功] 当前页面: ${page.path}`);
+  report.startTime = Date.now();
+  await connectToDevTools();
 
-  const results = [];
+  // 执行顺序：Bug1→Bug2→Bug4→Bug3
+  // Bug3会跳转页面，放最后。但即使Bug3在前面，Bug4也会尝试回退
+  await runScenario('Bug1-机械键盘价格不一致', '页面显示199但加购变599', bug1);
+  await runScenario('Bug2-浮点精度', '耳机+扩展坞=458应为458.00', bug2);
+  await runScenario('Bug4-大金额结算报错', '总价>500结算应成功但报500错误', bug4);
+  await runScenario('Bug3-空购物车跳转', '空购物车点查看应提示而非跳转', bug3);
 
-  // ── 重置函数 ──
-  async function resetCart() {
-    await mp.evaluate(() => { getApp().globalData.cart = []; });
-    page = await mp.currentPage();
-    await page.setData({ cartCount: 0, cartTotal: '0', message: '', msgClass: '' });
-    await sleep(200);
-  }
+  report.endTime = Date.now();
+  await mp.disconnect();
 
-  // ══════════════════════════════════════════════
-  // Bug1: 机械键盘价格不一致
-  // ══════════════════════════════════════════════
-  console.log('\n──────────────────────────────────────────────────');
-  console.log('场景: Bug1-机械键盘价格不一致');
-  console.log('描述: 页面显示199但加入购物车变599');
-  console.log('──────────────────────────────────────────────────');
-  try {
-    await resetCart();
-    page = await mp.currentPage();
-
-    const priceEl = await page.$('#price-2');
-    const price = priceEl ? await priceEl.text() : '未找到';
-    console.log(`  [1] 机械键盘页面价格: ${price}`);
-
-    // 获取所有按钮，点击第2个（键盘）
-    const btns1 = await page.$$('.btn-primary');
-    if (btns1[1]) { await btns1[1].tap(); await sleep(500); }
-    console.log('  [2] 点击机械键盘"加入购物车"');
-
-    const totalEl = await page.$('#cartTotal');
-    const total = totalEl ? await totalEl.text() : '';
-    console.log(`  [3] 购物车总计: ${total}`);
-
-    if (price.includes('199') && !total.includes('199')) {
-      console.log(`  🐛 页面显示${price}，购物车变成${total}，价格不一致！`);
-      results.push({ name: 'Bug1', bug: true, msg: `页面${price}→购物车${total}` });
-    } else {
-      console.log(`  ✅ 页面=${price}，购物车=${total}`);
-      results.push({ name: 'Bug1', bug: false, msg: `页面=${price}，购物车=${total}` });
-    }
-  } catch (e) {
-    console.log(`  ⚠️ 异常: ${e.message}`);
-    results.push({ name: 'Bug1', bug: false, msg: `异常: ${e.message}` });
-  }
-
-  // ══════════════════════════════════════════════
-  // Bug2: 浮点精度
-  // ══════════════════════════════════════════════
-  console.log('\n──────────────────────────────────────────────────');
-  console.log('场景: Bug2-浮点精度');
-  console.log('描述: 耳机(299)+扩展坞(159)=458，总价应为458.00');
-  console.log('──────────────────────────────────────────────────');
-  try {
-    await resetCart();
-    page = await mp.currentPage();
-    const btns2 = await page.$$('.btn-primary');
-
-    // 点击耳机(btns[0])
-    if (btns2[0]) { await btns2[0].tap(); await sleep(300); }
-    console.log('  [1] 加入无线耳机(299)');
-
-    // 点击扩展坞(btns[2])
-    if (btns2[2]) { await btns2[2].tap(); await sleep(300); }
-    console.log('  [2] 加入扩展坞(159)');
-
-    const totalEl2 = await page.$('#cartTotal');
-    const total2 = totalEl2 ? await totalEl2.text() : '';
-    console.log(`  [3] 购物车总计: ${total2}`);
-
-    if (total2.includes('458.00')) {
-      console.log(`  ✅ 总计=${total2}，正常`);
-      results.push({ name: 'Bug2', bug: false, msg: `总计=${total2}` });
-    } else {
-      console.log(`  🐛 总计=${total2}，期望含"458.00"，出现计算误差！`);
-      results.push({ name: 'Bug2', bug: true, msg: `总计=${total2}，应为458.00` });
-    }
-  } catch (e) {
-    console.log(`  ⚠️ 异常: ${e.message}`);
-    results.push({ name: 'Bug2', bug: false, msg: `异常: ${e.message}` });
-  }
-
-  // ══════════════════════════════════════════════
-  // Bug4: 大金额结算报错（在首页直接调用 checkout）
-  // ══════════════════════════════════════════════
-  console.log('\n──────────────────────────────────────────────────');
-  console.log('场景: Bug4-大金额结算报错');
-  console.log('描述: 全部商品(>500)结算应成功但报500错误');
-  console.log('──────────────────────────────────────────────────');
-  try {
-    await resetCart();
-    page = await mp.currentPage();
-    const btns4 = await page.$$('.btn-primary');
-
-    // 添加3个商品
-    for (let i = 0; i < 3 && i < btns4.length - 1; i++) {
-      await btns4[i].tap();
-      await sleep(300);
-    }
-    console.log('  [1] 加入全部3个商品(耳机+键盘+扩展坞)');
-
-    const totalEl4 = await page.$('#cartTotal');
-    const total4 = totalEl4 ? await totalEl4.text() : '';
-    console.log(`  [2] 购物车总计: ${total4}`);
-
-    // 直接在首页调用 checkout 方法（index.js 有500限制）
-    await page.callMethod('checkout');
-    await sleep(300);
-    console.log('  [3] 调用 checkout()');
-
-    const msgEl4 = await page.$('#message');
-    const msg4 = msgEl4 ? await msgEl4.text() : '';
-    console.log(`  [4] 结算消息: ${msg4}`);
-
-    if (msg4.includes('错误') || msg4.includes('Error') || msg4.includes('500')) {
-      console.log(`  🐛 总价=${total4}，消息="${msg4}"，大金额应成功但报错！`);
-      results.push({ name: 'Bug4', bug: true, msg: `${total4}→"${msg4}"` });
-    } else if (msg4.includes('成功')) {
-      console.log(`  ✅ 结算成功: ${msg4}`);
-      results.push({ name: 'Bug4', bug: false, msg: `结算成功` });
-    } else {
-      console.log(`  ⚠️ 意外结果: ${msg4}`);
-      results.push({ name: 'Bug4', bug: false, msg: `意外: "${msg4}"` });
-    }
-  } catch (e) {
-    console.log(`  ⚠️ 异常: ${e.message}`);
-    results.push({ name: 'Bug4', bug: false, msg: `异常: ${e.message}` });
-  }
-
-  // ══════════════════════════════════════════════
-  // Bug3: 空购物车跳转（放最后，因为会跳页面）
-  // ══════════════════════════════════════════════
-  console.log('\n──────────────────────────────────────────────────');
-  console.log('场景: Bug3-空购物车跳转');
-  console.log('描述: 空购物车点查看应提示而非直接跳转');
-  console.log('──────────────────────────────────────────────────');
-  try {
-    await resetCart();
-    page = await mp.currentPage();
-    console.log(`  [1] 当前页面: ${page.path}`);
-
-    // 点击最后一个 btn-primary（"查看购物车"）
-    const btns3 = await page.$$('.btn-primary');
-    const lastBtn = btns3[btns3.length - 1];
-    if (lastBtn) {
-      await lastBtn.tap();
-      await sleep(1500);
-      console.log('  [2] 点击"查看购物车"');
-    }
-
-    page = await mp.currentPage();
-    console.log(`  [3] 跳转后页面: ${page.path}`);
-
-    if (page.path.includes('cart/cart')) {
-      console.log(`  🐛 空购物车直接跳转到${page.path}，应提示而非跳转！`);
-      results.push({ name: 'Bug3', bug: true, msg: `空购物车跳转到${page.path}` });
-    } else {
-      console.log(`  ✅ 当前页面=${page.path}，未跳转`);
-      results.push({ name: 'Bug3', bug: false, msg: `未跳转` });
-    }
-  } catch (e) {
-    console.log(`  ⚠️ 异常: ${e.message}`);
-    results.push({ name: 'Bug3', bug: false, msg: `异常: ${e.message}` });
-  }
-
-  // ── 汇总 ──
-  const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-  const bugs = results.filter(r => r.bug).length;
+  // 汇总
+  const elapsed = ((report.endTime - report.startTime) / 1000).toFixed(1);
+  const bugs = report.scenarios.filter(s => s.status === 'bug_found');
+  const passed = report.scenarios.filter(s => s.status === 'passed');
+  const skipped = report.scenarios.filter(s => s.status === 'skipped');
 
   console.log('\n============================================================');
   console.log('  测试报告');
   console.log('============================================================');
-  for (const r of results) {
-    console.log(`  ${r.bug ? '🐛' : '✅'} ${r.name}: ${r.msg}`);
+  for (const s of report.scenarios) {
+    const icon = s.status === 'bug_found' ? '🐛' : s.status === 'passed' ? '✅' : '⏭️';
+    const msg = s.bug ? s.bug.message : s.error ? `跳过: ${s.error}` : '通过';
+    console.log(`  ${icon} ${s.name}: ${msg}`);
   }
-  console.log(`\n  总计: ${results.length} 场景 | 🐛 Bug: ${bugs}/4 | 耗时: ${elapsed}秒`);
-  console.log('============================================================');
-  if (bugs === 4) console.log('\n🎉 完美！成功发现所有4个预埋Bug！');
-  else if (bugs > 0) console.log(`\n⚠️ 发现 ${bugs}/4 个Bug。`);
+  console.log(`\n  🐛 ${bugs.length} | ✅ ${passed.length} | ⏭️ ${skipped.length} | ${elapsed}秒`);
 
-  await mp.disconnect();
+  // JSON报告（给大模型用）
+  console.log('\n[JSON报告]');
+  console.log(JSON.stringify({
+    summary: { total: report.scenarios.length, bugs: bugs.length, passed: passed.length, skipped: skipped.length, seconds: parseFloat(elapsed) },
+    bugs: bugs.map(s => ({ scenario: s.name, type: s.bug.type, message: s.bug.message, severity: s.bug.severity, steps: s.steps })),
+    skipped: skipped.map(s => ({ scenario: s.name, reason: s.error })),
+  }, null, 2));
+
+  if (bugs.length === 4) console.log('\n🎉 4/4 Bug全部发现！');
 }
 
 main().catch(e => { console.error('Fatal:', e.message); process.exit(1); });
