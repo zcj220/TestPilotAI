@@ -303,7 +303,7 @@ def generate_blueprint(
         url: 被测应用的URL（如 http://localhost:3000）
         app_name: 应用名称（空则从页面标题自动推断）
         description: 应用功能描述（帮助AI更准确生成测试用例）
-        output_path: 保存路径（如 shop-demo/testpilot.json，空则不保存文件）
+        output_path: 保存路径（如 shop-demo/testpilot/testpilot.json，空则不保存文件）
 
     Returns:
         生成的蓝本摘要和JSON内容

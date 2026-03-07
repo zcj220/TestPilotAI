@@ -144,7 +144,7 @@ class BlueprintGenerator:
     典型使用：
         gen = BlueprintGenerator(ai_client)
         blueprint = await gen.from_url("http://localhost:3000")
-        gen.save(blueprint, "shop-demo/testpilot.json")
+        gen.save(blueprint, "shop-demo/testpilot/testpilot.json")
     """
 
     def __init__(

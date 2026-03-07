@@ -556,7 +556,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <label>蓝本列表
         <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
       </label>
-      <div id="blueprintList" style="max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:4px;margin-bottom:8px;background:var(--bg-secondary,#1e1e1e)">
+      <div id="blueprintList" style="max-height:200px;overflow-y:auto;overflow-x:hidden;border:1px solid var(--border);border-radius:6px;padding:4px;margin-bottom:8px;background:var(--bg-secondary,#1e1e1e);width:100%;box-sizing:border-box">
         <div style="color:var(--muted);padding:8px;text-align:center;font-size:12px">扫描中...</div>
       </div>
       <div class="input-row" style="gap:4px">
@@ -934,7 +934,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const tooltipText = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
 
         const item = document.createElement("label");
-        item.style.cssText = "display:flex;align-items:flex-start;gap:6px;padding:4px 6px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4";
+        item.style.cssText = "display:flex;align-items:flex-start;gap:4px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;overflow:hidden;width:100%;box-sizing:border-box";
         item.title = tooltipText;
         item.addEventListener("mouseenter", () => { item.style.background = "var(--hover-bg,#2a2d2e)"; });
         item.addEventListener("mouseleave", () => { item.style.background = "transparent"; });
@@ -942,14 +942,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const cb = document.createElement("input");
         cb.type = "checkbox";
         cb.value = path;
-        cb.checked = (i === 0); // 默认选中第一个
-        cb.style.cssText = "margin-top:2px;flex-shrink:0";
+        cb.checked = (i === 0);
+        cb.style.cssText = "margin-top:2px;flex-shrink:0;width:14px;height:14px";
+
+        const fileName = path.replace(/\\\\/g, "/").split("/").pop() || path;
 
         const info = document.createElement("div");
-        info.style.cssText = "flex:1;min-width:0";
-        info.innerHTML = '<div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + platformBadge + " " + displayName + '</div>'
-          + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">' + desc + '</div>' : '')
-          + '<div style="color:var(--muted);font-size:10px;margin-top:1px">' + scenarios + '场景 ' + steps + '步骤 · ' + shortPath + '</div>';
+        info.style.cssText = "flex:1;min-width:0;overflow:hidden";
+        info.innerHTML = '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + platformBadge + ' ' + displayName + '</div>'
+          + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + desc + '</div>' : '')
+          + '<div style="color:var(--muted);font-size:10px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + scenarios + '场景 ' + steps + '步骤 · ' + fileName + '</div>';
 
         item.appendChild(cb);
         item.appendChild(info);

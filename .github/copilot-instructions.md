@@ -4,13 +4,16 @@
 
 当你需要为某个被测应用生成或修改测试蓝本时，**必须遵守以下规则**：
 
-1. **只允许存在一个蓝本文件**：每个被测应用目录下只保留一个 `testpilot.json`。
-2. **更新而非新建**：若该目录已存在 `testpilot.json`，直接覆盖更新，**不得**创建 `testpilot_v2.json`、`testpilot_new.json`、`testpilot_backup.json` 等任何变体文件。
-3. **文件放置位置**：蓝本文件必须放在被测应用的**根目录**，固定命名为 `testpilot.json`。
-   - ✅ 正确：`shop-demo/testpilot.json`
-   - ❌ 错误：`shop-demo/testpilot_v2.json`、`shop-demo/blueprints/test.json`
+1. **蓝本统一存放在 `testpilot/` 文件夹**：每个被测应用目录下创建 `testpilot/` 子目录，蓝本放在里面。
+2. **命名规范**：主蓝本命名为 `testpilot.json`，按功能模块拆分的蓝本命名为 `模块名.testpilot.json`。
+3. **更新而非新建**：若已存在同名蓝本，直接覆盖更新，**不得**创建 `_v2`、`_new`、`_backup` 等变体。
+4. **每个蓝本必须包含 `description` 字段**：50-200字描述本蓝本覆盖的功能范围。
+   - ✅ 正确：`shop-demo/testpilot/testpilot.json`
+   - ✅ 正确：`shop-demo/testpilot/login.testpilot.json`（按功能拆分）
+   - ❌ 错误：`shop-demo/testpilot.json`（不要散落在根目录）
+   - ❌ 错误：`shop-demo/testpilot/testpilot_v2.json`
 
-这样 TestPilot AI 插件才能自动扫描并选中正确的蓝本。
+这样 TestPilot AI 插件能自动扫描 `testpilot/` 目录下的所有蓝本并以多选框列表展示。
 
 ## 编程完成后必须生成/更新蓝本
 
