@@ -1,0 +1,50 @@
+<view class="container">
+  <view class="section">
+    <view class="section-title">收货地址</view>
+    <input class="addr-input" id="addressInput" placeholder="请输入收货地址" bindinput="onAddressInput" value="{{address}}" />
+  </view>
+
+  <view class="section">
+    <view class="section-title">配送方式</view>
+    <picker id="deliveryPicker" mode="selector" range="{{['同城配送(免费)', '快递配送(¥10)']}}" bindchange="onDeliveryChange">
+      <view class="picker-value" id="deliveryDisplay">
+        {{deliveryType === 'same_city' ? '同城配送' : deliveryType === 'express' ? '快递配送' : '请选择配送方式'}}
+      </view>
+    </picker>
+    <view class="delivery-fee" id="deliveryFee">配送费: ¥{{deliveryFee}}</view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">优惠券</view>
+    <block wx:for="{{coupons}}" wx:key="id">
+      <view class="coupon-item {{coupon && coupon.id === item.id ? 'selected' : ''}}" 
+            id="coupon-{{item.id}}" bindtap="onCouponTap" data-id="{{item.id}}">
+        <view class="coupon-name">{{item.name}}</view>
+        <view class="coupon-cond">满{{item.threshold}}元可用</view>
+      </view>
+    </block>
+  </view>
+
+  <view class="section summary">
+    <view class="summary-row">
+      <view>商品小计</view>
+      <view id="checkoutSubtotal">¥{{subtotal}}</view>
+    </view>
+    <view class="summary-row">
+      <view>配送费</view>
+      <view id="checkoutDeliveryFee">¥{{deliveryFee}}</view>
+    </view>
+    <view class="summary-row" wx:if="{{couponDiscount > 0}}">
+      <view>优惠券</view>
+      <view id="checkoutCouponDiscount" class="discount">-¥{{couponDiscount}}</view>
+    </view>
+    <view class="summary-row total-row">
+      <view>应付总额</view>
+      <view class="total-value" id="checkoutTotal">¥{{total}}</view>
+    </view>
+  </view>
+
+  <view class="btn-submit" bindtap="submitOrder">提交订单</view>
+
+  <view id="checkoutMessage" class="msg {{msgClass}}">{{message}}</view>
+</view>

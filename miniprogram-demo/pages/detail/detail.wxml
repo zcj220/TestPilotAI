@@ -1,0 +1,15 @@
+<view class="container" wx:if="{{product}}">
+  <view class="detail-img">{{product.img}}</view>
+  <view class="detail-name" id="detailName">{{product.name}}</view>
+  <view class="detail-cat">{{product.category}} · {{product.unit}}</view>
+  <view class="detail-price" id="detailPrice">¥{{product.price}}</view>
+  <view wx:if="{{isVip}}" class="detail-vip" id="detailVipPrice">会员价 ¥{{product.vipPrice}}</view>
+  <view class="detail-stock" id="detailStock">库存: {{product.stock}}{{product.unit}}</view>
+
+  <view class="detail-actions">
+    <view class="btn-primary" bindtap="addToCart">加入购物车</view>
+    <view class="btn-secondary" bindtap="goCart">去购物车</view>
+  </view>
+
+  <view id="detailMessage" class="msg {{msgClass}}">{{message}}</view>
+</view>

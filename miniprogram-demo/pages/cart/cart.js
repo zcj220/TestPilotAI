@@ -1,37 +1,63 @@
+// FreshMart 购物车页
 Page({
   data: {
     cart: [],
-    total: "0.00",
-    message: "",
-    msgClass: ""
+    subtotal: '0.00',
+    itemCount: 0,
+    message: '',
+    msgClass: '',
   },
 
   onShow() {
     const app = getApp();
     const cart = app.globalData.cart || [];
-    let total = 0;
-    cart.forEach(item => { total += item.actualPrice; });
+
+    // 合并相同商品
+    const merged = {};
+    cart.forEach(item => {
+      if (merged[item.id]) {
+        merged[item.id].qty += 1;
+      } else {
+        merged[item.id] = { ...item };
+      }
+    });
+    const mergedList = Object.values(merged);
+
+    // BUG 5（隐蔽）: 小计计算有精度问题
+    // 每个商品的 actualPrice * qty 累加时，直接用浮点加法
+    // 例：10.63 * 3 = 31.889999... 而非 31.89
+    let subtotal = 0;
+    mergedList.forEach(item => {
+      subtotal += item.actualPrice * item.qty;
+    });
+
     this.setData({
-      cart: cart,
-      total: total.toFixed(2)
+      cart: mergedList,
+      subtotal: subtotal.toFixed(2),
+      itemCount: cart.length,
     });
   },
 
-  checkout() {
-    if (this.data.cart.length === 0) {
-      this.setData({ message: "购物车为空", msgClass: "err" });
-      return;
-    }
-    // BUG 4: 总价超过500时报错
-    let total = 0;
-    this.data.cart.forEach(item => { total += item.actualPrice; });
-    if (total > 500) {
-      this.setData({ message: "系统错误: 订单金额异常 (Error 500)", msgClass: "err" });
-      return;
-    }
-    this.setData({ message: "订单提交成功!", msgClass: "success" });
+  // 删除商品
+  removeItem(e) {
+    const id = e.currentTarget.dataset.id;
     const app = getApp();
-    app.globalData.cart = [];
-    this.setData({ cart: [], total: "0.00" });
-  }
+    app.globalData.cart = app.globalData.cart.filter(item => item.id !== id);
+    this.onShow();
+    this.setData({ message: '已移除', msgClass: 'success' });
+  },
+
+  // 去结算
+  goCheckout() {
+    if (this.data.cart.length === 0) {
+      this.setData({ message: '购物车为空', msgClass: 'err' });
+      return;
+    }
+    wx.navigateTo({ url: '/pages/checkout/checkout' });
+  },
+
+  // 继续购物
+  goBack() {
+    wx.navigateBack();
+  },
 })

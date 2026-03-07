@@ -1,12 +1,15 @@
 {
   "pages": [
     "pages/index/index",
-    "pages/cart/cart"
+    "pages/detail/detail",
+    "pages/cart/cart",
+    "pages/checkout/checkout",
+    "pages/order/order"
   ],
   "window": {
     "backgroundTextStyle": "light",
-    "navigationBarBackgroundColor": "#4f46e5",
-    "navigationBarTitleText": "BuggyMini 测试小程序",
+    "navigationBarBackgroundColor": "#2d8cf0",
+    "navigationBarTitleText": "FreshMart 生鲜超市",
     "navigationBarTextStyle": "white"
   }
 }

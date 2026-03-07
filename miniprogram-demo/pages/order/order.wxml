@@ -1,0 +1,25 @@
+<view class="container">
+  <view class="success-icon">✅</view>
+  <view class="success-title">订单提交成功</view>
+
+  <view class="order-info">
+    <view class="info-row">
+      <view class="info-label">订单号</view>
+      <view class="info-value" id="orderId">{{orderId}}</view>
+    </view>
+    <view class="info-row">
+      <view class="info-label">商品数量</view>
+      <view class="info-value" id="orderItems">{{items}} 种</view>
+    </view>
+    <view class="info-row">
+      <view class="info-label">配送方式</view>
+      <view class="info-value" id="orderDelivery">{{delivery}}</view>
+    </view>
+    <view class="info-row total">
+      <view class="info-label">实付金额</view>
+      <view class="info-value price" id="orderTotal">¥{{total}}</view>
+    </view>
+  </view>
+
+  <view class="btn-home" bindtap="goHome">返回首页</view>
+</view>

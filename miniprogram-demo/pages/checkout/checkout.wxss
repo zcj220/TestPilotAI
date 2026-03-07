@@ -1,0 +1,19 @@
+.container { padding: 20rpx; padding-bottom: 140rpx; }
+.section { background: #fff; border-radius: 12rpx; padding: 24rpx; margin-bottom: 16rpx; box-shadow: 0 2rpx 6rpx rgba(0,0,0,0.05); }
+.section-title { font-size: 30rpx; font-weight: bold; margin-bottom: 16rpx; }
+.addr-input { background: #f5f5f5; border-radius: 8rpx; padding: 16rpx; font-size: 28rpx; }
+.picker-value { background: #f5f5f5; border-radius: 8rpx; padding: 16rpx; font-size: 28rpx; color: #333; }
+.delivery-fee { font-size: 24rpx; color: #e53e3e; margin-top: 8rpx; }
+.coupon-item { display: flex; justify-content: space-between; align-items: center; padding: 16rpx; border: 2rpx solid #eee; border-radius: 8rpx; margin-bottom: 8rpx; }
+.coupon-item.selected { border-color: #2d8cf0; background: #f0f7ff; }
+.coupon-name { font-size: 28rpx; font-weight: bold; }
+.coupon-cond { font-size: 22rpx; color: #999; }
+.summary { margin-top: 16rpx; }
+.summary-row { display: flex; justify-content: space-between; padding: 8rpx 0; font-size: 28rpx; }
+.total-row { border-top: 2rpx solid #eee; padding-top: 16rpx; margin-top: 8rpx; }
+.total-value { font-size: 36rpx; color: #e53e3e; font-weight: bold; }
+.discount { color: #38a169; }
+.btn-submit { position: fixed; bottom: 20rpx; left: 30rpx; right: 30rpx; background: #2d8cf0; color: #fff; text-align: center; padding: 24rpx; border-radius: 12rpx; font-size: 32rpx; font-weight: bold; }
+.msg { text-align: center; margin-top: 16rpx; font-size: 26rpx; padding: 12rpx; border-radius: 8rpx; }
+.msg.success { color: #38a169; background: #f0fff4; }
+.msg.err { color: #e53e3e; background: #fff5f5; }

@@ -1,22 +1,52 @@
 <view class="container">
-  <view class="card">
-    <view class="title">BuggyMini 测试商城</view>
-    <view class="sub">含4个预埋Bug的小程序</view>
+  <!-- 顶部搜索 -->
+  <view class="search-bar">
+    <input class="search-input" id="searchInput" placeholder="搜索商品" bindinput="onSearch" value="{{searchKeyword}}" />
+    <picker id="sortPicker" mode="selector" range="{{['默认排序','价格从低到高','价格从高到低']}}" bindchange="onSortChange">
+      <view class="sort-btn">排序 ▼</view>
+    </picker>
   </view>
 
-  <block wx:for="{{products}}" wx:key="id">
-    <view class="card product">
-      <view class="p-name">{{item.name}}</view>
-      <view class="p-price" id="price-{{item.id}}">{{item.price}}</view>
-      <view class="btn-primary" bindtap="addToCart" data-id="{{item.id}}">加入购物车</view>
+  <!-- 分类标签 -->
+  <scroll-view scroll-x class="category-bar">
+    <block wx:for="{{categories}}" wx:key="*this">
+      <view class="cat-tag {{activeCategory === item ? 'active' : ''}}" 
+            bindtap="onCategoryTap" data-cat="{{item}}">{{item}}</view>
+    </block>
+  </scroll-view>
+
+  <!-- 会员标识 -->
+  <view wx:if="{{isVip}}" class="vip-badge" id="vipBadge">👑 会员 (享8折优惠)</view>
+
+  <!-- 商品列表 -->
+  <block wx:for="{{filteredProducts}}" wx:key="id">
+    <view class="card product" id="product-{{item.id}}">
+      <view class="p-img">{{item.img}}</view>
+      <view class="p-info">
+        <view class="p-name" bindtap="goDetail" data-id="{{item.id}}">{{item.name}}</view>
+        <view class="p-category">{{item.category}} · {{item.unit}}</view>
+        <view class="p-price-row">
+          <view class="p-price" id="price-{{item.id}}">¥{{item.price}}</view>
+          <view wx:if="{{isVip}}" class="p-vip-price" id="vipPrice-{{item.id}}">会员价 ¥{{item.vipPrice}}</view>
+        </view>
+        <view class="p-stock" id="stock-{{item.id}}">库存: {{item.stock}}{{item.unit}}</view>
+      </view>
+      <view class="p-action">
+        <view class="btn-primary {{item.stock <= 0 ? 'disabled' : ''}}" 
+              bindtap="addToCart" data-id="{{item.id}}">
+          {{item.stock <= 0 ? '售罄' : '加入购物车'}}
+        </view>
+      </view>
     </view>
   </block>
 
-  <view class="card">
-    <view class="p-name">购物车 ({{cartCount}} 件)</view>
-    <view class="p-price" id="cartTotal">总计: {{cartTotal}}</view>
-    <view class="btn-primary" bindtap="goCart">查看购物车</view>
+  <!-- 底部购物车入口 -->
+  <view class="cart-bar" bindtap="goCart">
+    <view class="cart-icon">🛒</view>
+    <view class="cart-count" id="cartCount">{{cartCount}}</view>
+    <view class="cart-text">查看购物车</view>
   </view>
 
-  <view id="message" class="{{msgClass}}">{{message}}</view>
+  <!-- 消息提示 -->
+  <view id="message" class="msg {{msgClass}}">{{message}}</view>
 </view>
