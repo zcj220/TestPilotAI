@@ -151,12 +151,18 @@ def create_router(
         root = Path(__file__).resolve().parent.parent.parent
         apps = []
         for child in sorted(root.iterdir()):
+            if not child.is_dir():
+                continue
             bp_file = child / "testpilot.json"
-            if child.is_dir() and bp_file.exists():
+            tp_dir = child / "testpilot"
+            has_bp = bp_file.exists()
+            if not has_bp and tp_dir.is_dir():
+                has_bp = any(tp_dir.glob("*.json"))
+            if has_bp:
                 apps.append({
                     "name": child.name,
                     "path": str(child),
-                    "blueprint": str(bp_file),
+                    "blueprint_dir": str(tp_dir) if tp_dir.is_dir() else str(bp_file.parent),
                     "preview_url": f"http://localhost:{port}/preview/{child.name}/",
                 })
         return apps

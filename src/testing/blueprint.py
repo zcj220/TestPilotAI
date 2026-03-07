@@ -60,6 +60,8 @@ class Blueprint(BaseModel):
     pages: list[BlueprintPage] = Field(default_factory=list, description="页面列表")
     global_elements: dict[str, str] = Field(default_factory=dict, description="全局元素映射（所有页面共享）")
     permissions: list[str] = Field(default_factory=list, description="Android权限列表，launch时通过adb批量授权，如 android.permission.CAMERA")
+    start_command: str = Field(default="", description="应用启动命令（如 npm start / python app.py），纯HTML应用留空使用内置预览服务器")
+    start_cwd: str = Field(default="", description="启动命令的工作目录（相对于蓝本文件所在目录，默认为蓝本所在项目根目录）")
     app_package: str = Field(default="", description="Android应用包名（手机测试时用）")
     app_activity: str = Field(default="", description="Android启动Activity（手机测试时用）")
 

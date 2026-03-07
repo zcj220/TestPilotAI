@@ -113,9 +113,15 @@ def create_app() -> FastAPI:
     project_root = Path(__file__).resolve().parent.parent
     _preview_dirs: dict[str, Path] = {}
 
-    # 扫描第一层子目录中的 testpilot.json
+    # 扫描第一层子目录中含蓝本的目录（支持 testpilot.json 或 testpilot/ 子目录）
     for child in project_root.iterdir():
-        if child.is_dir() and (child / "testpilot.json").exists():
+        if not child.is_dir():
+            continue
+        has_bp = (child / "testpilot.json").exists()
+        tp_dir = child / "testpilot"
+        if not has_bp and tp_dir.is_dir():
+            has_bp = any(tp_dir.glob("*.json"))
+        if has_bp:
             _preview_dirs[child.name] = child
 
     if _preview_dirs:

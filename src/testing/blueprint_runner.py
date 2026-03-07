@@ -96,6 +96,11 @@ class BlueprintRunner:
                      blueprint.total_steps,
                      "开启" if smart_repair_enabled else "关闭")
 
+        # v10.2：如果蓝本有 start_command，先启动被测应用并等待就绪
+        self._app_started_by_runner = False
+        if getattr(blueprint, "start_command", "") and blueprint.start_command.strip():
+            await self._auto_start_app(blueprint)
+
         # v2.0：通知控制器测试开始
         if self._controller:
             self._controller.start(total_steps=blueprint.total_steps)
@@ -638,3 +643,54 @@ class BlueprintRunner:
         ])
 
         return "\n".join(lines)
+
+    # ── v10.2：自动启动被测应用 ────────────────────────
+
+    async def _auto_start_app(self, blueprint: Blueprint) -> None:
+        """根据蓝本中的 start_command 自动启动被测应用并等待就绪。"""
+        import urllib.request
+        import urllib.error
+        from pathlib import Path
+
+        cmd = blueprint.start_command.strip()
+        cwd = blueprint.start_cwd.strip() or "."
+        base_url = blueprint.base_url.strip()
+
+        logger.info("自动启动被测应用 | cmd={} | cwd={} | base_url={}", cmd, cwd, base_url)
+
+        # 先检查 base_url 是否已经可访问（应用可能已在运行）
+        if base_url and await self._check_url_ready(base_url):
+            logger.info("被测应用已在运行: {}", base_url)
+            return
+
+        # 通过 process_runner 启动应用
+        from src.testing.process_runner import process_runner
+        success = await process_runner.start(cmd, cwd)
+        if not success:
+            logger.warning("应用启动失败或已在运行: {}", cmd)
+            return
+
+        self._app_started_by_runner = True
+
+        # 等待 base_url 可访问（最多30秒）
+        if base_url:
+            logger.info("等待应用就绪: {}", base_url)
+            import asyncio
+            for i in range(30):
+                if await self._check_url_ready(base_url):
+                    logger.info("应用已就绪（等待{}秒）: {}", i + 1, base_url)
+                    return
+                await asyncio.sleep(1)
+            logger.warning("应用启动超时（30秒），继续测试: {}", base_url)
+
+    @staticmethod
+    async def _check_url_ready(url: str) -> bool:
+        """检查URL是否可访问。"""
+        import urllib.request
+        import urllib.error
+        try:
+            req = urllib.request.Request(url, method="HEAD")
+            with urllib.request.urlopen(req, timeout=2):
+                return True
+        except Exception:
+            return False

@@ -359,12 +359,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleCopyBlueprintPrompt(): Promise<void> {
-    const prompt = `请帮我为当前项目生成 testpilot.json 测试蓝本文件，放在项目根目录。要求：
+    const prompt = `请帮我为当前项目生成 testpilot.json 测试蓝本文件，放在项目的 testpilot/ 文件夹下。要求：
 1. 分析源代码中所有可操作 UI 元素（按钮/表单/导航/弹窗）
 2. 选择器使用代码中的真实 id（如 #login-btn）或稳定 class，禁止用 div:nth-child(3) 这类脆弱选择器
 3. 每个功能页面对应一个场景，覆盖正常流程和异常场景（空表单提交、错误输入）
 4. 每个 fill 操作后必须有 assert_text 或 screenshot 验证
 5. 每次 navigate 必须有断言验证页面已正确加载
+6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空即可
 
 格式：
 {
@@ -373,6 +374,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   "base_url": "http://localhost:端口",
   "version": "1.0",
   "platform": "web",
+  "start_command": "npm start 或 python app.py（纯HTML留空）",
+  "start_cwd": "./（启动命令的工作目录，默认项目根目录）",
   "pages": [
     {
       "url": "/",
