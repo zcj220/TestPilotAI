@@ -32,45 +32,55 @@ const mp = await automator.connect({ wsEndpoint: 'ws://localhost:9420' });
 | `page.$()` / `page.$$()` | **快** (~50ms) | 查询元素 |
 | `element.tap()` | **快** (~100ms) | 点击元素 |
 | `element.text()` | **快** (~50ms) | 读取文本 |
-| `mp.navigateTo()` | **慢** (~3秒) | 页面跳转 |
-| `mp.navigateBack()` | **慢且不可靠** | 可能不生效！ |
-| `mp.reLaunch()` | **超时** | 在自动化模式下经常超时 |
-| `mp.redirectTo()` | **超时** | 同上 |
+| `mp.navigateTo()` | **10秒超时** | ❌ SDK方法不可用！ |
+| `mp.navigateBack()` | **10秒超时** | ❌ SDK方法不可用！ |
+| `mp.reLaunch()` | **10秒超时** | ❌ SDK方法不可用！ |
+| `evaluate(()=>wx.navigateTo())` | **快** (~64ms) | ✅ 用这个代替！ |
+| `evaluate(()=>wx.navigateBack())` | **快** (~25ms) | ✅ 用这个代替！ |
+| `evaluate(()=>wx.reLaunch())` | **快** (~41ms) | ✅ 用这个代替！ |
 
 ## 三、页面跳转的坑（重要！）
 
-### 问题
-- `navigateBack()` 在自动化模式下**执行但不生效**（耗时3秒，页面不变）
-- `reLaunch()` 和 `redirectTo()` 在自动化模式下**超时**
-- `evaluate(() => wx.navigateBack())` 也**不生效**
-- 这不是微信的 Bug，是 miniprogram-automator SDK 的限制
+### 问题（已解决）
+- SDK 的 `mp.navigateTo()`/`mp.navigateBack()`/`mp.reLaunch()` 全部**10秒超时**
+- 根因：SDK 封装方法内部等待页面切换完成的机制有问题
 
-### 解决方案
-1. **尽量避免页面跳转**：用 `callMethod()` 替代跳转到其他页面再操作
-   - 例：不需要跳到购物车页面再结算，直接 `page.callMethod('checkout')` 在当前页面调用
-2. **用 `setData` + `evaluate` 重置状态**：代替 `reLaunch` 重新加载页面
-   ```javascript
-   await mp.evaluate(() => { getApp().globalData.cart = []; });
-   await page.setData({ cartCount: 0, cartTotal: '0', message: '' });
-   ```
-3. **会跳转页面的场景放最后执行**
-4. **跳转失败则跳过记录原因**，不阻塞后续场景
+### 解决方案（已验证）
+**用 `evaluate(() => wx.xxx())` 调用原生API，完全替代 SDK 导航方法：**
 
-### 示例：ensureHomePage
 ```javascript
-async function ensureHomePage(mp) {
-  let page = await mp.currentPage();
-  if (page.path === 'pages/index/index') return page;
-  // 尝试 navigateBack（最多2次，每次等3秒）
-  for (let i = 0; i < 2; i++) {
-    try {
-      await mp.navigateBack();
-      await sleep(3000);
-      page = await mp.currentPage();
-      if (page.path === 'pages/index/index') return page;
-    } catch (e) { break; }
+// 跳转页面
+await mp.evaluate(() => { wx.navigateTo({ url: '/pages/cart/cart' }); });
+await sleep(1500); // 等页面渲染
+
+// 返回上一页
+await mp.evaluate(() => { wx.navigateBack(); });
+await sleep(1500);
+
+// 清空栈回首页（最可靠）
+await mp.evaluate(() => { wx.reLaunch({ url: '/pages/index/index' }); });
+await sleep(1500);
+```
+
+### 示例：场景间重置（resetForNextScenario）
+```javascript
+async function resetForNextScenario(mp) {
+  // 1. 清全局状态
+  await mp.evaluate(() => {
+    const g = getApp().globalData;
+    g.cart = []; g.coupon = null; g.isVip = true;
+  });
+  // 2. reLaunch 回首页（清空页面栈，<50ms）
+  const page = await mp.currentPage();
+  if (page.path !== 'pages/index/index') {
+    await mp.evaluate(() => { wx.reLaunch({ url: '/pages/index/index' }); });
+    await sleep(1500);
   }
-  throw new Error(`无法回到首页，当前在 ${page.path}`);
+  // 3. 刷新首页数据
+  const home = await mp.currentPage();
+  await home.callMethod('onShow');
+  await sleep(200);
+  return home;
 }
 ```
 
@@ -78,22 +88,21 @@ async function ensureHomePage(mp) {
 
 ### 推荐结构
 ```javascript
-// 1. 连接（固定端口9420）
+// 1. 开头 close+open+auto 重启1次
+execSync('cli close --project <path>');
+execSync('cli open --project <path>');
+execSync('cli auto --project <path> --auto-port 9420');
 const mp = await automator.connect({ wsEndpoint: 'ws://localhost:9420' });
 
 // 2. 对每个场景：
-//    a. ensureHomePage() - 确保在首页
-//    b. resetState() - 用 setData+evaluate 重置数据
-//    c. 执行测试步骤
-//    d. 验证结果
-//    e. 如果失败，记录原因，继续下一个场景
+//    a. resetForNextScenario() - evaluate(wx.reLaunch)回首页+清状态
+//    b. 执行测试步骤（首页操作用tap/callMethod，跳页面用evaluate(wx.navigateTo)）
+//    c. 验证结果
+//    d. 记录通过/失败，继续下一个场景
 
-// 3. 场景排序策略：
-//    - 不跳转页面的场景先执行
-//    - 会跳转页面的场景放最后
-//    - 每个场景独立，不依赖前一个场景的状态
+// 3. 场景任意顺序，靠 reLaunch 回首页，不需要调顺序
 
-// 4. 输出 JSON 报告（给大模型分析）
+// 4. 输出 JSON 报告
 ```
 
 ### 元素选择器

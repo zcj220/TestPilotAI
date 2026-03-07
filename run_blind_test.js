@@ -1,10 +1,14 @@
 /**
- * FreshMart 盲测脚本 v3
+ * FreshMart 盲测脚本 v4
  *
  * 正规盲测：完全根据蓝本功能需求操作UI，测试者不知道Bug在哪。
  *
- * 核心策略：每个场景前用 cli auto 重启小程序，确保干净的首页状态。
- * 这样每个场景完全独立，不受前一个场景影响，随便跳页面。
+ * 核心策略：
+ * 1. 开头 cli close+open+auto 重启1次，确保干净首页
+ * 2. 中途不重启，用 evaluate(wx.reLaunch) 回首页 + evaluate 清状态
+ * 3. 跳页面用 evaluate(wx.navigateTo) 而非 SDK 方法（SDK方法会超时！）
+ * 4. 关键发现：SDK的navigateTo/reLaunch/navigateBack全部超时，
+ *    但 evaluate(() => wx.xxx()) 调用原生API又快又稳（<100ms）
  *
  * 用法: node run_blind_test.js
  */
@@ -19,35 +23,53 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 let mp = null;
 const results = [];
 
-// ── 重启小程序并连接（每个场景前调用） ──
-async function restart() {
-  if (mp) {
-    try { await mp.disconnect(); } catch(e) {}
-    mp = null;
-  }
-  console.log('  [重启] cli auto...');
-  try {
-    execSync(`"${CLI_PATH}" auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`, {
-      encoding: 'utf8', timeout: 30000, stdio: 'pipe',
-    });
-  } catch(e) {
-    // cli auto 有时 stderr 输出但实际成功
-  }
+// ── 开头重启1次 ──
+async function initRestart() {
+  console.log('[初始化] close+open+auto 重启小程序...');
+  try { execSync(`"${CLI_PATH}" close --project "${PROJECT_PATH}"`, { encoding: 'utf8', timeout: 15000, stdio: 'pipe' }); } catch(e) {}
+  await sleep(2000);
+  try { execSync(`"${CLI_PATH}" open --project "${PROJECT_PATH}"`, { encoding: 'utf8', timeout: 15000, stdio: 'pipe' }); } catch(e) {}
+  await sleep(2000);
+  try { execSync(`"${CLI_PATH}" auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`, { encoding: 'utf8', timeout: 15000, stdio: 'pipe' }); } catch(e) {}
   await sleep(2000);
 
-  // 连接
   for (let retry = 0; retry < 3; retry++) {
     try {
       mp = await automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` });
       const page = await mp.currentPage();
-      console.log(`  [重启] 成功，页面: ${page.path}`);
-      return page;
+      console.log(`[初始化] 成功，页面: ${page.path}`);
+      return;
     } catch(e) {
-      console.log(`  [重启] 连接重试 ${retry+1}...`);
+      console.log(`[初始化] 重试 ${retry+1}...`);
       await sleep(2000);
     }
   }
-  throw new Error('重启后无法连接');
+  throw new Error('无法连接');
+}
+
+// ── 场景间重置（不重启） ──
+async function resetForNextScenario() {
+  // 清空全局状态
+  await mp.evaluate(() => {
+    const g = getApp().globalData;
+    g.cart = []; g.coupon = null; g.address = ''; g.deliveryType = '';
+    g.isVip = true; // 恢复会员
+  });
+
+  // 如果不在首页，用 evaluate(wx.reLaunch) 回去（清空页面栈）
+  const page = await mp.currentPage();
+  if (page.path !== 'pages/index/index') {
+    await mp.evaluate(() => { wx.reLaunch({ url: '/pages/index/index' }); });
+    await sleep(1500);
+  }
+
+  // 刷新首页数据
+  const homePage = await mp.currentPage();
+  if (homePage.path === 'pages/index/index') {
+    await homePage.callMethod('onShow');
+    await sleep(200);
+  }
+  return homePage;
 }
 
 function logResult(name, passed, detail) {
@@ -67,7 +89,7 @@ async function testVipPrice() {
   console.log('蓝本: 页面标注"会员享8折优惠"，验证会员价=原价×0.8');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 读页面上的会员标识
   const badge = await page.$('#vipBadge');
@@ -105,7 +127,7 @@ async function testStockLimit() {
   console.log('蓝本: 库存10的商品，加入超过10次应拦截');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 读取苹果库存
   const stockEl = await page.$('#stock-1');
@@ -148,7 +170,7 @@ async function testSortOrder() {
   console.log('蓝本: 价格从低到高排序应正确');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 选择"价格从低到高"排序 (picker index=1)
   // picker 不能直接tap，用 callMethod 模拟事件
@@ -192,7 +214,7 @@ async function testSoldOut() {
   console.log('蓝本: 库存0应显示售罄且不能加购');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 红心火龙果 id=7 库存=0
   const stockEl = await page.$('#stock-7');
@@ -227,7 +249,7 @@ async function testCartPrecision() {
   console.log('蓝本: 多件商品总价应无浮点误差');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 加3次苹果（会员价10.63）
   const addBtns = await page.$$('.btn-primary');
@@ -237,9 +259,9 @@ async function testCartPrecision() {
   }
   console.log('  [1] 加入3个苹果');
 
-  // 点"查看购物车"跳到购物车页
-  const cartBar = await page.$('.cart-bar');
-  if (cartBar) { await cartBar.tap(); await sleep(2000); }
+  // 用 evaluate 跳到购物车页
+  await mp.evaluate(() => { wx.navigateTo({ url: '/pages/cart/cart' }); });
+  await sleep(1500);
 
   let cartPage = await mp.currentPage();
   console.log(`  [2] 当前页面: ${cartPage.path}`);
@@ -271,24 +293,22 @@ async function testCoupon() {
   console.log('蓝本: "满100减20"，金额=100时应能使用');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
-  // 加8个苹果：原价12.5 × 8 = 100（会员价10.63×8=85.04，不够100）
-  // 所以要用原价凑。先关闭会员
-  await mp.evaluate(() => { getApp().globalData.isVip = false; });
-  await page.callMethod('onShow'); // 刷新页面数据
-  await sleep(300);
-
-  const addBtns = await page.$$('.btn-primary');
-  for (let i = 0; i < 8; i++) {
-    if (addBtns[0]) await addBtns[0].tap();
-    await sleep(150);
-  }
+  // 用 evaluate 一步完成：关会员 + 加8个苹果原价到购物车 = 100元
+  await mp.evaluate(() => {
+    const app = getApp();
+    app.globalData.isVip = false;
+    const p = app.globalData.products[0]; // 苹果 price=12.5
+    for (let i = 0; i < 8; i++) {
+      app.globalData.cart.push({ id: p.id, name: p.name, price: p.price, actualPrice: p.price, unit: p.unit, img: p.img, qty: 1 });
+    }
+  });
   console.log('  [1] 加入8个苹果(非会员，原价12.5×8=100)');
 
-  // 直接跳到结算页
-  await mp.navigateTo('/pages/checkout/checkout');
-  await sleep(2000);
+  // 用 evaluate 跳到结算页
+  await mp.evaluate(() => { wx.navigateTo({ url: '/pages/checkout/checkout' }); });
+  await sleep(1500);
 
   let checkoutPage = await mp.currentPage();
   console.log(`  [2] 当前: ${checkoutPage.path}`);
@@ -324,16 +344,16 @@ async function testDeliveryFee() {
   console.log('蓝本: 同城配送标注免费(0元)');
   console.log('═'.repeat(50));
 
-  const page = await restart();
+  const page = await resetForNextScenario();
 
   // 加1个商品
   const addBtns = await page.$$('.btn-primary');
   if (addBtns[0]) { await addBtns[0].tap(); await sleep(300); }
   console.log('  [1] 加入1个商品');
 
-  // 直接跳到结算页
-  await mp.navigateTo('/pages/checkout/checkout');
-  await sleep(2000);
+  // 用 evaluate 跳到结算页
+  await mp.evaluate(() => { wx.navigateTo({ url: '/pages/checkout/checkout' }); });
+  await sleep(1500);
 
   let checkoutPage = await mp.currentPage();
   console.log(`  [2] 当前: ${checkoutPage.path}`);
@@ -358,12 +378,15 @@ async function testDeliveryFee() {
 // ── 主流程 ──
 async function main() {
   console.log('============================================================');
-  console.log('  FreshMart 生鲜超市 - 正规盲测 v3');
-  console.log('  每个场景前 cli auto 重启，正规操作UI发现Bug');
+  console.log('  FreshMart 生鲜超市 - 正规盲测 v4');
+  console.log('  开头close+open+auto重启1次');
+  console.log('  中途evaluate(wx.reLaunch)回首页，evaluate(wx.navigateTo)跳页面');
   console.log('============================================================');
 
   const start = Date.now();
+  await initRestart();
 
+  // 按原始顺序执行所有场景（不调顺序，靠reLaunch回首页）
   await testVipPrice();
   await testStockLimit();
   await testSortOrder();

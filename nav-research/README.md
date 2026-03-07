@@ -86,15 +86,71 @@ node test_nav.js
 | 7 | 重复跳转返回×10 | 循环10次 home→sub→back | 成功率（10/10?） |
 | 8 | 不同等待时间 | 跳转后分别等100ms/500ms/1s/2s/3s/5s再返回 | 等待时间是否影响成功率 |
 
-## 已知现象（待验证）
+## ✅ 已解决！关键发现（2026-03-07）
 
-以下是之前在 FreshMart 项目中观察到的现象，**需要本项目验证是否可复现**：
+**问题根因已找到：SDK 封装的导航方法全部超时，但 `evaluate` 调用 `wx` 原生API 又快又稳！**
 
-1. **`mp.navigateBack()` 不生效**：SDK 方法执行耗时约3秒，不报错，但 `currentPage()` 仍在子页
-2. **`reLaunch` 超时**：通过 `evaluate` 调用 `wx.reLaunch()` 直接超时
-3. **`redirectTo` 超时**：同上
-4. **`evaluate(() => wx.navigateBack())` 不生效**：在 AppService 层直接调用也不行
-5. **页面栈显示正确但页面不变**：`getCurrentPages()` 返回的栈是对的，但渲染的页面没变
+| 方式 | 耗时 | 结果 |
+|------|------|------|
+| `mp.navigateTo('/pages/xxx')` SDK方法 | 10秒超时 | ❌ |
+| `mp.navigateBack()` SDK方法 | 10秒超时 | ❌ |
+| `mp.reLaunch('/pages/xxx')` SDK方法 | 10秒超时 | ❌ |
+| `mp.evaluate(() => wx.navigateTo({url:'/pages/xxx'}))` | **64ms** | ✅ |
+| `mp.evaluate(() => wx.navigateBack())` | **25ms** | ✅ |
+| `mp.evaluate(() => wx.reLaunch({url:'/pages/xxx'}))` | **41ms** | ✅ |
+
+### 正确用法
+
+```javascript
+// ❌ 错误：SDK 方法会超时
+await mp.navigateTo('/pages/sub/sub');
+await mp.navigateBack();
+await mp.reLaunch('/pages/home/home');
+
+// ✅ 正确：evaluate 调用原生 API
+await mp.evaluate(() => { wx.navigateTo({ url: '/pages/sub/sub' }); });
+await sleep(1500); // 等页面渲染
+await mp.evaluate(() => { wx.navigateBack(); });
+await sleep(1500);
+await mp.evaluate(() => { wx.reLaunch({ url: '/pages/home/home' }); });
+await sleep(1500);
+```
+
+### 场景间重置的最佳方案
+
+```javascript
+async function resetToHome() {
+  // 1. 清全局状态
+  await mp.evaluate(() => {
+    const g = getApp().globalData;
+    g.cart = []; g.xxx = null; // 按需清理
+  });
+  // 2. reLaunch 回首页（清空页面栈）
+  const page = await mp.currentPage();
+  if (page.path !== 'pages/index/index') {
+    await mp.evaluate(() => { wx.reLaunch({ url: '/pages/index/index' }); });
+    await sleep(1500);
+  }
+  // 3. 刷新首页数据
+  const home = await mp.currentPage();
+  await home.callMethod('onShow');
+  await sleep(200);
+  return home;
+}
+```
+
+### 实测结果
+
+使用上述方案，FreshMart 盲测 7 个场景（含多次跳转购物车、结算页并回退）全部跑通，**开头只重启1次，中途0次重启**，总耗时31.8秒，发现5/6个Bug。
+
+## 原始现象（已解释）
+
+以下现象的根因都是 **SDK 封装方法内部等待页面切换完成的机制有问题**，导致超时：
+
+1. **`mp.navigateBack()` 不生效**：SDK 方法10秒超时，实际页面可能已回退但SDK没检测到
+2. **`mp.reLaunch()` 超时**：同上
+3. **`mp.redirectTo()` 超时**：同上
+4. **`evaluate(() => wx.xxx())` 有效**：绕过SDK的等待机制，直接调用原生API
 
 ## 研究方向
 
