@@ -12,6 +12,8 @@ from src.mcp_server import (
     check_engine_health,
     generate_blueprint_template,
     get_test_report,
+    run_miniprogram_test,
+    run_desktop_test,
 )
 
 
@@ -179,3 +181,126 @@ class TestHttpHelpers:
         status, text = _http_post_json("http://localhost:8900/api", {"key": "val"})
         assert status == 200
         assert "ok" in text
+
+
+# ── run_miniprogram_test ──
+
+class TestRunMiniprogramTest:
+    def test_blueprint_not_found(self):
+        result = run_miniprogram_test(
+            blueprint_path="D:/not_exist/testpilot.json",
+        )
+        assert "不存在" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_success(self, mock_post):
+        mock_post.return_value = (200, json.dumps({
+            "test_name": "小程序测试",
+            "url": "miniprogram://demo",
+            "total_steps": 4,
+            "passed_steps": 3,
+            "failed_steps": 1,
+            "bug_count": 1,
+            "pass_rate": 75,
+            "duration_seconds": 5.0,
+            "report_markdown": "## 小程序测试\n- Bug1",
+        }))
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_miniprogram_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "小程序测试报告" in result
+        assert "75%" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_api_error(self, mock_post):
+        mock_post.return_value = (500, "Internal Error")
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_miniprogram_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "失败" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_connection_error(self, mock_post):
+        mock_post.side_effect = ConnectionError("refused")
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_miniprogram_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "无法连接" in result
+
+
+# ── run_desktop_test ──
+
+class TestRunDesktopTest:
+    def test_blueprint_not_found(self):
+        result = run_desktop_test(
+            blueprint_path="D:/not_exist/testpilot.json",
+        )
+        assert "不存在" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_success(self, mock_post):
+        mock_post.return_value = (200, json.dumps({
+            "test_name": "桌面测试",
+            "url": "desktop://App",
+            "total_steps": 6,
+            "passed_steps": 6,
+            "failed_steps": 0,
+            "bug_count": 0,
+            "pass_rate": 100,
+            "duration_seconds": 3.0,
+            "report_markdown": "",
+        }))
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_desktop_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "桌面应用测试报告" in result
+        assert "100%" in result
+        assert "所有测试通过" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_with_window_title(self, mock_post):
+        mock_post.return_value = (200, json.dumps({
+            "test_name": "桌面测试",
+            "url": "desktop://App",
+            "total_steps": 2,
+            "passed_steps": 1,
+            "failed_steps": 1,
+            "bug_count": 1,
+            "pass_rate": 50,
+            "duration_seconds": 2.0,
+            "report_markdown": "## Bug\n- 按钮点击无响应",
+        }))
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_desktop_test(
+                blueprint_path=f.name,
+                window_title="TestPilot AI",
+            )
+        os.unlink(f.name)
+        assert "50%" in result
+        assert "请修复" in result
+
+    @patch("src.mcp_server._http_post_json")
+    def test_connection_error(self, mock_post):
+        mock_post.side_effect = ConnectionError("refused")
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"app_name": "test"}, f)
+            f.flush()
+            result = run_desktop_test(blueprint_path=f.name)
+        os.unlink(f.name)
+        assert "无法连接" in result

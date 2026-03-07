@@ -1,0 +1,42 @@
+{
+  "app_name": "TestPilot AI Desktop",
+  "base_url": "desktop://TestPilot AI",
+  "version": "1.0",
+  "platform": "desktop",
+  "pages": [
+    {
+      "url": "/",
+      "title": "仪表盘",
+      "elements": {
+        "侧边栏-测试面板": "测试面板",
+        "侧边栏-历史记录": "历史记录",
+        "侧边栏-设置": "设置",
+        "引擎状态": "引擎状态"
+      },
+      "scenarios": [
+        {
+          "name": "应用启动验证",
+          "description": "验证桌面应用正常启动并显示仪表盘",
+          "steps": [
+            {"action": "screenshot", "expected": "应用窗口正常显示，包含侧边栏和主内容区"},
+            {"action": "assert_text", "target": "仪表盘", "expected": "显示仪表盘页面标题"}
+          ]
+        },
+        {
+          "name": "页面导航",
+          "description": "验证侧边栏导航切换各页面",
+          "steps": [
+            {"action": "click", "target": "测试面板"},
+            {"action": "screenshot", "expected": "显示测试面板页面"},
+            {"action": "click", "target": "历史记录"},
+            {"action": "screenshot", "expected": "显示历史记录页面"},
+            {"action": "click", "target": "设置"},
+            {"action": "screenshot", "expected": "显示设置页面"},
+            {"action": "click", "target": "仪表盘"},
+            {"action": "screenshot", "expected": "回到仪表盘页面"}
+          ]
+        }
+      ]
+    }
+  ]
+}
