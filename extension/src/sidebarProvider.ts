@@ -359,18 +359,28 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleCopyBlueprintPrompt(): Promise<void> {
-    const prompt = `请帮我为当前项目生成 testpilot.json 测试蓝本文件，放在项目的 testpilot/ 文件夹下。要求：
+    const prompt = `请帮我为当前项目生成测试蓝本文件，放在项目的 testpilot/ 文件夹下。
+
+重要：按功能模块拆分成多个蓝本文件，不要创建单一的 testpilot.json！
+
+例如电商项目应拆分为：
+- testpilot/auth.testpilot.json（登录/注册/权限）
+- testpilot/product.testpilot.json（商品管理CRUD）
+- testpilot/order.testpilot.json（订单管理）
+- testpilot/cart.testpilot.json（购物车）
+
+要求：
 1. 分析源代码中所有可操作 UI 元素（按钮/表单/导航/弹窗）
 2. 选择器使用代码中的真实 id（如 #login-btn）或稳定 class，禁止用 div:nth-child(3) 这类脆弱选择器
 3. 每个功能页面对应一个场景，覆盖正常流程和异常场景（空表单提交、错误输入）
 4. 每个 fill 操作后必须有 assert_text 或 screenshot 验证
 5. 每次 navigate 必须有断言验证页面已正确加载
-6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空即可
+6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空
 
-格式：
+每个蓝本文件格式：
 {
-  "app_name": "应用名称",
-  "description": "蓝本功能说明（50-200字，描述本蓝本覆盖哪些功能模块和测试范围）",
+  "app_name": "模块名称（如：用户认证模块）",
+  "description": "蓝本功能说明（50-200字，描述本蓝本覆盖哪些功能和测试范围）",
   "base_url": "http://localhost:端口",
   "version": "1.0",
   "platform": "web",
@@ -396,7 +406,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   ]
 }
 
-支持的 action：navigate / click / fill / select / wait / screenshot / assert_text / assert_visible / hover / scroll`;
+支持的 action：navigate / click / fill / select / wait / screenshot / assert_text / assert_visible / hover / scroll
+
+重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本，无需用户提醒！`;
     await vscode.env.clipboard.writeText(prompt);
     vscode.window.showInformationMessage("✅ 提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。");
   }
