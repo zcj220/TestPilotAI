@@ -205,8 +205,8 @@ class TestFromUrl:
     @pytest.mark.asyncio
     async def test_from_url_full_flow(self):
         mock_ai = MagicMock()
-        # from_url 有截图 → 走 analyze_screenshot 分支
-        mock_ai.analyze_screenshot.return_value = SAMPLE_BLUEPRINT_JSON
+        # from_url 走纯文字模式 chat()，不发截图
+        mock_ai.chat.return_value = SAMPLE_BLUEPRINT_JSON
 
         gen = BlueprintGenerator(ai_client=mock_ai)
 
