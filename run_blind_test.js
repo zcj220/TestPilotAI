@@ -66,16 +66,50 @@ async function resetForNextScenario() {
   const page = await mp.currentPage();
   if (page.path !== 'pages/index/index') {
     await mp.evaluate(() => { wx.reLaunch({ url: '/pages/index/index' }); });
-    await sleep(1500);
+    await sleep(2000);
   }
 
-  // 刷新首页数据
+  // 刷新首页数据，重试直到页面渲染完成
   const homePage = await mp.currentPage();
   if (homePage.path === 'pages/index/index') {
     await homePage.callMethod('onShow');
-    await sleep(200);
+    await sleep(1000);
+    // 等待商品列表渲染（最多重试3次，每次多等1秒）
+    for (let i = 0; i < 3; i++) {
+      const els = await homePage.$$('.product');
+      if (els.length > 0) break;
+      console.log(`  [重置] 页面未渲染完，等待重试 ${i+1}/3...`);
+      await sleep(1500);
+      await homePage.callMethod('onShow');
+      await sleep(1000);
+    }
   }
   return homePage;
+}
+
+// ── 带重试的元素查找 ──
+async function findWithRetry(page, selector, maxRetry = 3, waitMs = 1500) {
+  for (let i = 0; i < maxRetry; i++) {
+    const els = await page.$$(selector);
+    if (els.length > 0) return els;
+    if (i < maxRetry - 1) {
+      console.log(`  [重试] "${selector}" 找到0个元素，等${waitMs}ms后重试 ${i+1}/${maxRetry}...`);
+      await sleep(waitMs);
+    }
+  }
+  return [];
+}
+
+async function findOneWithRetry(page, selector, maxRetry = 3, waitMs = 1500) {
+  for (let i = 0; i < maxRetry; i++) {
+    const el = await page.$(selector);
+    if (el) return el;
+    if (i < maxRetry - 1) {
+      console.log(`  [重试] "${selector}" 未找到，等${waitMs}ms后重试 ${i+1}/${maxRetry}...`);
+      await sleep(waitMs);
+    }
+  }
+  return null;
 }
 
 async function screenshot(name) {
@@ -475,7 +509,7 @@ async function testListOverflow() {
 
   // 检查商品数量是否和数据一致
   const productCount = await mp.evaluate(() => getApp().globalData.products.length);
-  const productEls = await page.$$('.product-item');
+  const productEls = await findWithRetry(page, '.product');
   const renderedCount = productEls.length;
   console.log(`  [1] 数据: ${productCount}个商品，页面渲染: ${renderedCount}个`);
 
@@ -576,11 +610,11 @@ async function testSearch() {
   await page.callMethod('onSearch', { detail: { value: '苹果' } });
   await sleep(500);
 
-  const productEls = await page.$$('.product-item');
+  const productEls = await findWithRetry(page, '.product');
   console.log(`  [1] 搜索"苹果"，结果: ${productEls.length}个`);
 
   // 所有结果名称都应包含"苹果"
-  const nameEls = await page.$$('.p-name');
+  const nameEls = await findWithRetry(page, '.p-name');
   let mismatch = 0;
   for (const el of nameEls) {
     const text = await el.text();
@@ -611,7 +645,7 @@ async function testCategoryFilter() {
   const page = await resetForNextScenario();
 
   // 获取所有分类标签
-  const catEls = await page.$$('.cat-tag');
+  const catEls = await findWithRetry(page, '.cat-tag');
   const catCount = catEls.length;
   console.log(`  [1] 分类数量: ${catCount}`);
 
@@ -623,13 +657,13 @@ async function testCategoryFilter() {
     const catText = await catEls[1].text();
     console.log(`  [2] 选择分类: "${catText}"`);
 
-    const productEls = await page.$$('.product-item');
+    const productEls = await findWithRetry(page, '.product');
     console.log(`  [3] 筛选后商品数: ${productEls.length}`);
 
     // 再点"全部"恢复
     await catEls[0].tap();
     await sleep(500);
-    const allProducts = await page.$$('.product-item');
+    const allProducts = await findWithRetry(page, '.product');
     console.log(`  [4] 全部商品数: ${allProducts.length}`);
 
     if (productEls.length < allProducts.length && productEls.length > 0) {
