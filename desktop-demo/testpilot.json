@@ -1,5 +1,6 @@
 {
   "app_name": "TestPilot AI Desktop",
+  "description": "桌面应用测试：验证应用启动、侧边栏导航切换（仪表盘/测试面板/历史记录/设置）页面正常显示",
   "base_url": "desktop://TestPilot AI",
   "version": "1.0",
   "platform": "desktop",

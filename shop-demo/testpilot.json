@@ -1,5 +1,6 @@
 {
   "app_name": "ShopAdmin 电商后台（含4个Bug）",
+  "description": "电商后台管理系统测试：登录验证、仪表盘统计、商品管理CRUD、订单管理、用户管理，含4个预埋Bug验证",
   "base_url": "http://localhost:8900/preview/shop-demo/",
   "version": "1.0",
   "pages": [

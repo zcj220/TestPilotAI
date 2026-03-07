@@ -1,5 +1,6 @@
 {
   "app_name": "BuggyShop 测试商城",
+  "description": "测试商城闭环验证：商品浏览、加入购物车、数量修改、总价计算、结算流程，含预埋Bug用于fix-test-fix闭环演示",
   "base_url": "http://localhost:8901",
   "pages": [
     {

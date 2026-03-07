@@ -1,5 +1,6 @@
 {
   "app_name": "Todo + 购物清单（v1.3全面测试）",
+  "description": "测试Todo待办和购物清单的核心功能：添加/删除/完成待办项、购物清单增删改、数据持久化、表单验证等",
   "base_url": "http://localhost:8900/preview/demo-app/",
   "version": "1.3",
   "pages": [

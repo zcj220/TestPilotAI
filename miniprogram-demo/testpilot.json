@@ -1,5 +1,6 @@
 {
   "app_name": "BuggyMini 测试小程序",
+  "description": "微信小程序测试：商品列表、加入购物车价格一致性、总价浮点精度、空购物车跳转提示、大金额结算，含4个预埋Bug",
   "base_url": "miniprogram://D:/projects/TestPilotAI/miniprogram-demo",
   "version": "1.0",
   "platform": "miniprogram",

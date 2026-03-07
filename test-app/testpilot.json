@@ -1,5 +1,6 @@
 {
   "app_name": "订单管理系统（带Bug测试）",
+  "description": "订单管理系统测试：订单列表展示、状态筛选、金额计算、订单详情查看，含预埋Bug用于验证测试闭环",
   "base_url": "http://localhost:8900/preview/test-app/",
   "version": "1.0",
   "pages": [
