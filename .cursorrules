@@ -1,0 +1,13 @@
+# TestPilot AI - 项目编码规范
+
+## 蓝本文件（testpilot.json）管理规则
+
+当你需要为某个被测应用生成或修改测试蓝本时，**必须遵守以下规则**：
+
+1. **只允许存在一个蓝本文件**：每个被测应用目录下只保留一个 `testpilot.json`。
+2. **更新而非新建**：若该目录已存在 `testpilot.json`，直接覆盖更新，**不得**创建 `testpilot_v2.json`、`testpilot_new.json`、`testpilot_backup.json` 等任何变体文件。
+3. **文件放置位置**：蓝本文件必须放在被测应用的**根目录**，固定命名为 `testpilot.json`。
+   - ✅ 正确：`shop-demo/testpilot.json`
+   - ❌ 错误：`shop-demo/testpilot_v2.json`、`shop-demo/blueprints/test.json`
+
+这样 TestPilot AI 插件才能自动扫描并选中正确的蓝本。

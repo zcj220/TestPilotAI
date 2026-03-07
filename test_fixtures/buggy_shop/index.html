@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <title>BuggyShop - 有Bug的商城</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; background: #f5f5f5; padding: 8px; }
+    h1 { text-align: center; margin-bottom: 8px; color: #333; font-size: 18px; }
+    .product { background: white; border-radius: 6px; padding: 8px 12px; margin-bottom: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 12px; }
+    .product h3 { margin-bottom: 0; font-size: 14px; }
+    .price { color: #e44; font-size: 18px; font-weight: bold; }
+    .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; margin: 4px; font-size: 14px; }
+    .btn-buy { background: #4CAF50; color: white; }
+    .btn-cart { background: #2196F3; color: white; }
+    .btn-checkout { background: #FF9800; color: white; font-size: 16px; padding: 12px 24px; }
+    #cart { background: white; border-radius: 6px; padding: 10px; margin-top: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    #cart h2 { margin-bottom: 6px; font-size: 16px; }
+    .cart-item { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #eee; }
+    #total { font-size: 18px; font-weight: bold; margin: 8px 0; color: #333; }
+    #message { padding: 10px; margin-top: 8px; border-radius: 4px; display: none; }
+    .success { background: #e8f5e9; color: #2e7d32; display: block !important; }
+    .error { background: #fce4ec; color: #c62828; display: block !important; }
+    #login-form { background: white; border-radius: 6px; padding: 8px 12px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    #login-form h3 { font-size: 14px; }
+    #login-form input { padding: 6px; border: 1px solid #ddd; border-radius: 4px; }
+    #user-info { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>🛒 BuggyShop 测试商城</h1>
+
+  <!-- 登录区 -->
+  <div id="login-form">
+    <h3>用户登录</h3>
+    <input id="username" placeholder="用户名" value="" />
+    <input id="password" type="password" placeholder="密码" value="" />
+    <button class="btn btn-buy" onclick="doLogin()">登录</button>
+    <div id="user-info"></div>
+  </div>
+
+  <!-- 商品列表 -->
+  <div class="product" data-id="1">
+    <h3>无线蓝牙耳机</h3>
+    <span class="price" id="price-1">¥299</span>
+    <button class="btn btn-cart" onclick="addToCart(1, '无线蓝牙耳机', 299)">加入购物车</button>
+  </div>
+  <div class="product" data-id="2">
+    <h3>机械键盘</h3>
+    <!-- BUG 1: 显示价格和实际价格不一致 -->
+    <span class="price" id="price-2">¥199</span>
+    <button class="btn btn-cart" onclick="addToCart(2, '机械键盘', 199)">加入购物车</button>
+  </div>
+  <div class="product" data-id="3">
+    <h3>USB-C 扩展坞</h3>
+    <span class="price" id="price-3">¥159</span>
+    <button class="btn btn-cart" onclick="addToCart(3, 'USB-C 扩展坞', 159)">加入购物车</button>
+  </div>
+
+  <!-- 购物车 -->
+  <div id="cart">
+    <h2>购物车</h2>
+    <div id="cart-items"></div>
+    <div id="total">总计: ¥0</div>
+    <button class="btn btn-checkout" onclick="checkout()">结算</button>
+  </div>
+
+  <div id="message"></div>
+
+<script>
+  let cart = [];
+  let loggedIn = false;
+  let username = '';
+
+  function doLogin() {
+    const user = document.getElementById('username').value;
+    const pass = document.getElementById('password').value;
+
+    if (user && pass) {
+      loggedIn = true;
+      username = user;
+      document.getElementById('user-info').textContent = '欢迎, ' + user;
+      document.getElementById('user-info').className = 'success';
+    } else {
+      document.getElementById('user-info').textContent = '请输入用户名和密码';
+      document.getElementById('user-info').className = 'error';
+    }
+  }
+
+  function addToCart(id, name, price) {
+    // BUG 3: 没有检查重复，同一商品可以无限添加
+    cart.push({ id, name, price });
+    renderCart();
+  }
+
+  function renderCart() {
+    const container = document.getElementById('cart-items');
+    container.innerHTML = '';
+    let total = 0;
+    cart.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'cart-item';
+      div.innerHTML = `<span>${item.name}</span><span>¥${item.price}</span>`;
+      container.appendChild(div);
+      total += item.price;
+    });
+    document.getElementById('total').textContent = '总计: ¥' + Math.round(total);
+  }
+
+  function checkout() {
+    const msg = document.getElementById('message');
+
+    if (cart.length === 0) {
+      msg.textContent = '购物车为空';
+      msg.className = 'error';
+      return;
+    }
+
+    if (!loggedIn) {
+      msg.textContent = '请先登录后再结算';
+      msg.className = 'error';
+      return;
+    }
+
+    let total = 0;
+    cart.forEach(item => total += item.price);
+
+
+    msg.textContent = '订单提交成功！总计 ¥' + total + '，感谢 ' + (username || '游客') + ' 的购买！';
+    msg.className = 'success';
+    cart = [];
+    renderCart();
+  }
+</script>
+</body>
+</html>

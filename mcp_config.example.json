@@ -1,0 +1,9 @@
+{
+  "// 说明": "将 testpilot 配置添加到 ~/.codeium/windsurf/mcp_config.json 的 mcpServers 中",
+  "// 路径": "修改下面的路径为实际项目路径",
+  "testpilot": {
+    "command": "D:\\projects\\TestPilotAI\\.venv\\Scripts\\python.exe",
+    "args": ["D:\\projects\\TestPilotAI\\run_mcp.py"],
+    "env": {}
+  }
+}

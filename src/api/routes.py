@@ -1,0 +1,1861 @@
+"""
+FastAPI 路由定义
+
+提供 RESTful API 端点：
+- /health: 健康检查
+- /sandbox/*: 沙箱管理（创建/状态/执行命令/日志/销毁）
+- /browser/*: 浏览器操作（启动/导航/点击/输入/截图/关闭）
+"""
+
+import json
+
+from fastapi import APIRouter, HTTPException
+from loguru import logger
+
+from src.api.models import (
+    BrowserResponse,
+    ClickRequest,
+    CommandResponse,
+    CreateSandboxRequest,
+    ExecCommandRequest,
+    ExploreRequest,
+    FillRequest,
+    GenerateBlueprintRequest,
+    GenerateBlueprintResponse,
+    HealthResponse,
+    NavigateRequest,
+    RunBlueprintRequest,
+    RunMobileBlueprintRequest,
+    RunTestRequest,
+    SandboxResponse,
+    ScreenshotRequest,
+    TestReportResponse,
+)
+from src.api.vnc import live_view
+from src.api.websocket import ws_manager
+from src.browser.automator import BrowserAutomator
+from src.core.ai_client import AIClient
+from src.core.exceptions import BrowserError, SandboxError
+from src.memory.store import MemoryStore
+from src.sandbox.manager import SandboxManager
+from src.testing.blueprint import BlueprintParser
+from src.testing.blueprint_runner import BlueprintRunner
+from src.testing.controller import test_controller
+from src.testing.cross_validator import CrossValidator
+from src.testing.explorer import PageExplorer
+from src.testing.process_runner import process_runner
+from src.testing.orchestrator import TestOrchestrator
+
+
+def _auto_preview_url(base_url: str, blueprint_path: str) -> str:
+    """自动将蓝本的 base_url 转为引擎内置的 preview URL。
+
+    如果 blueprint 所在目录是引擎工作区的子目录（含 index.html），
+    就生成 /preview/{dirname}/ 形式的 URL，无需用户手动启动静态服务器。
+    """
+    import socket
+    from pathlib import Path
+    from urllib.parse import urlparse
+    from src.core.config import get_config
+
+    if not base_url or not blueprint_path:
+        return base_url
+
+    # 解析当前 base_url 的端口，检查是否可达
+    parsed = urlparse(base_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port
+
+    if port:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.5)
+            if s.connect_ex((host, port)) == 0:
+                s.close()
+                return base_url  # 端口可达，不改
+            s.close()
+        except OSError:
+            pass
+
+    # 端口不可达 → 看蓝本所在目录是否在工作区中
+    bp_path = Path(blueprint_path).resolve()
+    app_dir = bp_path.parent
+    project_root = Path(__file__).resolve().parent.parent.parent
+
+    # 确保是工作区子目录且含 index.html
+    try:
+        app_dir.relative_to(project_root)
+    except ValueError:
+        return base_url
+
+    if not (app_dir / "index.html").exists():
+        return base_url
+
+    cfg = get_config()
+    engine_port = cfg.server.port
+    preview_url = f"http://localhost:{engine_port}/preview/{app_dir.name}/"
+    logger.info(
+        "自动切换 base_url: {} → {}（原端口不可达）",
+        base_url, preview_url,
+    )
+    return preview_url
+
+
+def create_router(
+    sandbox_manager: SandboxManager,
+    browser_automator: BrowserAutomator,
+    ai_client: AIClient | None = None,
+    memory_store: MemoryStore | None = None,
+) -> APIRouter:
+    """创建 API 路由器。
+
+    Args:
+        sandbox_manager: 沙箱管理器实例
+        browser_automator: 浏览器自动化引擎实例
+        ai_client: AI 客户端实例（可选，测试任务需要）
+        memory_store: 记忆存储实例（可选，测试历史需要）
+
+    Returns:
+        APIRouter: 配置好的路由器
+    """
+    router = APIRouter()
+
+    # ── 健康检查 ──────────────────────────────────────
+
+    @router.get("/health", response_model=HealthResponse, tags=["系统"])
+    async def health_check() -> HealthResponse:
+        """服务健康检查。"""
+        from src import __version__
+        return HealthResponse(
+            status="healthy",
+            version=__version__,
+            sandbox_count=len(sandbox_manager.list_sandboxes()),
+            browser_ready=browser_automator._page is not None,
+        )
+
+    @router.get("/preview/apps", tags=["系统"])
+    async def list_preview_apps() -> list[dict]:
+        """列出可预览的被测应用。
+
+        返回项目中含 testpilot.json 的目录，及其对应的预览 URL。
+        """
+        from pathlib import Path
+        from src.core.config import get_config
+        cfg = get_config()
+        port = cfg.server.port
+        root = Path(__file__).resolve().parent.parent.parent
+        apps = []
+        for child in sorted(root.iterdir()):
+            bp_file = child / "testpilot.json"
+            if child.is_dir() and bp_file.exists():
+                apps.append({
+                    "name": child.name,
+                    "path": str(child),
+                    "blueprint": str(bp_file),
+                    "preview_url": f"http://localhost:{port}/preview/{child.name}/",
+                })
+        return apps
+
+    # ── 沙箱管理 ──────────────────────────────────────
+
+    @router.post("/sandbox/create", response_model=SandboxResponse, tags=["沙箱"])
+    async def create_sandbox(req: CreateSandboxRequest) -> SandboxResponse:
+        """创建并启动测试沙箱。"""
+        try:
+            sid = sandbox_manager.create(req.project_path, req.app_port)
+            status = sandbox_manager.get_status(sid)
+            return SandboxResponse(sandbox_id=sid, message="沙箱创建成功", status=status)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except SandboxError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/sandbox/{sandbox_id}/status", response_model=SandboxResponse, tags=["沙箱"])
+    async def get_sandbox_status(sandbox_id: str) -> SandboxResponse:
+        """获取沙箱状态。"""
+        try:
+            status = sandbox_manager.get_status(sandbox_id)
+            return SandboxResponse(sandbox_id=sandbox_id, message="查询成功", status=status)
+        except SandboxError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @router.post("/sandbox/{sandbox_id}/exec", response_model=CommandResponse, tags=["沙箱"])
+    async def exec_in_sandbox(sandbox_id: str, req: ExecCommandRequest) -> CommandResponse:
+        """在沙箱内执行命令。"""
+        try:
+            exit_code, output = sandbox_manager.exec_command(
+                sandbox_id, req.command, req.workdir,
+            )
+            return CommandResponse(exit_code=exit_code, output=output)
+        except SandboxError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/sandbox/{sandbox_id}/logs", tags=["沙箱"])
+    async def get_sandbox_logs(sandbox_id: str, tail: int = 100) -> dict:
+        """获取沙箱日志。"""
+        try:
+            logs = sandbox_manager.get_logs(sandbox_id, tail=tail)
+            return {"sandbox_id": sandbox_id, "logs": logs}
+        except SandboxError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+
+    @router.delete("/sandbox/{sandbox_id}", response_model=SandboxResponse, tags=["沙箱"])
+    async def destroy_sandbox(sandbox_id: str) -> SandboxResponse:
+        """销毁沙箱。"""
+        try:
+            sandbox_manager.destroy(sandbox_id)
+            return SandboxResponse(sandbox_id=sandbox_id, message="沙箱已销毁")
+        except SandboxError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/sandbox", tags=["沙箱"])
+    async def list_sandboxes() -> list[dict]:
+        """列出所有活跃沙箱。"""
+        return sandbox_manager.list_sandboxes()
+
+    # ── 浏览器操作 ────────────────────────────────────
+
+    @router.post("/browser/launch", response_model=BrowserResponse, tags=["浏览器"])
+    async def launch_browser(cdp_url: str = "") -> BrowserResponse:
+        """启动浏览器（本地或连接远程）。"""
+        try:
+            await browser_automator.launch(cdp_url=cdp_url or None)
+            return BrowserResponse(success=True, message="浏览器已启动")
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/browser/navigate", response_model=BrowserResponse, tags=["浏览器"])
+    async def navigate(req: NavigateRequest) -> BrowserResponse:
+        """导航到指定 URL。"""
+        try:
+            await browser_automator.navigate(req.url, req.wait_until)
+            current_url = await browser_automator.get_current_url()
+            title = await browser_automator.page.title()
+            return BrowserResponse(
+                success=True,
+                message="导航成功",
+                data={"url": current_url, "title": title},
+            )
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/browser/click", response_model=BrowserResponse, tags=["浏览器"])
+    async def click(req: ClickRequest) -> BrowserResponse:
+        """点击页面元素。"""
+        try:
+            await browser_automator.click(req.selector)
+            return BrowserResponse(success=True, message=f"已点击: {req.selector}")
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/browser/fill", response_model=BrowserResponse, tags=["浏览器"])
+    async def fill(req: FillRequest) -> BrowserResponse:
+        """在输入框中填入文本。"""
+        try:
+            await browser_automator.fill(req.selector, req.text)
+            return BrowserResponse(success=True, message=f"已输入: {req.selector}")
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/browser/screenshot", response_model=BrowserResponse, tags=["浏览器"])
+    async def take_screenshot(req: ScreenshotRequest) -> BrowserResponse:
+        """截取页面截图。"""
+        try:
+            filepath = await browser_automator.screenshot(req.name, req.full_page)
+            return BrowserResponse(
+                success=True,
+                message="截图成功",
+                data={"path": str(filepath)},
+            )
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/browser/close", response_model=BrowserResponse, tags=["浏览器"])
+    async def close_browser() -> BrowserResponse:
+        """关闭浏览器。"""
+        await browser_automator.close()
+        return BrowserResponse(success=True, message="浏览器已关闭")
+
+    # ── 测试任务 ──────────────────────────────────────
+
+    @router.post("/test/run", response_model=TestReportResponse, tags=["测试"])
+    async def run_test(req: RunTestRequest) -> TestReportResponse:
+        """启动 AI 自动化测试任务。
+
+        完整流程：AI生成脚本 → 执行浏览器操作 → 截图分析 → Bug检测 → 生成报告
+        """
+        if ai_client is None:
+            raise HTTPException(
+                status_code=503,
+                detail="AI 客户端未配置，请设置 TP_AI_API_KEY 环境变量",
+            )
+
+        # 确保浏览器已启动
+        if browser_automator._page is None:
+            try:
+                await browser_automator.launch()
+            except BrowserError as e:
+                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+
+        orchestrator = TestOrchestrator(ai_client, browser_automator, memory_store)
+
+        try:
+            await ws_manager.send_log(f"开始测试: {req.url}")
+            report = await orchestrator.run_test(
+                url=req.url,
+                description=req.description,
+                focus=req.focus,
+                reasoning_effort=req.reasoning_effort,
+                auto_repair=req.auto_repair,
+                project_path=req.project_path,
+            )
+            await ws_manager.send_test_done(report.pass_rate, len(report.bugs))
+
+            # 构建响应
+            repair_summary = None
+            fixed_bug_count = None
+            if report.repair_report is not None:
+                repair_summary = report.repair_report.summary
+                fixed_bug_count = report.repair_report.fixed_bugs
+
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.pass_rate,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+                repair_summary=repair_summary,
+                fixed_bug_count=fixed_bug_count,
+            )
+        except Exception as e:
+            logger.error("测试任务执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"测试执行失败: {e}")
+
+    @router.post("/test/blueprint", response_model=TestReportResponse, tags=["测试"])
+    async def run_blueprint_test(req: RunBlueprintRequest) -> TestReportResponse:
+        """蓝本模式测试：按 testpilot.json 精确执行。
+
+        蓝本由编程AI生成，包含精确的CSS选择器和预期结果，
+        不需要测试AI猜测页面结构。
+        """
+        # 解析蓝本
+        try:
+            blueprint = BlueprintParser.parse_file(req.blueprint_path)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # 验证蓝本
+        issues = BlueprintParser.validate(blueprint)
+        if issues:
+            raise HTTPException(
+                status_code=400,
+                detail=f"蓝本验证失败: {'; '.join(issues)}",
+            )
+
+        # 覆盖 base_url
+        if req.base_url:
+            blueprint.base_url = req.base_url
+
+        # v10.1：自动推断 preview URL
+        # 如果蓝本在引擎工作区内（含 testpilot.json 的目录），
+        # 且 base_url 指向的外部端口不可达，自动切换到 /preview/{dir}/
+        blueprint.base_url = _auto_preview_url(
+            blueprint.base_url, req.blueprint_path,
+        )
+
+        # 确保浏览器已启动
+        if browser_automator._page is None:
+            try:
+                await browser_automator.launch()
+            except BrowserError as e:
+                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+
+        # 执行蓝本测试（v2.0：注入控制器 + 截图推送 + 步骤通知）
+        async def _on_screenshot(step: int, img_b64: str) -> None:
+            await ws_manager.send_screenshot(step, img_b64)
+
+        async def _on_step(step: int, status: str, desc: str) -> None:
+            if status == "start":
+                await ws_manager.send_step_start(step, desc)
+            else:
+                await ws_manager.send_step_done(step, status, desc)
+
+        runner = BlueprintRunner(
+            browser_automator, ai_client,
+            controller=test_controller,
+            on_screenshot=_on_screenshot,
+            on_step=_on_step,
+        )
+
+        try:
+            await ws_manager.send_log(f"蓝本测试开始: {blueprint.app_name}")
+            report = await runner.run(blueprint)
+            await ws_manager.send_test_done(
+                report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                len(report.bugs),
+            )
+
+            # v1.3：保存记忆（Bug模式提取）
+            if memory_store and report.bugs:
+                try:
+                    from src.memory.compressor import MemoryCompressor
+                    compressor = MemoryCompressor(memory_store)
+                    compressor.extract_from_report(report)
+                except Exception as mem_err:
+                    logger.warning("蓝本测试记忆提取失败: {}", mem_err)
+
+            from src.api.models import StepDetail, BugDetail
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+                steps=[
+                    StepDetail(
+                        step=r.step,
+                        action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                        description=r.description,
+                        status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                        duration_seconds=r.duration_seconds,
+                        error_message=r.error_message,
+                        screenshot_path=r.screenshot_path,
+                    )
+                    for r in report.step_results
+                ],
+                bugs=[
+                    BugDetail(
+                        severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                        title=b.title,
+                        description=b.description,
+                        category=b.category,
+                        location=b.location,
+                        step_number=b.step_number,
+                        screenshot_path=b.screenshot_path,
+                    )
+                    for b in report.bugs
+                ],
+            )
+        except Exception as e:
+            logger.error("蓝本测试执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"蓝本测试执行失败: {e}")
+
+    @router.post("/test/mobile-blueprint", response_model=TestReportResponse, tags=["测试"])
+    async def run_mobile_blueprint_test(req: RunMobileBlueprintRequest) -> TestReportResponse:
+        """手机蓝本测试：在真实 Android 设备上按蓝本执行。"""
+        from src.testing.blueprint import BlueprintParser
+        from src.testing.mobile_blueprint_runner import MobileBlueprintRunner
+
+        # 检查 session
+        if req.mobile_session_id not in _mobile_sessions:
+            raise HTTPException(
+                status_code=404,
+                detail=f"移动端 Session '{req.mobile_session_id}' 不存在，"
+                       "请先调用 /api/v1/mobile/session/create",
+            )
+        android_ctrl = _mobile_sessions[req.mobile_session_id]
+
+        # 解析蓝本
+        try:
+            blueprint = BlueprintParser.parse_file(req.blueprint_path)
+        except FileNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if req.base_url:
+            blueprint.base_url = req.base_url
+
+        async def _on_step(step: int, status: str, desc: str) -> None:
+            if status == "start":
+                await ws_manager.send_step_start(step, desc)
+            else:
+                await ws_manager.send_step_done(step, status, desc)
+
+        runner = MobileBlueprintRunner(
+            android_ctrl, ai_client, on_step=_on_step
+        )
+
+        try:
+            await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+            report = await runner.run(blueprint)
+            await ws_manager.send_test_done(
+                report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                len(report.bugs),
+            )
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+            )
+        except Exception as e:
+            logger.error("手机蓝本测试执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
+
+    # ── 快速探索（意外模式）───────────────────────────
+
+    @router.post("/test/explore", response_model=TestReportResponse, tags=["测试"])
+    async def explore_test(req: ExploreRequest) -> TestReportResponse:
+        """快速探索测试：AI自动发现可交互元素并快速操作。
+
+        不需要蓝本，Playwright自动发现按钮/输入框/链接，
+        快速依次操作并截图，最后批量交给AI分析。
+        """
+        # 确保浏览器已启动
+        if browser_automator._page is None:
+            try:
+                await browser_automator.launch()
+            except BrowserError as e:
+                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+
+        explorer = PageExplorer(browser_automator, ai_client)
+
+        try:
+            await ws_manager.send_log(f"快速探索开始: {req.url}")
+            report = await explorer.explore(
+                url=req.url,
+                description=req.description,
+                max_actions=req.max_actions,
+            )
+            await ws_manager.send_test_done(
+                report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                len(report.bugs),
+            )
+
+            return TestReportResponse(
+                test_name=report.test_name,
+                url=report.url,
+                total_steps=report.total_steps,
+                passed_steps=report.passed_steps,
+                failed_steps=report.failed_steps,
+                bug_count=len(report.bugs),
+                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                duration_seconds=report.duration_seconds,
+                report_markdown=report.report_markdown,
+            )
+        except Exception as e:
+            logger.error("快速探索执行失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"快速探索执行失败: {e}")
+
+    # ── 蓝本自动生成（v10.1）───────────────────────────
+
+    @router.post("/blueprint/generate", response_model=GenerateBlueprintResponse, tags=["蓝本生成"])
+    async def generate_blueprint(req: GenerateBlueprintRequest) -> GenerateBlueprintResponse:
+        """蓝本自动生成：输入 URL，自动爬取页面并生成 testpilot.json。
+
+        流程：访问 URL → 提取元素 → 截图 → AI 分析生成蓝本
+        """
+        from src.testing.blueprint_generator import BlueprintGenerator
+
+        generator = BlueprintGenerator(ai_client=ai_client)
+        try:
+            blueprint = await generator.from_url(
+                url=req.url,
+                app_name=req.app_name,
+                description=req.description,
+                output_path=req.output_path or None,
+            )
+            return GenerateBlueprintResponse(
+                success=True,
+                app_name=blueprint.app_name,
+                base_url=blueprint.base_url,
+                total_scenarios=blueprint.total_scenarios,
+                total_steps=blueprint.total_steps,
+                blueprint_json=blueprint.model_dump(exclude_none=True),
+                saved_path=req.output_path or "",
+            )
+        except Exception as e:
+            logger.error("蓝本自动生成失败: {}", e)
+            raise HTTPException(status_code=500, detail=f"蓝本生成失败: {e}")
+
+    # ── 记忆系统 ──────────────────────────────────────
+
+    @router.get("/memory/history", tags=["记忆"])
+    async def get_test_history(url: str = "", limit: int = 20) -> list[dict]:
+        """查询测试历史记录。"""
+        if memory_store is None:
+            return []
+        return memory_store.get_history(url=url or None, limit=limit)
+
+    @router.get("/memory/stats", tags=["记忆"])
+    async def get_memory_stats() -> dict:
+        """获取记忆系统统计信息。"""
+        if memory_store is None:
+            return {"total_tests": 0, "total_experiences": 0, "known_pages": 0}
+        return memory_store.get_stats()
+
+    @router.get("/memory/page/{url:path}", tags=["记忆"])
+    async def get_page_info(url: str) -> dict:
+        """查询页面的历史测试信息。"""
+        if memory_store is None:
+            return {}
+        fp = memory_store.get_page_fingerprint(url)
+        return fp or {}
+
+    # ── 报告分析（v5.2）──────────────────────────────
+
+    @router.get("/analytics/trend", tags=["报告分析"])
+    async def get_pass_rate_trend(url: str = "", limit: int = 50) -> dict:
+        """获取通过率趋势数据（折线图）。"""
+        if memory_store is None:
+            return {"labels": [], "pass_rates": [], "count": 0}
+        from src.testing.report_analytics import ReportAnalytics
+        return ReportAnalytics(memory_store).get_pass_rate_trend(url=url or None, limit=limit)
+
+    @router.get("/analytics/timeline/{test_id}", tags=["报告分析"])
+    async def get_screenshot_timeline(test_id: int) -> dict:
+        """获取单次测试的截图时间线。"""
+        if memory_store is None:
+            return {"steps": [], "error": "记忆系统未初始化"}
+        from src.testing.report_analytics import ReportAnalytics
+        return ReportAnalytics(memory_store).get_screenshot_timeline(test_id)
+
+    @router.get("/analytics/heatmap", tags=["报告分析"])
+    async def get_bug_heatmap(url: str = "", limit: int = 100) -> dict:
+        """获取Bug热力图数据。"""
+        if memory_store is None:
+            return {"total_bugs": 0, "by_page": [], "by_category": [], "by_severity": {}, "by_location": []}
+        from src.testing.report_analytics import ReportAnalytics
+        return ReportAnalytics(memory_store).get_bug_heatmap(url=url or None, limit=limit)
+
+    @router.get("/analytics/compare", tags=["报告分析"])
+    async def compare_reports(id_a: int, id_b: int) -> dict:
+        """对比两次测试报告。"""
+        if memory_store is None:
+            return {"error": "记忆系统未初始化"}
+        from src.testing.report_analytics import ReportAnalytics
+        return ReportAnalytics(memory_store).compare_reports(id_a, id_b)
+
+    @router.get("/analytics/export/{test_id}", tags=["报告分析"])
+    async def export_html_report(test_id: int):
+        """导出HTML可视化报告。"""
+        if memory_store is None:
+            from fastapi.responses import HTMLResponse
+            return HTMLResponse("<html><body>记忆系统未初始化</body></html>")
+        from fastapi.responses import HTMLResponse
+        from src.testing.report_analytics import ReportAnalytics
+        html = ReportAnalytics(memory_store).export_html_report(test_id)
+        return HTMLResponse(content=html)
+
+    # ── 实时观看（v0.7）──────────────────────────────
+
+    @router.get("/live/vnc", tags=["实时观看"])
+    async def get_vnc_info() -> dict:
+        """获取 VNC 连接信息。"""
+        info = live_view.get_vnc_info()
+        return info.model_dump()
+
+    @router.get("/live/screenshot", tags=["实时观看"])
+    async def get_live_screenshot() -> dict:
+        """获取最新截图（降级方案）。"""
+        frame = await live_view.get_latest_screenshot()
+        if frame is None:
+            return {"available": False, "message": "暂无截图"}
+        return {
+            "available": True,
+            "timestamp": frame.timestamp,
+            "image_base64": frame.image_base64,
+        }
+
+    # ── 测试控制（v2.0）──────────────────────────────
+
+    @router.get("/test/status", tags=["测试控制"])
+    async def get_test_status() -> dict:
+        """获取当前测试状态和进度。"""
+        return test_controller.status_dict()
+
+    @router.post("/test/control", tags=["测试控制"])
+    async def control_test(action: str, step_delay: float | None = None) -> dict:
+        """控制测试执行。
+
+        Args:
+            action: 控制动作（pause/resume/stop/step_mode_on/step_mode_off）
+            step_delay: 可选，设置观看延迟秒数
+        """
+        result = {"action": action, "success": False, "state": ""}
+
+        if action == "pause":
+            result["success"] = test_controller.pause()
+        elif action == "resume":
+            result["success"] = test_controller.resume()
+        elif action == "stop":
+            result["success"] = test_controller.stop()
+        elif action == "step_mode_on":
+            test_controller.set_step_mode(True)
+            result["success"] = True
+        elif action == "step_mode_off":
+            test_controller.set_step_mode(False)
+            result["success"] = True
+        else:
+            raise HTTPException(status_code=400, detail=f"未知控制动作: {action}")
+
+        if step_delay is not None:
+            test_controller.set_step_delay(step_delay)
+
+        result["state"] = test_controller.state.value
+        await ws_manager.send_state_change(
+            test_controller.state.value,
+            test_controller.status_dict(),
+        )
+        return result
+
+    # 注册WebSocket控制命令回调
+    async def _handle_ws_control(action: str, data: dict) -> None:
+        """WebSocket控制命令处理（与HTTP API共用逻辑）。"""
+        if action == "pause":
+            test_controller.pause()
+        elif action == "resume":
+            test_controller.resume()
+        elif action == "stop":
+            test_controller.stop()
+        elif action == "step_mode_on":
+            test_controller.set_step_mode(True)
+        elif action == "step_mode_off":
+            test_controller.set_step_mode(False)
+        elif action == "set_delay":
+            delay = data.get("seconds", 0)
+            test_controller.set_step_delay(float(delay))
+
+        await ws_manager.send_state_change(
+            test_controller.state.value,
+            test_controller.status_dict(),
+        )
+
+    ws_manager.set_control_callback(_handle_ws_control)
+
+    # ── 三AI交叉验证（v3.0）────────────────────────
+
+    @router.post("/test/generate-data", tags=["三AI验证"])
+    async def generate_test_data(
+        app_description: str = "",
+        page_url: str = "",
+        test_focus: str = "核心功能",
+        input_fields: str = "",
+    ) -> dict:
+        """AI-B角色：独立生成测试数据。
+
+        使用独立的AI角色生成测试输入数据，避免自我一致性偏差。
+        """
+        if ai_client is None:
+            raise HTTPException(status_code=503, detail="AI 客户端未配置")
+
+        validator = CrossValidator(ai_client)
+        data = validator.generate_test_data(
+            app_description=app_description,
+            page_url=page_url,
+            test_focus=test_focus,
+            input_fields=input_fields,
+        )
+        return data
+
+    @router.post("/test/review", tags=["三AI验证"])
+    async def review_analyses(req: dict) -> dict:
+        """AI-C角色：审查多次分析结果，最终仲裁。
+
+        Body:
+            analyses: list[dict] - 多次分析结果摘要
+            step_description: str - 测试步骤描述
+        """
+        if ai_client is None:
+            raise HTTPException(status_code=503, detail="AI 客户端未配置")
+
+        validator = CrossValidator(ai_client)
+        result = validator.review_analyses(
+            analyses_summary=req.get("analyses", []),
+            step_description=req.get("step_description", ""),
+        )
+        return result
+
+    # ── 应用进程管理（v2.0-beta）─────────────────────
+
+    # 连接process_runner的WebSocket广播
+    process_runner._ws_broadcast = ws_manager.broadcast
+
+    @router.post("/app/start", tags=["应用进程"])
+    async def start_app(command: str, cwd: str = ".") -> dict:
+        """启动被测应用进程。
+
+        Args:
+            command: 启动命令，如 "npm start"
+            cwd: 工作目录
+        """
+        success = await process_runner.start(command, cwd)
+        if not success:
+            raise HTTPException(status_code=400, detail="进程启动失败或已在运行")
+        return process_runner.status_dict()
+
+    @router.post("/app/stop", tags=["应用进程"])
+    async def stop_app() -> dict:
+        """停止被测应用进程。"""
+        await process_runner.stop()
+        return process_runner.status_dict()
+
+    @router.get("/app/status", tags=["应用进程"])
+    async def get_app_status() -> dict:
+        """获取应用进程状态。"""
+        return process_runner.status_dict()
+
+    @router.get("/app/logs", tags=["应用进程"])
+    async def get_app_logs(count: int = 50) -> dict:
+        """获取应用终端日志。
+
+        Args:
+            count: 返回最近N条日志
+        """
+        return {
+            "logs": process_runner.get_recent_logs(count),
+            "total": len(process_runner._buffer),
+        }
+
+    # ── Webhook 通知（v4.0）────────────────────────
+
+    @router.post("/notify/webhook", tags=["通知"])
+    async def send_webhook(req: dict) -> dict:
+        """发送Webhook通知。
+
+        Body:
+            type: "dingtalk" | "feishu" | "slack" | "generic"
+            webhook_url: Webhook地址
+            report: 测试报告数据
+        """
+        from src.notify.webhook import WebhookNotifier
+
+        notifier = WebhookNotifier()
+        notify_type = req.get("type", "generic")
+        webhook_url = req.get("webhook_url", "")
+        report = req.get("report", {})
+
+        if not webhook_url:
+            raise HTTPException(status_code=400, detail="webhook_url 不能为空")
+
+        handlers = {
+            "dingtalk": notifier.send_dingtalk,
+            "feishu": notifier.send_feishu,
+            "slack": notifier.send_slack,
+            "generic": notifier.send_generic,
+        }
+
+        handler = handlers.get(notify_type, notifier.send_generic)
+        success = handler(webhook_url, report)
+        return {"success": success, "type": notify_type}
+
+    # ── 手机测试（v5.0）─────────────────────────────
+
+    # 设备会话管理（内存中缓存）
+    _mobile_sessions: dict[str, "AndroidController"] = {}
+
+    @router.get("/mobile/devices", tags=["手机测试"])
+    async def list_mobile_devices() -> dict:
+        """列出已连接的 Android 设备（通过 adb devices）。"""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["adb", "devices", "-l"],
+                capture_output=True, text=True, timeout=5,
+            )
+            lines = result.stdout.strip().split("\n")[1:]  # 跳过header
+            devices = []
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 2 and parts[1] == "device":
+                    info = {"serial": parts[0], "status": "connected"}
+                    # 解析 model/device 等额外信息
+                    for part in parts[2:]:
+                        if ":" in part:
+                            k, v = part.split(":", 1)
+                            info[k] = v
+                    devices.append(info)
+            return {"devices": devices, "count": len(devices)}
+        except FileNotFoundError:
+            return {"devices": [], "count": 0, "error": "adb 未安装或不在PATH中"}
+        except Exception as e:
+            return {"devices": [], "count": 0, "error": str(e)}
+
+    @router.get("/mobile/appium/status", tags=["手机测试"])
+    async def appium_status() -> dict:
+        """检查 Appium Server 是否运行。"""
+        import urllib.request
+        import urllib.error
+
+        appium_url = "http://127.0.0.1:4723/status"
+        try:
+            req = urllib.request.Request(appium_url)
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode())
+                return {"running": True, "data": data}
+        except (urllib.error.URLError, Exception):
+            return {"running": False, "message": "Appium Server 未运行。请执行: appium"}
+
+    @router.post("/mobile/session/create", tags=["手机测试"])
+    async def create_mobile_session(req: dict) -> dict:
+        """创建手机测试会话（连接设备）。
+
+        Body:
+            device_name: 设备名称（可选）
+            app_package: 应用包名（可选）
+            app_activity: 启动Activity（可选）
+            app_path: APK路径（可选，自动安装）
+            permissions: 权限列表（可选，自动adb授权）
+        """
+        from src.controller.android import AndroidController, MobileConfig
+
+        config = MobileConfig(
+            device_name=req.get("device_name", ""),
+            app_package=req.get("app_package", ""),
+            app_activity=req.get("app_activity", ""),
+            app_path=req.get("app_path", ""),
+        )
+
+        controller = AndroidController(config)
+        try:
+            await controller.launch()
+
+            # 蓝本权限批量授予
+            granted = []
+            permissions = req.get("permissions", [])
+            app_package = req.get("app_package", "")
+            if permissions and app_package:
+                granted = await controller.grant_permissions(app_package, permissions)
+
+            session_id = f"mobile_{len(_mobile_sessions) + 1}"
+            _mobile_sessions[session_id] = controller
+            return {
+                "session_id": session_id,
+                "device": controller.device_info.model_dump(),
+                "permissions_granted": granted,
+                "message": "手机会话创建成功",
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"连接设备失败: {e}")
+
+    @router.post("/mobile/session/{session_id}/tap", tags=["手机测试"])
+    async def mobile_tap(session_id: str, req: dict) -> dict:
+        """点击手机元素。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.tap(req.get("selector", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/mobile/session/{session_id}/input", tags=["手机测试"])
+    async def mobile_input(session_id: str, req: dict) -> dict:
+        """在手机输入框中输入文本。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/mobile/session/{session_id}/swipe", tags=["手机测试"])
+    async def mobile_swipe(session_id: str, req: dict) -> dict:
+        """手机滑动操作。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.swipe(
+                req.get("start_x", 0), req.get("start_y", 0),
+                req.get("end_x", 0), req.get("end_y", 0),
+                req.get("duration_ms", 300),
+            )
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/mobile/session/{session_id}/screenshot", tags=["手机测试"])
+    async def mobile_screenshot(session_id: str, name: str = "") -> dict:
+        """截取手机屏幕。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            path = await ctrl.screenshot(name or "mobile_capture")
+            # 返回base64用于前端显示
+            import base64
+            b64 = base64.b64encode(path.read_bytes()).decode()
+            return {"path": str(path), "base64": b64}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/mobile/session/{session_id}/source", tags=["手机测试"])
+    async def mobile_page_source(session_id: str) -> dict:
+        """获取手机UI层级XML。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            source = await ctrl.get_page_source()
+            return {"source": source}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/mobile/session/{session_id}/navigate", tags=["手机测试"])
+    async def mobile_navigate(session_id: str, req: dict) -> dict:
+        """打开URL或Activity。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.navigate(req.get("target", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/mobile/session/{session_id}/back", tags=["手机测试"])
+    async def mobile_back(session_id: str) -> dict:
+        """按返回键。"""
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.back()
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.delete("/mobile/session/{session_id}", tags=["手机测试"])
+    async def close_mobile_session(session_id: str) -> dict:
+        """关闭手机测试会话。"""
+        ctrl = _mobile_sessions.pop(session_id, None)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.close()
+            return {"message": "会话已关闭"}
+        except Exception as e:
+            return {"message": f"关闭时出错: {e}"}
+
+    @router.post("/mobile/session/{session_id}/analyze", tags=["手机测试"])
+    async def mobile_analyze(session_id: str, req: dict = None) -> dict:
+        """截图并用AI分析手机当前页面。
+
+        Body (可选):
+            context: 额外上下文描述
+            expected: 预期结果（用于步骤验证模式）
+        """
+        ctrl = _mobile_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if not ai_client:
+            raise HTTPException(status_code=503, detail="AI客户端未配置")
+
+        req = req or {}
+        try:
+            # 截图
+            path = await ctrl.screenshot("ai_analyze")
+
+            # AI分析
+            from src.core.prompts import (
+                SYSTEM_MOBILE_ANALYZER,
+                PROMPT_MOBILE_ANALYZE,
+                PROMPT_MOBILE_VERIFY_STEP,
+            )
+
+            context = req.get("context", "用户手机当前屏幕")
+            expected = req.get("expected", "")
+
+            if expected:
+                prompt = PROMPT_MOBILE_VERIFY_STEP.format(
+                    expected=expected,
+                    action_description=req.get("action_description", ""),
+                )
+            else:
+                prompt = PROMPT_MOBILE_ANALYZE.format(context=context)
+
+            analysis = ai_client.analyze_screenshot(
+                image_path=str(path),
+                prompt=prompt,
+                system_prompt=SYSTEM_MOBILE_ANALYZER,
+            )
+
+            import base64 as b64mod
+            img_b64 = b64mod.b64encode(path.read_bytes()).decode()
+
+            return {
+                "screenshot_path": str(path),
+                "screenshot_base64": img_b64,
+                "analysis": analysis,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"分析失败: {e}")
+
+    @router.get("/mobile/sessions", tags=["手机测试"])
+    async def list_mobile_sessions() -> dict:
+        """列出所有活跃的手机测试会话。"""
+        sessions = []
+        for sid, ctrl in _mobile_sessions.items():
+            sessions.append({
+                "session_id": sid,
+                "device": ctrl.device_info.model_dump(),
+            })
+        return {"sessions": sessions, "count": len(sessions)}
+
+    # ── 桌面测试（v7.0）─────────────────────────────
+
+    _desktop_sessions: dict[str, "DesktopController"] = {}
+
+    @router.get("/desktop/windows", tags=["桌面测试"])
+    async def list_desktop_windows() -> dict:
+        """枚举当前可见的桌面窗口。"""
+        from src.controller.window_manager import WindowManager
+        try:
+            windows = WindowManager.enumerate_windows(visible_only=True)
+            return {
+                "windows": [w.to_dict() for w in windows],
+                "count": len(windows),
+            }
+        except Exception as e:
+            return {"windows": [], "count": 0, "error": str(e)}
+
+    @router.post("/desktop/session/create", tags=["桌面测试"])
+    async def create_desktop_session(req: dict) -> dict:
+        """创建桌面测试会话（连接到目标窗口）。
+
+        Body:
+            target_title: 窗口标题（模糊匹配）
+            target_class: 窗口类名（可选）
+            target_pid: 进程ID（可选）
+            target_exe: 启动exe路径（可选，自动启动后连接）
+        """
+        from src.controller.desktop import DesktopController
+        from src.controller.window_manager import DesktopConfig
+
+        config = DesktopConfig(
+            target_title=req.get("target_title", ""),
+            target_class=req.get("target_class", ""),
+            target_pid=req.get("target_pid", 0),
+            target_exe=req.get("target_exe", ""),
+        )
+
+        controller = DesktopController(config)
+        try:
+            await controller.launch()
+            session_id = f"desktop_{len(_desktop_sessions) + 1}"
+            _desktop_sessions[session_id] = controller
+            return {
+                "session_id": session_id,
+                "device": controller.device_info.model_dump(),
+                "hwnd": controller.target_hwnd,
+                "message": "桌面会话创建成功",
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"连接窗口失败: {e}")
+
+    @router.post("/desktop/session/{session_id}/tap", tags=["桌面测试"])
+    async def desktop_tap(session_id: str, req: dict) -> dict:
+        """点击桌面元素。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.tap(req.get("selector", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/desktop/session/{session_id}/input", tags=["桌面测试"])
+    async def desktop_input(session_id: str, req: dict) -> dict:
+        """在桌面控件中输入文本。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/desktop/session/{session_id}/screenshot", tags=["桌面测试"])
+    async def desktop_screenshot(session_id: str, name: str = "") -> dict:
+        """截取桌面窗口。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            path = await ctrl.screenshot(name or "desktop_capture")
+            import base64
+            b64 = base64.b64encode(path.read_bytes()).decode()
+            return {"path": str(path), "base64": b64}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/desktop/session/{session_id}/source", tags=["桌面测试"])
+    async def desktop_page_source(session_id: str) -> dict:
+        """获取桌面窗口UI树。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            source = await ctrl.get_page_source()
+            return {"source": source}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/desktop/session/{session_id}/navigate", tags=["桌面测试"])
+    async def desktop_navigate(session_id: str, req: dict) -> dict:
+        """切换窗口或启动应用。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.navigate(req.get("target", ""))
+            return {"success": True, "hwnd": ctrl.target_hwnd}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/desktop/session/{session_id}/text", tags=["桌面测试"])
+    async def desktop_get_text(session_id: str, selector: str = "") -> dict:
+        """获取桌面元素文本。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            text = await ctrl.get_text(selector)
+            return {"text": text}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.delete("/desktop/session/{session_id}", tags=["桌面测试"])
+    async def close_desktop_session(session_id: str) -> dict:
+        """关闭桌面测试会话。"""
+        ctrl = _desktop_sessions.pop(session_id, None)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.close()
+            return {"message": "桌面会话已关闭"}
+        except Exception as e:
+            return {"message": f"关闭时出错: {e}"}
+
+    @router.get("/desktop/sessions", tags=["桌面测试"])
+    async def list_desktop_sessions() -> dict:
+        """列出所有活跃的桌面测试会话。"""
+        sessions = []
+        for sid, ctrl in _desktop_sessions.items():
+            sessions.append({
+                "session_id": sid,
+                "device": ctrl.device_info.model_dump(),
+                "hwnd": ctrl.target_hwnd,
+            })
+        return {"sessions": sessions, "count": len(sessions)}
+
+    @router.post("/desktop/session/{session_id}/analyze", tags=["桌面测试"])
+    async def desktop_analyze(session_id: str, req: dict = None) -> dict:
+        """截图并用AI分析桌面当前窗口。"""
+        ctrl = _desktop_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        if not ai_client:
+            raise HTTPException(status_code=400, detail="AI客户端未配置")
+        try:
+            req = req or {}
+            path = await ctrl.screenshot("desktop_analyze")
+            import base64
+            img_b64 = base64.b64encode(path.read_bytes()).decode()
+
+            context = req.get("context", "用户桌面当前窗口")
+            analysis = ai_client.analyze_screenshot(
+                image_path=str(path),
+                prompt=f"分析这个Windows桌面应用截图，描述当前界面状态。上下文：{context}",
+            )
+            return {
+                "screenshot_path": str(path),
+                "screenshot_base64": img_b64,
+                "analysis": analysis,
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"分析失败: {e}")
+
+    # ── 小程序测试（v8.0）─────────────────────────
+
+    _miniprogram_sessions: dict[str, "MiniProgramController"] = {}
+
+    @router.get("/miniprogram/devtools/status", tags=["小程序测试"])
+    async def miniprogram_devtools_status() -> dict:
+        """检查微信开发者工具是否可用。"""
+        from src.controller.miniprogram import MiniProgramConfig
+        config = MiniProgramConfig()
+        from pathlib import Path
+        found = bool(config.devtools_path) and Path(config.devtools_path).exists()
+        return {
+            "found": found,
+            "path": config.devtools_path,
+            "message": "微信开发者工具已找到" if found else "未找到微信开发者工具，请安装后重试",
+        }
+
+    @router.post("/miniprogram/session/create", tags=["小程序测试"])
+    async def create_miniprogram_session(req: dict) -> dict:
+        """创建小程序测试会话。
+
+        Body:
+            project_path: 小程序项目路径（必须）
+            devtools_path: 开发者工具CLI路径（可选，自动检测）
+            account: 微信账号（可选）
+        """
+        from src.controller.miniprogram import MiniProgramController, MiniProgramConfig
+
+        config = MiniProgramConfig(
+            project_path=req.get("project_path", ""),
+            devtools_path=req.get("devtools_path", ""),
+            account=req.get("account", ""),
+        )
+
+        controller = MiniProgramController(config)
+        try:
+            await controller.launch()
+            session_id = f"mp_{len(_miniprogram_sessions) + 1}"
+            _miniprogram_sessions[session_id] = controller
+            return {
+                "session_id": session_id,
+                "device": controller.device_info.model_dump(),
+                "message": "小程序会话创建成功",
+            }
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"连接小程序失败: {e}")
+
+    @router.post("/miniprogram/session/{session_id}/navigate", tags=["小程序测试"])
+    async def miniprogram_navigate(session_id: str, req: dict) -> dict:
+        """导航到小程序页面。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.navigate(req.get("url", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/miniprogram/session/{session_id}/tap", tags=["小程序测试"])
+    async def miniprogram_tap(session_id: str, req: dict) -> dict:
+        """点击小程序元素。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.tap(req.get("selector", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/miniprogram/session/{session_id}/input", tags=["小程序测试"])
+    async def miniprogram_input(session_id: str, req: dict) -> dict:
+        """在小程序输入框中输入文本。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
+            return {"success": True}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/miniprogram/session/{session_id}/screenshot", tags=["小程序测试"])
+    async def miniprogram_screenshot(session_id: str, name: str = "") -> dict:
+        """截取小程序当前页面。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            path = await ctrl.screenshot(name or "mp_capture")
+            import base64
+            b64 = base64.b64encode(path.read_bytes()).decode()
+            return {"path": str(path), "base64": b64}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/miniprogram/session/{session_id}/source", tags=["小程序测试"])
+    async def miniprogram_source(session_id: str) -> dict:
+        """获取小程序当前页面 WXML 结构。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            source = await ctrl.get_page_source()
+            return {"source": source}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/miniprogram/session/{session_id}/text", tags=["小程序测试"])
+    async def miniprogram_get_text(session_id: str, selector: str = "") -> dict:
+        """获取小程序元素文本。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            text = await ctrl.get_text(selector)
+            return {"text": text}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/miniprogram/session/{session_id}/page-data", tags=["小程序测试"])
+    async def miniprogram_page_data(session_id: str) -> dict:
+        """获取小程序当前页面 data。"""
+        ctrl = _miniprogram_sessions.get(session_id)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            data = await ctrl.get_page_data()
+            return {"data": data}
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.delete("/miniprogram/session/{session_id}", tags=["小程序测试"])
+    async def close_miniprogram_session(session_id: str) -> dict:
+        """关闭小程序测试会话。"""
+        ctrl = _miniprogram_sessions.pop(session_id, None)
+        if not ctrl:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        try:
+            await ctrl.close()
+            return {"message": "小程序会话已关闭"}
+        except Exception as e:
+            return {"message": f"关闭时出错: {e}"}
+
+    @router.get("/miniprogram/sessions", tags=["小程序测试"])
+    async def list_miniprogram_sessions() -> dict:
+        """列出所有活跃的小程序测试会话。"""
+        sessions = []
+        for sid, ctrl in _miniprogram_sessions.items():
+            sessions.append({
+                "session_id": sid,
+                "device": ctrl.device_info.model_dump(),
+            })
+        return {"sessions": sessions, "count": len(sessions)}
+
+    # ── 多人协同测试（v9.0）─────────────────────────
+
+    from src.testing.multiplayer import MultiPlayerOrchestrator
+
+    _orchestrator = MultiPlayerOrchestrator()
+
+    @router.post("/multiplayer/room/create", tags=["多人测试"])
+    async def create_room(req: dict = None) -> dict:
+        """创建多人测试房间（重置协调器）。"""
+        await _orchestrator.reset()
+        return {"message": "房间已创建", "max_players": _orchestrator.MAX_PLAYERS}
+
+    @router.post("/multiplayer/room/player", tags=["多人测试"])
+    async def add_player(req: dict) -> dict:
+        """添加玩家到房间。
+
+        Body: player_id, platform, config(可选)
+        """
+        try:
+            slot = _orchestrator.add_player(
+                player_id=req.get("player_id", ""),
+                platform=req.get("platform", "web"),
+                config=req.get("config", {}),
+            )
+            return {
+                "player_id": slot.player_id,
+                "platform": slot.platform,
+                "player_count": _orchestrator.player_count,
+            }
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.delete("/multiplayer/room/player/{player_id}", tags=["多人测试"])
+    async def remove_player(player_id: str) -> dict:
+        """移除玩家。"""
+        _orchestrator.remove_player(player_id)
+        return {"message": f"已移除 {player_id}", "player_count": _orchestrator.player_count}
+
+    @router.post("/multiplayer/room/player/{player_id}/action", tags=["多人测试"])
+    async def player_action(player_id: str, req: dict) -> dict:
+        """对指定玩家执行操作。
+
+        Body: action, selector(可选), text(可选), url(可选), name(可选)
+        """
+        action = req.get("action", "")
+        kwargs = {k: v for k, v in req.items() if k != "action"}
+        try:
+            result = await _orchestrator.execute_action(player_id, action, **kwargs)
+            return {"success": True, "result": str(result) if result else None}
+        except RuntimeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.post("/multiplayer/room/parallel", tags=["多人测试"])
+    async def parallel_actions(req: dict) -> dict:
+        """并行执行多个玩家操作。
+
+        Body: actions: [{player, action, ...}, ...]
+        """
+        actions = req.get("actions", [])
+        results = await _orchestrator.execute_parallel(actions)
+        return {
+            "results": [
+                str(r) if not isinstance(r, Exception) else f"错误: {r}"
+                for r in results
+            ],
+        }
+
+    @router.post("/multiplayer/room/sync", tags=["多人测试"])
+    async def sync_barrier(req: dict = None) -> dict:
+        """触发同步屏障。"""
+        req = req or {}
+        name = req.get("name", "default")
+        timeout = req.get("timeout", 30)
+        ok = await _orchestrator.sync_all(name, timeout)
+        return {"synced": ok, "name": name}
+
+    @router.post("/multiplayer/room/screenshot-all", tags=["多人测试"])
+    async def screenshot_all_players(req: dict = None) -> dict:
+        """所有玩家同时截图。"""
+        req = req or {}
+        prefix = req.get("name_prefix", "all")
+        results = await _orchestrator.screenshot_all(prefix)
+        return {
+            "screenshots": {pid: str(path) for pid, path in results.items()},
+            "count": len(results),
+        }
+
+    @router.get("/multiplayer/room/status", tags=["多人测试"])
+    async def room_status() -> dict:
+        """获取房间状态。"""
+        return _orchestrator.get_status()
+
+    @router.get("/multiplayer/room/timeline", tags=["多人测试"])
+    async def room_timeline() -> dict:
+        """获取时序轴数据。"""
+        return {"timeline": _orchestrator.get_timeline()}
+
+    @router.post("/multiplayer/room/start", tags=["多人测试"])
+    async def start_test() -> dict:
+        """开始多人测试。"""
+        await _orchestrator.start()
+        return {"message": "测试已开始", "players": list(_orchestrator.players.keys())}
+
+    @router.post("/multiplayer/room/stop", tags=["多人测试"])
+    async def stop_test() -> dict:
+        """停止多人测试。"""
+        await _orchestrator.stop()
+        return {"message": "测试已停止", "elapsed": round(_orchestrator.elapsed, 2)}
+
+    @router.post("/multiplayer/blueprint/run", tags=["多人测试"])
+    async def run_multiplayer_blueprint(req: dict) -> dict:
+        """执行多人蓝本。
+
+        Body: blueprint (完整蓝本JSON对象)
+        """
+        from src.testing.multiplayer_blueprint import MultiPlayerBlueprint
+
+        bp_data = req.get("blueprint", {})
+        if not bp_data:
+            raise HTTPException(status_code=400, detail="请提供 blueprint 数据")
+        bp = MultiPlayerBlueprint.from_dict(bp_data)
+
+        await _orchestrator.reset()
+        for pdef in bp.player_defs:
+            _orchestrator.add_player(pdef.id, pdef.platform, {
+                "url": pdef.url, "device": pdef.device,
+                "project_path": pdef.project_path, **pdef.extra,
+            })
+
+        await bp.execute(_orchestrator)
+        return bp.get_report()
+
+    @router.delete("/multiplayer/room", tags=["多端协同"])
+    async def destroy_room() -> dict:
+        """销毁房间，断开所有玩家。"""
+        await _orchestrator.reset()
+        return {"message": "房间已销毁"}
+
+    # ── 多端协同 Phase2（v9.0）────────────────────
+
+    from src.testing.ai_player import AIPlayerEngine, AIPlayerConfig, AIStrategy
+    from src.testing.action_recorder import ActionRecorder, ActionReplayer
+    from src.testing.consistency_checker import ConsistencyChecker
+
+    _ai_engines: dict[str, AIPlayerEngine] = {}
+    _recorder = ActionRecorder()
+    _replayer: Optional[ActionReplayer] = None
+    _checker = ConsistencyChecker()
+
+    @router.post("/multiplayer/ai/start/{player_id}", tags=["多端协同-AI"])
+    async def start_ai_player(player_id: str, req: dict = None) -> dict:
+        """启动 AI 自动扮演指定玩家。
+
+        Body: strategy(random/normal/boundary/explorer), max_actions, action_delay
+        """
+        req = req or {}
+        strategy = AIStrategy(req.get("strategy", "normal"))
+        config = AIPlayerConfig(
+            strategy=strategy,
+            max_actions=req.get("max_actions", 50),
+            action_delay=req.get("action_delay", 1.0),
+        )
+        engine = AIPlayerEngine(config)
+        _ai_engines[player_id] = engine
+
+        import asyncio
+        asyncio.create_task(engine.run_player(_orchestrator, player_id))
+        return {
+            "player_id": player_id,
+            "strategy": strategy.value,
+            "max_actions": config.max_actions,
+        }
+
+    @router.post("/multiplayer/ai/stop/{player_id}", tags=["多端协同-AI"])
+    async def stop_ai_player(player_id: str) -> dict:
+        """停止指定玩家的 AI 扮演。"""
+        engine = _ai_engines.get(player_id)
+        if engine:
+            engine.stop()
+            return {"player_id": player_id, "actions_done": engine.action_count}
+        raise HTTPException(status_code=404, detail=f"AI玩家 {player_id} 不存在")
+
+    @router.get("/multiplayer/ai/report/{player_id}", tags=["多端协同-AI"])
+    async def ai_player_report(player_id: str) -> dict:
+        """获取 AI 玩家操作报告。"""
+        engine = _ai_engines.get(player_id)
+        if engine:
+            return engine.get_report()
+        raise HTTPException(status_code=404, detail=f"AI玩家 {player_id} 不存在")
+
+    @router.post("/multiplayer/record/start", tags=["多端协同-录制"])
+    async def start_recording() -> dict:
+        """开始录制操作。"""
+        _recorder.start()
+        return {"recording": True}
+
+    @router.post("/multiplayer/record/stop", tags=["多端协同-录制"])
+    async def stop_recording() -> dict:
+        """停止录制。"""
+        _recorder.stop()
+        return {
+            "recording": False,
+            "actions": _recorder.action_count,
+            "duration": round(_recorder.duration, 2),
+        }
+
+    @router.post("/multiplayer/record/action", tags=["多端协同-录制"])
+    async def record_action(req: dict) -> dict:
+        """录制一条操作。
+
+        Body: player_id, action, params(可选)
+        """
+        if not _recorder.is_recording:
+            raise HTTPException(status_code=400, detail="未在录制状态")
+        recorded = _recorder.record(
+            player_id=req.get("player_id", ""),
+            action=req.get("action", ""),
+            params=req.get("params", {}),
+        )
+        return {"recorded": True, "offset": round(recorded.offset, 3), "total": _recorder.action_count}
+
+    @router.get("/multiplayer/record/export", tags=["多端协同-录制"])
+    async def export_recording() -> dict:
+        """导出录制为蓝本格式。"""
+        return _recorder.export_blueprint()
+
+    @router.post("/multiplayer/replay/start", tags=["多端协同-回放"])
+    async def start_replay(req: dict = None) -> dict:
+        """开始回放录制的操作。
+
+        Body: speed(倍率), player_filter(可选玩家列表)
+        """
+        nonlocal _replayer
+        req = req or {}
+        actions = _recorder.actions
+        if not actions:
+            raise HTTPException(status_code=400, detail="无录制数据")
+        _replayer = ActionReplayer(actions)
+
+        import asyncio
+        speed = req.get("speed", 1.0)
+        player_filter = req.get("player_filter")
+        asyncio.create_task(_replayer.replay(_orchestrator, speed, player_filter))
+        return {"replaying": True, "total_actions": len(actions), "speed": speed}
+
+    @router.post("/multiplayer/replay/stop", tags=["多端协同-回放"])
+    async def stop_replay() -> dict:
+        """停止回放。"""
+        if _replayer:
+            _replayer.stop()
+            return _replayer.get_status()
+        return {"replaying": False}
+
+    @router.get("/multiplayer/replay/status", tags=["多端协同-回放"])
+    async def replay_status() -> dict:
+        """获取回放进度。"""
+        if _replayer:
+            return _replayer.get_status()
+        return {"replaying": False, "total": 0, "current": 0, "progress": 0}
+
+    @router.post("/multiplayer/consistency/check", tags=["多端协同-一致性"])
+    async def consistency_check(req: dict = None) -> dict:
+        """执行跨端一致性检查。
+
+        Body: player_ids(可选, 默认全部), check_source, check_screenshot
+        """
+        req = req or {}
+        report = await _checker.check(
+            _orchestrator,
+            player_ids=req.get("player_ids"),
+            check_source=req.get("check_source", True),
+            check_screenshot=req.get("check_screenshot", True),
+        )
+        return report.to_dict()
+
+    @router.get("/multiplayer/consistency/summary", tags=["多端协同-一致性"])
+    async def consistency_summary() -> dict:
+        """获取一致性检查历史摘要。"""
+        return _checker.get_summary()
+
+    # ── 多端协同 Phase3（v9.0）────────────────────
+
+    from src.testing.network_simulator import NetworkSimulator, NetworkConfig, NetworkProfile
+    from src.testing.device_pool import DevicePoolManager, DeviceType, DeviceState
+
+    _network = NetworkSimulator()
+    _device_pool = DevicePoolManager()
+
+    @router.post("/multiplayer/network/enable", tags=["多端协同-网络模拟"])
+    async def enable_network_sim() -> dict:
+        """启用网络模拟。"""
+        _network.enable()
+        return {"enabled": True}
+
+    @router.post("/multiplayer/network/disable", tags=["多端协同-网络模拟"])
+    async def disable_network_sim() -> dict:
+        """禁用网络模拟。"""
+        _network.disable()
+        return {"enabled": False}
+
+    @router.post("/multiplayer/network/profile", tags=["多端协同-网络模拟"])
+    async def set_network_profile(req: dict) -> dict:
+        """设置网络环境预设。
+
+        Body: profile(perfect/wifi/4g/3g/slow/unstable/offline), player_id(可选)
+        """
+        profile = NetworkProfile(req.get("profile", "perfect"))
+        config = NetworkConfig.from_profile(profile)
+        player_id = req.get("player_id")
+        if player_id:
+            _network.set_player(player_id, config)
+        else:
+            _network.set_global(config)
+        _network.enable()
+        return {
+            "profile": profile.value,
+            "player_id": player_id or "全局",
+            "latency_ms": config.latency_ms,
+            "packet_loss": config.packet_loss,
+        }
+
+    @router.post("/multiplayer/network/custom", tags=["多端协同-网络模拟"])
+    async def set_network_custom(req: dict) -> dict:
+        """设置自定义网络条件。
+
+        Body: latency_ms, jitter_ms, packet_loss, bandwidth_kbps, player_id(可选)
+        """
+        config = NetworkConfig(
+            latency_ms=req.get("latency_ms", 0),
+            jitter_ms=req.get("jitter_ms", 0),
+            packet_loss=req.get("packet_loss", 0.0),
+            bandwidth_kbps=req.get("bandwidth_kbps", 0),
+        )
+        player_id = req.get("player_id")
+        if player_id:
+            _network.set_player(player_id, config)
+        else:
+            _network.set_global(config)
+        _network.enable()
+        return {"player_id": player_id or "全局", "config": {
+            "latency_ms": config.latency_ms, "jitter_ms": config.jitter_ms,
+            "packet_loss": config.packet_loss, "bandwidth_kbps": config.bandwidth_kbps,
+        }}
+
+    @router.get("/multiplayer/network/stats", tags=["多端协同-网络模拟"])
+    async def network_stats() -> dict:
+        """获取网络模拟统计。"""
+        return _network.get_stats()
+
+    @router.post("/multiplayer/devices/register", tags=["多端协同-设备池"])
+    async def register_device(req: dict) -> dict:
+        """注册设备到池。
+
+        Body: device_id, device_type(browser/android/ios/desktop/miniprogram), name, capabilities, tags
+        """
+        device = _device_pool.register(
+            device_id=req.get("device_id", ""),
+            device_type=DeviceType(req.get("device_type", "browser")),
+            name=req.get("name", ""),
+            capabilities=req.get("capabilities", {}),
+            tags=req.get("tags", []),
+        )
+        return {"device_id": device.device_id, "type": device.device_type.value, "total": _device_pool.device_count}
+
+    @router.delete("/multiplayer/devices/{device_id}", tags=["多端协同-设备池"])
+    async def unregister_device(device_id: str) -> dict:
+        """注销设备。"""
+        _device_pool.unregister(device_id)
+        return {"device_id": device_id, "total": _device_pool.device_count}
+
+    @router.post("/multiplayer/devices/acquire", tags=["多端协同-设备池"])
+    async def acquire_device(req: dict) -> dict:
+        """为玩家分配设备。
+
+        Body: player_id, device_type(可选), tags(可选)
+        """
+        dtype = DeviceType(req["device_type"]) if "device_type" in req else None
+        device = _device_pool.acquire(req.get("player_id", ""), dtype, req.get("tags"))
+        if device:
+            return {"device_id": device.device_id, "type": device.device_type.value, "assigned_to": device.assigned_to}
+        raise HTTPException(status_code=404, detail="无可用设备")
+
+    @router.post("/multiplayer/devices/release/{device_id}", tags=["多端协同-设备池"])
+    async def release_device(device_id: str) -> dict:
+        """释放设备。"""
+        _device_pool.release(device_id)
+        return {"device_id": device_id, "state": "available"}
+
+    @router.post("/multiplayer/devices/auto-assign", tags=["多端协同-设备池"])
+    async def auto_assign_devices(req: dict) -> dict:
+        """批量自动分配。
+
+        Body: configs: [{player_id, device_type, tags}]
+        """
+        result = _device_pool.auto_assign(req.get("configs", []))
+        return {"assignments": result}
+
+    @router.post("/multiplayer/devices/release-all", tags=["多端协同-设备池"])
+    async def release_all_devices() -> dict:
+        """释放所有在用设备。"""
+        count = _device_pool.release_all()
+        return {"released": count}
+
+    @router.get("/multiplayer/devices/summary", tags=["多端协同-设备池"])
+    async def device_pool_summary() -> dict:
+        """获取设备池摘要。"""
+        return _device_pool.get_summary()
+
+    @router.post("/multiplayer/devices/health-check", tags=["多端协同-设备池"])
+    async def device_health_check(req: dict = None) -> dict:
+        """设备健康检查。"""
+        req = req or {}
+        offline = _device_pool.check_health(req.get("timeout", 60))
+        return {"offline_count": len(offline), "offline_devices": offline}
+
+    return router

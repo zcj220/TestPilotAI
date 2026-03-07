@@ -1,0 +1,640 @@
+"""
+蓝本模式执行器（v1.x）
+
+按 testpilot.json 蓝本精确执行测试：
+- 使用蓝本中的精确CSS选择器，不靠AI猜测
+- 每步执行后截图 + AI视觉验证预期结果
+- 生成与盲测模式格式一致的测试报告
+"""
+
+import asyncio
+import base64
+import time
+from pathlib import Path
+from typing import Callable, Coroutine, Any, Optional
+
+from loguru import logger
+
+from src.browser.automator import BrowserAutomator
+from src.core.ai_client import AIClient
+from src.core.exceptions import BrowserActionError, BrowserNavigationError
+from src.testing.anomaly_detector import AnomalyDetector, AnomalySeverity as AnomSev
+from src.testing.blueprint import Blueprint, BlueprintPage, BlueprintScenario, BlueprintStep
+from src.testing.models import ActionType, BugReport, BugSeverity, StepResult, StepStatus, TestReport
+from src.testing.controller import TestController
+from src.testing.formula_validator import FormulaResult, is_formula, validate_formula
+from src.testing.smart_input import generate_smart_value, is_auto_value
+from src.testing.log_slicer import LogSlicer
+from src.testing.smart_repair import RepairStrategy, SmartRepairDecider
+
+
+class BlueprintRunner:
+    """蓝本模式执行器。
+
+    按蓝本中定义的精确选择器和步骤执行测试，
+    每步截图并调用AI视觉分析验证预期结果。
+
+    典型使用：
+        runner = BlueprintRunner(browser, ai_client)
+        report = await runner.run(blueprint)
+    """
+
+    # 回调类型
+    ScreenshotCallback = Callable[[int, str], Coroutine[Any, Any, None]]
+    StepCallback = Callable[[int, str, str], Coroutine[Any, Any, None]]
+
+    def __init__(
+        self,
+        browser: BrowserAutomator,
+        ai_client: Optional[AIClient] = None,
+        controller: Optional[TestController] = None,
+        on_screenshot: Optional["BlueprintRunner.ScreenshotCallback"] = None,
+        on_step: Optional["BlueprintRunner.StepCallback"] = None,
+    ) -> None:
+        self._browser = browser
+        self._ai = ai_client
+        self._controller = controller
+        self._on_screenshot = on_screenshot
+        self._on_step = on_step
+        self._anomaly_detector: AnomalyDetector | None = None
+        self._log_slicer = LogSlicer()
+
+    async def run(
+        self,
+        blueprint: Blueprint,
+        repair_callback=None,
+    ) -> TestReport:
+        """执行蓝本中的所有场景。
+
+        Args:
+            blueprint: 解析后的蓝本对象
+            repair_callback: 智能修复回调函数，签名 async (bug: BugReport) -> bool
+                             返回True表示修复成功。为None则不启用智能修复。
+
+        Returns:
+            TestReport: 测试报告
+        """
+        report = TestReport(
+            test_name=f"蓝本测试-{blueprint.app_name}",
+            url=blueprint.base_url,
+        )
+
+        all_results: list[StepResult] = []
+        all_bugs: list[BugReport] = []
+        deferred_bugs: list[BugReport] = []
+        step_num = 0
+
+        # 智能修复决策器
+        repair_decider = SmartRepairDecider()
+        smart_repair_enabled = repair_callback is not None
+
+        logger.info("════════════════════════════════════════════════════════════")
+        logger.info("蓝本模式测试开始 | {} | 页面={} | 场景={} | 步骤={} | 智能修复={}",
+                     blueprint.app_name,
+                     len(blueprint.pages),
+                     blueprint.total_scenarios,
+                     blueprint.total_steps,
+                     "开启" if smart_repair_enabled else "关闭")
+
+        # v2.0：通知控制器测试开始
+        if self._controller:
+            self._controller.start(total_steps=blueprint.total_steps)
+
+        # 清除浏览器缓存，确保加载最新文件
+        try:
+            page = self._browser.page
+            client = await page.context.new_cdp_session(page)
+            await client.send("Network.clearBrowserCache")
+            await client.detach()
+            logger.debug("浏览器缓存已清除")
+        except Exception as e:
+            logger.debug("清除缓存失败（非致命）: {}", e)
+
+        # v2.1：挂载浏览器控制台和网络错误监听（日志智能切片）
+        self._log_slicer.clear()
+        try:
+            browser_page = self._browser.page
+            browser_page.on("console", lambda msg: self._log_slicer.add_console_log(
+                msg.type, msg.text,
+            ))
+            browser_page.on("response", lambda resp: (
+                self._log_slicer.add_network_error(resp.url, resp.status, resp.request.method)
+                if resp.status >= 400 else None
+            ))
+            logger.debug("浏览器日志监听已挂载")
+        except Exception as e:
+            logger.debug("浏览器日志监听挂载失败（非致命）: {}", e)
+
+        # 启动通用异常检测器
+        try:
+            self._anomaly_detector = AnomalyDetector(self._browser.page)
+            self._anomaly_detector.start_monitoring()
+        except Exception as e:
+            logger.warning("异常检测器启动失败，将跳过异常检测: {}", e)
+            self._anomaly_detector = None
+
+        cancelled = False
+        for page_idx, page in enumerate(blueprint.pages):
+            if cancelled:
+                break
+
+            # v2.0：多页面自动导航（同一browser context，Cookie/Session自动保持）
+            if page.url:
+                page_url = page.url
+                if not page_url.startswith("http"):
+                    page_url = blueprint.base_url.rstrip("/") + "/" + page_url.lstrip("/")
+                logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page_url)
+                try:
+                    await self._browser.navigate(page_url)
+                except Exception as e:
+                    logger.error("页面导航失败: {} | {}", page_url, str(e)[:80])
+
+            for scenario in page.scenarios:
+                if cancelled:
+                    break
+                logger.info("── 场景: {} ──", scenario.name)
+
+                for step_def in scenario.steps:
+                    step_num += 1
+                    desc = step_def.description or step_def.action
+
+                    # v2.0：控制器检查（暂停/停止/单步）
+                    if self._controller:
+                        await self._controller.wait_if_paused()
+                        if self._controller.is_cancelled:
+                            logger.info("测试被用户停止 | 步骤={}/{}", step_num, blueprint.total_steps)
+                            cancelled = True
+                            break
+                        self._controller.update_progress(step_num, desc)
+
+                    # v2.1：日志切片 - 步骤开始
+                    self._log_slicer.step_start(step_num)
+
+                    # 步骤开始通知
+                    if self._on_step:
+                        await self._on_step(step_num, "start", desc)
+
+                    result, bug = await self._execute_step(
+                        step_num, step_def, page, blueprint
+                    )
+                    all_results.append(result)
+
+                    # v2.1：日志切片 - 步骤结束
+                    self._log_slicer.step_end(step_num)
+
+                    # v2.1：失败步骤注入日志上下文到Bug报告
+                    if bug:
+                        log_text = self._log_slicer.get_step_log_text(step_num)
+                        log_count = self._log_slicer.get_step_log_count(step_num)
+                        if log_text:
+                            bug.description += f"\n\n--- 步骤{step_num}日志（{log_count}条） ---\n{log_text}"
+                            logger.debug("步骤{}失败，注入{}条日志到Bug报告", step_num, log_count)
+
+                    # 步骤完成通知
+                    if self._on_step:
+                        await self._on_step(step_num, result.status.value, desc)
+                    repair_decider.record_step(result)
+
+                    if bug:
+                        all_bugs.append(bug)
+                        # 智能修复决策
+                        if smart_repair_enabled:
+                            strategy = repair_decider.decide(bug, result)
+                            if strategy == RepairStrategy.IMMEDIATE:
+                                logger.info("  ⚡ 立即修复: {}", bug.title)
+                                try:
+                                    success = await repair_callback(bug)
+                                    repair_decider.on_immediate_repair_done(success)
+                                except Exception as e:
+                                    logger.error("  立即修复失败: {}", str(e)[:100])
+                                    repair_decider.on_immediate_repair_done(False)
+                            else:
+                                deferred_bugs.append(bug)
+
+                    # v2.0：步骤间观看延迟
+                    if self._controller:
+                        await self._controller.step_delay()
+
+                    # 蓝本外异常检测（每步之后）
+                    anomaly_bugs = await self._check_anomalies(step_num, page.url)
+                    for ab in anomaly_bugs:
+                        all_bugs.append(ab)
+                        if smart_repair_enabled:
+                            strategy = repair_decider.decide(ab)
+                            if strategy == RepairStrategy.IMMEDIATE:
+                                logger.info("  ⚡ 立即修复异常: {}", ab.title)
+                                try:
+                                    success = await repair_callback(ab)
+                                    repair_decider.on_immediate_repair_done(success)
+                                except Exception as e:
+                                    logger.error("  异常修复失败: {}", str(e)[:100])
+                                    repair_decider.on_immediate_repair_done(False)
+                            else:
+                                deferred_bugs.append(ab)
+
+        # 停止异常监控
+        if self._anomaly_detector:
+            self._anomaly_detector.stop_monitoring()
+
+        # 批量处理延迟修复的Bug
+        if smart_repair_enabled and deferred_bugs:
+            logger.info("── 批量修复延迟Bug（{}个）──", len(deferred_bugs))
+            for bug in deferred_bugs:
+                try:
+                    await repair_callback(bug)
+                except Exception as e:
+                    logger.error("  延迟修复失败: {} | {}", bug.title, str(e)[:80])
+
+        # 汇总报告
+        report.step_results = all_results
+        report.bugs = all_bugs
+        report.total_steps = len(all_results)
+        report.passed_steps = sum(1 for r in all_results if r.status == StepStatus.PASSED)
+        report.failed_steps = sum(1 for r in all_results if r.status == StepStatus.FAILED)
+        report.error_steps = sum(1 for r in all_results if r.status == StepStatus.ERROR)
+
+        # 生成Markdown报告（含修复统计）
+        report.report_markdown = self._generate_markdown(
+            blueprint, report, all_results, all_bugs,
+            repair_stats=repair_decider.stats if smart_repair_enabled else None,
+        )
+
+        logger.info("蓝本测试完成 | 通过={}/{} | Bug={} | 修复统计={}",
+                     report.passed_steps, report.total_steps, len(all_bugs),
+                     repair_decider.stats if smart_repair_enabled else "N/A")
+
+        # v2.0：通知控制器测试完成
+        if self._controller:
+            self._controller.on_test_complete()
+
+        return report
+
+    async def _execute_step(
+        self,
+        step_num: int,
+        step_def: BlueprintStep,
+        page: BlueprintPage,
+        blueprint: Blueprint,
+    ) -> tuple[StepResult, Optional[BugReport]]:
+        """执行单个蓝本步骤。"""
+        desc = step_def.description or f"{step_def.action} {step_def.target or step_def.value or ''}"
+        logger.info("  [步骤{}/{}] {} | {}", step_num, blueprint.total_steps, step_def.action, desc)
+
+        start = time.time()
+        screenshot_path = None
+
+        # 将蓝本 action 字符串映射为 ActionType 枚举
+        try:
+            action_type = ActionType(step_def.action)
+        except ValueError:
+            action_type = ActionType.SCREENSHOT  # 未知操作默认为截图
+
+        try:
+            # 解析目标选择器（支持元素名称映射）
+            target = self._resolve_selector(step_def.target, page, blueprint) if step_def.target else None
+
+            # 解析值（支持 auto: 智能生成）
+            raw_value = step_def.value or ""
+            resolved_value = generate_smart_value(raw_value) if is_auto_value(raw_value) else raw_value
+            if is_auto_value(raw_value):
+                logger.debug("  智能输入: {} → {}", raw_value, resolved_value)
+
+            # 执行操作
+            if step_def.action == "navigate":
+                url = resolved_value or page.url
+                if not url.startswith("http"):
+                    url = blueprint.base_url.rstrip("/") + "/" + url.lstrip("/")
+                await self._browser.navigate(url)
+
+            elif step_def.action == "click":
+                await self._browser.click(target)
+
+            elif step_def.action == "fill":
+                await self._browser.fill(target, resolved_value)
+
+            elif step_def.action == "select":
+                await self._browser.select_option(target, resolved_value)
+
+            elif step_def.action == "wait":
+                timeout = step_def.timeout_ms or 5000
+                await self._browser.wait_for_selector(target, timeout_ms=timeout)
+
+            elif step_def.action == "screenshot":
+                pass  # 截图在下面统一做
+
+            elif step_def.action == "scroll":
+                await self._browser.page.evaluate("window.scrollBy(0, 400)")
+
+            elif step_def.action == "assert_text":
+                text = await self._browser.get_text(target)
+                expected_value = resolved_value
+
+                if is_formula(expected_value):
+                    # v1.4 公式验证：零AI成本，精确数值校验
+                    formula_result = validate_formula(expected_value, text)
+                    if not formula_result.passed:
+                        elapsed = time.time() - start
+                        bug = BugReport(
+                            severity=BugSeverity.HIGH,
+                            category="计算验证失败",
+                            title=f"数值计算错误: {target}",
+                            description=formula_result.detail,
+                            location=target or "",
+                            reproduction=f"检查元素 {target} 的数值，公式={expected_value}",
+                            screenshot_path=None,
+                            step_number=step_num,
+                        )
+                        return StepResult(
+                            step=step_num,
+                            action=action_type,
+                            description=desc,
+                            status=StepStatus.FAILED,
+                            duration_seconds=elapsed,
+                            error_message=formula_result.detail,
+                        ), bug
+                elif expected_value not in text:
+                    elapsed = time.time() - start
+                    bug = BugReport(
+                        severity=BugSeverity.HIGH,
+                        category="文本断言失败",
+                        title=f"元素文本不匹配: {target}",
+                        description=f"预期包含'{expected_value}'，实际为'{text}'",
+                        location=target or "",
+                        reproduction=f"检查元素 {target} 的文本内容",
+                        screenshot_path=None,
+                        step_number=step_num,
+                    )
+                    return StepResult(
+                        step=step_num,
+                        action=action_type,
+                        description=desc,
+                        status=StepStatus.FAILED,
+                        duration_seconds=elapsed,
+                        error_message=f"文本断言失败: 预期'{expected_value}'，实际'{text}'",
+                    ), bug
+
+            elif step_def.action == "assert_visible":
+                try:
+                    await self._browser.wait_for_selector(target, timeout_ms=3000)
+                except BrowserActionError:
+                    elapsed = time.time() - start
+                    bug = BugReport(
+                        severity=BugSeverity.HIGH,
+                        category="可见性断言失败",
+                        title=f"元素不可见: {target}",
+                        description=f"预期元素 {target} 可见，但未找到",
+                        location=target or "",
+                        reproduction=f"检查元素 {target} 是否存在于页面",
+                        screenshot_path=None,
+                        step_number=step_num,
+                    )
+                    return StepResult(
+                        step=step_num,
+                        action=action_type,
+                        description=desc,
+                        status=StepStatus.FAILED,
+                        duration_seconds=elapsed,
+                        error_message=f"元素不可见: {target}",
+                    ), bug
+
+            # 操作后等待（处理异步加载/动画）
+            if step_def.wait_after_ms and step_def.wait_after_ms > 0:
+                await asyncio.sleep(step_def.wait_after_ms / 1000.0)
+
+            # 每步截图
+            screenshot_path_obj = await self._browser.screenshot(f"step{step_num}_{step_def.action}")
+            screenshot_path = str(screenshot_path_obj)
+
+            # 截图推送到前端（WebSocket）
+            if self._on_screenshot:
+                try:
+                    img_data = Path(screenshot_path).read_bytes()
+                    img_b64 = base64.b64encode(img_data).decode("ascii")
+                    await self._on_screenshot(step_num, img_b64)
+                except Exception as e:
+                    logger.debug("截图推送失败: {}", e)
+
+            # AI视觉验证（如果有预期结果描述）
+            ai_verdict = "passed"
+            ai_detail = ""
+            if step_def.expected and self._ai:
+                ai_verdict, ai_detail = await self._ai_verify(screenshot_path, step_def.expected)
+
+            elapsed = time.time() - start
+
+            if ai_verdict == "failed":
+                bug = BugReport(
+                    severity=BugSeverity.MEDIUM,
+                    category="AI视觉验证失败",
+                    title=f"步骤{step_num}预期不符: {step_def.expected}",
+                    description=ai_detail,
+                    location=page.url,
+                    reproduction=desc,
+                    screenshot_path=screenshot_path,
+                    step_number=step_num,
+                )
+                logger.info("  ✗ 步骤{} failed | {:.1f}秒 | {}", step_num, elapsed, ai_detail[:80])
+                return StepResult(
+                    step=step_num,
+                    action=action_type,
+                    description=desc,
+                    status=StepStatus.FAILED,
+                    duration_seconds=elapsed,
+                    screenshot_path=screenshot_path,
+                    error_message=ai_detail,
+                ), bug
+
+            logger.info("  ✓ 步骤{} passed | {:.1f}秒", step_num, elapsed)
+            return StepResult(
+                step=step_num,
+                action=action_type,
+                description=desc,
+                status=StepStatus.PASSED,
+                duration_seconds=elapsed,
+                screenshot_path=screenshot_path,
+            ), None
+
+        except (BrowserActionError, BrowserNavigationError) as e:
+            elapsed = time.time() - start
+            logger.info("  ⚠ 步骤{} error | {:.1f}秒 | {}", step_num, elapsed, str(e)[:80])
+            return StepResult(
+                step=step_num,
+                action=action_type,
+                description=desc,
+                status=StepStatus.ERROR,
+                duration_seconds=elapsed,
+                error_message=str(e),
+            ), None
+
+        except Exception as e:
+            elapsed = time.time() - start
+            logger.error("  ✗ 步骤{} 异常 | {:.1f}秒 | {}", step_num, elapsed, str(e)[:100])
+            return StepResult(
+                step=step_num,
+                action=action_type,
+                description=desc,
+                status=StepStatus.ERROR,
+                duration_seconds=elapsed,
+                error_message=str(e),
+            ), None
+
+    async def _check_anomalies(self, step_num: int, page_url: str) -> list[BugReport]:
+        """执行蓝本外异常检测，将发现的异常转为BugReport。"""
+        if not self._anomaly_detector:
+            return []
+
+        try:
+            report = await self._anomaly_detector.check()
+            self._anomaly_detector.drain_errors()
+
+            if not report.has_issues:
+                return []
+
+            # 异常严重度 → Bug严重度映射
+            severity_map = {
+                AnomSev.CRITICAL: BugSeverity.CRITICAL,
+                AnomSev.HIGH: BugSeverity.HIGH,
+                AnomSev.MEDIUM: BugSeverity.MEDIUM,
+                AnomSev.LOW: BugSeverity.LOW,
+            }
+
+            bugs = []
+            for anomaly in report.anomalies:
+                bugs.append(BugReport(
+                    severity=severity_map.get(anomaly.severity, BugSeverity.MEDIUM),
+                    category=f"蓝本外异常-{anomaly.anomaly_type.value}",
+                    title=anomaly.title,
+                    description=anomaly.detail,
+                    location=page_url,
+                    reproduction=f"步骤{step_num}执行后自动检测发现",
+                    step_number=step_num,
+                ))
+
+            return bugs
+
+        except Exception as e:
+            logger.debug("异常检测执行失败: {}", str(e)[:100])
+            return []
+
+    def _resolve_selector(
+        self,
+        target: Optional[str],
+        page: BlueprintPage,
+        blueprint: Blueprint,
+    ) -> str:
+        """解析选择器：如果target是元素名称则从映射中查找，否则直接返回。
+
+        支持：
+        - CSS选择器直接使用：'#todoInput', '.btn'
+        - 元素名称映射：'输入框' → page.elements['输入框'] → '#todoInput'
+        - 全局元素映射：'导航栏' → blueprint.global_elements['导航栏']
+        """
+        if target is None:
+            return ""
+
+        # 先查页面元素映射
+        if target in page.elements:
+            resolved = page.elements[target]
+            logger.debug("选择器映射: {} → {}", target, resolved)
+            return resolved
+
+        # 再查全局元素映射
+        if target in blueprint.global_elements:
+            resolved = blueprint.global_elements[target]
+            logger.debug("全局选择器映射: {} → {}", target, resolved)
+            return resolved
+
+        # 直接返回（视为CSS选择器）
+        return target
+
+    async def _ai_verify(self, screenshot_path: str, expected: str) -> tuple[str, str]:
+        """调用AI视觉分析验证截图是否符合预期。
+
+        Returns:
+            (verdict, detail): verdict='passed'或'failed', detail=说明
+        """
+        try:
+            prompt = (
+                f"请分析这张截图，判断页面是否满足以下预期：\n"
+                f"预期：{expected}\n\n"
+                f"请回答：\n"
+                f"1. 判定：passed 或 failed\n"
+                f"2. 说明：简要描述实际看到的内容\n\n"
+                f"格式：\n判定：passed/failed\n说明：..."
+            )
+
+            response = self._ai.analyze_screenshot(screenshot_path, prompt)
+
+            if "failed" in response.lower()[:50]:
+                detail = response.split("说明：")[-1].strip() if "说明：" in response else response[:200]
+                return "failed", detail
+            return "passed", ""
+
+        except Exception as e:
+            logger.warning("AI验证异常，默认通过 | {}", str(e)[:80])
+            return "passed", ""
+
+    def _generate_markdown(
+        self,
+        blueprint: Blueprint,
+        report: TestReport,
+        results: list[StepResult],
+        bugs: list[BugReport],
+        repair_stats: Optional[dict] = None,
+    ) -> str:
+        """生成Markdown格式测试报告。"""
+        lines = [
+            f"# 蓝本测试报告 - {blueprint.app_name}",
+            "",
+            f"- **测试模式**：蓝本模式（精确选择器）",
+            f"- **目标URL**：{blueprint.base_url}",
+            f"- **总步骤**：{report.total_steps}",
+            f"- **通过**：{report.passed_steps} | **失败**：{report.failed_steps} | **错误**：{report.error_steps}",
+            f"- **通过率**：{report.passed_steps / report.total_steps * 100:.0f}%" if report.total_steps > 0 else "",
+            "",
+            "## 步骤详情",
+            "| # | 操作 | 说明 | 结果 | 耗时 |",
+            "|---|------|------|------|------|",
+        ]
+
+        status_emoji = {
+            StepStatus.PASSED: "✅",
+            StepStatus.FAILED: "❌",
+            StepStatus.ERROR: "⚠️",
+            StepStatus.SKIPPED: "⏭️",
+        }
+
+        for r in results:
+            emoji = status_emoji.get(r.status, "❓")
+            error_note = f" ({r.error_message[:40]}...)" if r.error_message else ""
+            lines.append(
+                f"| {r.step} | {r.action.value} | {r.description[:30]} | "
+                f"{emoji} {r.status.value}{error_note} | {r.duration_seconds:.1f}s |"
+            )
+
+        if bugs:
+            lines.extend([
+                "",
+                "## 发现的Bug",
+                "| 严重度 | 标题 | 说明 |",
+                "|--------|------|------|",
+            ])
+            for bug in bugs:
+                lines.append(f"| {bug.severity.value} | {bug.title} | {bug.description[:50]} |")
+
+        if repair_stats:
+            lines.extend([
+                "",
+                "## 智能修复统计",
+                f"- **立即修复次数**：{repair_stats['immediate_repairs']}",
+                f"- **延迟修复Bug数**：{repair_stats['failed_steps'] - repair_stats['immediate_repairs']}"
+                if repair_stats['failed_steps'] > repair_stats['immediate_repairs'] else "",
+            ])
+
+        lines.extend([
+            "",
+            "---",
+            f"*报告由 TestPilot AI 蓝本模式生成*",
+        ])
+
+        return "\n".join(lines)

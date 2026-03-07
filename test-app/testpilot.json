@@ -1,0 +1,279 @@
+{
+  "app_name": "订单管理系统（带Bug测试）",
+  "base_url": "http://localhost:8900/preview/test-app/",
+  "version": "1.0",
+  "pages": [
+    {
+      "url": "/",
+      "title": "订单管理系统 - 首页",
+      "elements": {
+        "商品名称输入框": "#productName",
+        "单价输入框": "#productPrice",
+        "数量输入框": "#productQty",
+        "分类下拉框": "#productCategory",
+        "添加按钮": "#addBtn",
+        "表单错误提示": "#formError",
+        "订单表格": "#orderTable",
+        "订单表体": "#orderBody",
+        "空提示": "#emptyMsg",
+        "商品数量徽标": "#itemCount",
+        "总数量": "#totalQty",
+        "总价格": "#totalPrice",
+        "提交按钮": "#submitBtn",
+        "提交结果": "#submitResult"
+      },
+      "scenarios": [
+        {
+          "name": "页面加载验证",
+          "description": "验证页面正常加载，各元素就位",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8080",
+              "expected": "订单管理系统首页正常加载，显示标题、添加表单、空订单列表、汇总区",
+              "description": "打开首页"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#addBtn",
+              "description": "验证添加按钮可见"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#emptyMsg",
+              "description": "验证空提示可见"
+            },
+            {
+              "action": "assert_text",
+              "target": "#totalPrice",
+              "value": "¥0.00",
+              "description": "验证初始总价为0"
+            },
+            {
+              "action": "screenshot",
+              "expected": "页面正常显示，标题为'订单管理系统'，有添加表单、空订单列表、汇总栏显示0",
+              "description": "初始状态截图"
+            }
+          ]
+        },
+        {
+          "name": "空表单提交验证",
+          "description": "不填任何内容直接点添加，应显示错误提示",
+          "steps": [
+            {
+              "action": "click",
+              "target": "#addBtn",
+              "wait_after_ms": 300,
+              "description": "直接点击添加按钮（不填任何内容）"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#formError",
+              "description": "验证错误提示出现"
+            },
+            {
+              "action": "screenshot",
+              "expected": "表单下方显示红色错误提示'请输入商品名称'",
+              "description": "空表单提交截图"
+            }
+          ]
+        },
+        {
+          "name": "添加第一个商品",
+          "description": "填写完整信息添加商品，验证表格和汇总更新",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "#productName",
+              "value": "无线蓝牙耳机",
+              "description": "输入商品名称"
+            },
+            {
+              "action": "fill",
+              "target": "#productPrice",
+              "value": "199.00",
+              "description": "输入单价"
+            },
+            {
+              "action": "fill",
+              "target": "#productQty",
+              "value": "3",
+              "description": "输入数量3个"
+            },
+            {
+              "action": "select",
+              "target": "#productCategory",
+              "value": "electronics",
+              "description": "选择电子产品分类"
+            },
+            {
+              "action": "click",
+              "target": "#addBtn",
+              "wait_after_ms": 500,
+              "description": "点击添加"
+            },
+            {
+              "action": "assert_text",
+              "target": "#itemCount",
+              "value": "1",
+              "description": "验证商品数量徽标为1"
+            },
+            {
+              "action": "assert_text",
+              "target": "#totalPrice",
+              "value": "¥597.00",
+              "description": "验证总价=199×3=597（BUG: 实际只显示199，因为小计没乘数量）"
+            },
+            {
+              "action": "screenshot",
+              "expected": "表格中显示'无线蓝牙耳机'，分类'电子产品'，单价199，数量3，小计597，总价¥597.00",
+              "description": "添加第一个商品后截图"
+            }
+          ]
+        },
+        {
+          "name": "添加第二个商品（智能输入）",
+          "description": "使用auto:智能生成测试数据添加第二个商品",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "#productName",
+              "value": "auto:text:句子",
+              "description": "智能生成商品名称"
+            },
+            {
+              "action": "fill",
+              "target": "#productPrice",
+              "value": "auto:number:10-500",
+              "description": "智能生成随机单价"
+            },
+            {
+              "action": "fill",
+              "target": "#productQty",
+              "value": "2",
+              "description": "输入数量2"
+            },
+            {
+              "action": "select",
+              "target": "#productCategory",
+              "value": "books",
+              "description": "选择图书分类"
+            },
+            {
+              "action": "click",
+              "target": "#addBtn",
+              "wait_after_ms": 500,
+              "description": "点击添加"
+            },
+            {
+              "action": "assert_text",
+              "target": "#itemCount",
+              "value": "2",
+              "description": "验证商品数量为2"
+            },
+            {
+              "action": "screenshot",
+              "expected": "表格中有两行商品，汇总区显示更新后的总数量和总价",
+              "description": "添加第二个商品后截图"
+            }
+          ]
+        },
+        {
+          "name": "删除商品（触发JS报错）",
+          "description": "点击删除按钮，应触发JS错误（故意Bug）",
+          "steps": [
+            {
+              "action": "click",
+              "target": "#orderBody tr:first-child .btn-danger",
+              "wait_after_ms": 500,
+              "description": "点击第一个商品的删除按钮（会触发JS报错）"
+            },
+            {
+              "action": "screenshot",
+              "expected": "第一个商品被删除，表格只剩一行（但可能因JS报错导致删除失败）",
+              "description": "删除操作后截图"
+            }
+          ]
+        },
+        {
+          "name": "添加超长名称商品（触发布局溢出）",
+          "description": "输入极长的商品名称验证布局处理",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "#productName",
+              "value": "这是一个极其超级无敌非常非常长的商品名称用来测试布局溢出的情况看看表格会不会被撑破导致页面横向滚动条出现",
+              "description": "输入超长商品名称"
+            },
+            {
+              "action": "fill",
+              "target": "#productPrice",
+              "value": "9999.99",
+              "description": "输入高价"
+            },
+            {
+              "action": "fill",
+              "target": "#productQty",
+              "value": "1",
+              "description": "数量1"
+            },
+            {
+              "action": "select",
+              "target": "#productCategory",
+              "value": "food",
+              "description": "选择食品分类"
+            },
+            {
+              "action": "click",
+              "target": "#addBtn",
+              "wait_after_ms": 500,
+              "description": "添加超长名称商品"
+            },
+            {
+              "action": "screenshot",
+              "expected": "表格正常显示，长名称被截断或自动换行（BUG: 实际会溢出）",
+              "description": "超长名称商品截图"
+            }
+          ]
+        },
+        {
+          "name": "提交订单（触发网络错误）",
+          "description": "提交订单会调用不存在的API，触发404",
+          "steps": [
+            {
+              "action": "click",
+              "target": "#submitBtn",
+              "wait_after_ms": 1000,
+              "description": "点击提交订单按钮"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#submitResult",
+              "description": "验证提交结果区域出现"
+            },
+            {
+              "action": "screenshot",
+              "expected": "显示提交结果（可能成功或失败），页面无崩溃",
+              "description": "提交订单后截图"
+            }
+          ]
+        },
+        {
+          "name": "滚动页面验证",
+          "description": "滚动页面检查底部区域",
+          "steps": [
+            {
+              "action": "scroll",
+              "description": "向下滚动页面"
+            },
+            {
+              "action": "screenshot",
+              "expected": "页面底部可见，汇总区和提交结果完整显示",
+              "description": "滚动后截图"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

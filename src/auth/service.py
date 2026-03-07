@@ -1,0 +1,271 @@
+"""
+用户认证服务（v6.0）
+
+提供：
+- 用户注册/登录
+- JWT token 生成/验证
+- 密码哈希
+- 用量检查与记录
+"""
+
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import bcrypt as _bcrypt
+from jose import JWTError, jwt
+from sqlalchemy.orm import Session
+from loguru import logger
+
+from src.auth.models import User, Project, UsageRecord, ROLE_QUOTAS, ROLE_FREE
+
+
+# JWT 配置
+SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "testpilot-dev-secret-change-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))  # 默认24小时
+
+
+def hash_password(password: str) -> str:
+    """生成密码哈希。"""
+    pw = password.encode("utf-8")[:72]
+    return _bcrypt.hashpw(pw, _bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    """验证密码。"""
+    pw = plain.encode("utf-8")[:72]
+    try:
+        return _bcrypt.checkpw(pw, hashed.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: int, username: str, role: str, expires_delta: Optional[timedelta] = None) -> str:
+    """生成 JWT access token。"""
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    payload = {
+        "sub": str(user_id),
+        "username": username,
+        "role": role,
+        "exp": expire,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[dict]:
+    """解码 JWT token，返回 payload 或 None。"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+
+# ── 用户 CRUD ──
+
+def register_user(db: Session, email: str, username: str, password: str) -> User:
+    """注册新用户。
+
+    Raises:
+        ValueError: 邮箱或用户名已存在
+    """
+    if db.query(User).filter(User.email == email).first():
+        raise ValueError("邮箱已注册")
+    if db.query(User).filter(User.username == username).first():
+        raise ValueError("用户名已存在")
+
+    quotas = ROLE_QUOTAS.get(ROLE_FREE, {})
+    user = User(
+        email=email,
+        username=username,
+        hashed_password=hash_password(password),
+        role=ROLE_FREE,
+        **quotas,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    logger.info("新用户注册 | {} ({})", username, email)
+    return user
+
+
+def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
+    """验证用户凭据，成功返回 User，失败返回 None。"""
+    user = db.query(User).filter(User.email == email).first()
+    if not user or not user.is_active:
+        return None
+    if not verify_password(password, user.hashed_password):
+        return None
+    return user
+
+
+def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
+    """按ID查询用户。"""
+    return db.query(User).filter(User.id == user_id, User.is_active == True).first()
+
+
+def get_user_by_token(db: Session, token: str) -> Optional[User]:
+    """从token解析并查询用户。"""
+    payload = decode_token(token)
+    if not payload or "sub" not in payload:
+        return None
+    try:
+        user_id = int(payload["sub"])
+    except (ValueError, TypeError):
+        return None
+    return get_user_by_id(db, user_id)
+
+
+# ── 项目 CRUD ──
+
+def create_project(db: Session, owner_id: int, name: str, description: str = "", base_url: str = "") -> Project:
+    """创建项目。
+
+    Raises:
+        ValueError: 超过项目配额
+    """
+    user = get_user_by_id(db, owner_id)
+    if not user:
+        raise ValueError("用户不存在")
+
+    project_count = db.query(Project).filter(Project.owner_id == owner_id, Project.is_active == True).count()
+    if project_count >= user.max_projects:
+        raise ValueError(f"项目数已达上限 ({user.max_projects})")
+
+    project = Project(
+        name=name,
+        description=description,
+        owner_id=owner_id,
+        base_url=base_url,
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
+    logger.info("项目创建 | {} (owner={})", name, owner_id)
+    return project
+
+
+def get_user_projects(db: Session, owner_id: int) -> list[Project]:
+    """获取用户的所有项目。"""
+    return db.query(Project).filter(
+        Project.owner_id == owner_id, Project.is_active == True
+    ).order_by(Project.updated_at.desc()).all()
+
+
+def get_project(db: Session, project_id: int, owner_id: int) -> Optional[Project]:
+    """获取指定项目（验证所有权）。"""
+    return db.query(Project).filter(
+        Project.id == project_id, Project.owner_id == owner_id, Project.is_active == True
+    ).first()
+
+
+def update_project(db: Session, project_id: int, owner_id: int, **kwargs) -> Optional[Project]:
+    """更新项目信息。"""
+    project = get_project(db, project_id, owner_id)
+    if not project:
+        return None
+    for key, value in kwargs.items():
+        if hasattr(project, key) and key not in ("id", "owner_id", "created_at"):
+            setattr(project, key, value)
+    db.commit()
+    db.refresh(project)
+    return project
+
+
+def delete_project(db: Session, project_id: int, owner_id: int) -> bool:
+    """软删除项目。"""
+    project = get_project(db, project_id, owner_id)
+    if not project:
+        return False
+    project.is_active = False
+    db.commit()
+    return True
+
+
+# ── 用量管理 ──
+
+def check_quota(db: Session, user_id: int, action: str = "test") -> dict:
+    """检查用户今日用量是否超限。
+
+    Args:
+        action: "test" | "ai_call" | "screenshot"
+
+    Returns:
+        {"allowed": bool, "used": int, "limit": int, "remaining": int}
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return {"allowed": False, "used": 0, "limit": 0, "remaining": 0}
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    record = db.query(UsageRecord).filter(
+        UsageRecord.user_id == user_id, UsageRecord.date == today
+    ).first()
+
+    if action == "test":
+        used = record.test_count if record else 0
+        limit = user.max_tests_per_day
+    elif action == "ai_call":
+        used = record.ai_call_count if record else 0
+        limit = user.max_ai_calls_per_day
+    else:
+        used = 0
+        limit = 9999
+
+    remaining = max(0, limit - used)
+    return {"allowed": remaining > 0, "used": used, "limit": limit, "remaining": remaining}
+
+
+def record_usage(db: Session, user_id: int, tests: int = 0, ai_calls: int = 0, screenshots: int = 0) -> None:
+    """记录使用量。"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    record = db.query(UsageRecord).filter(
+        UsageRecord.user_id == user_id, UsageRecord.date == today
+    ).first()
+
+    if record:
+        record.test_count += tests
+        record.ai_call_count += ai_calls
+        record.screenshot_count += screenshots
+    else:
+        record = UsageRecord(
+            user_id=user_id,
+            date=today,
+            test_count=tests,
+            ai_call_count=ai_calls,
+            screenshot_count=screenshots,
+        )
+        db.add(record)
+
+    db.commit()
+
+
+def get_usage_summary(db: Session, user_id: int, days: int = 30) -> dict:
+    """获取用量汇总。"""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    records = db.query(UsageRecord).filter(
+        UsageRecord.user_id == user_id, UsageRecord.date >= cutoff
+    ).all()
+
+    total_tests = sum(r.test_count for r in records)
+    total_ai = sum(r.ai_call_count for r in records)
+    total_ss = sum(r.screenshot_count for r in records)
+
+    user = get_user_by_id(db, user_id)
+    return {
+        "period_days": days,
+        "total_tests": total_tests,
+        "total_ai_calls": total_ai,
+        "total_screenshots": total_ss,
+        "daily_records": [
+            {"date": r.date, "tests": r.test_count, "ai_calls": r.ai_call_count, "screenshots": r.screenshot_count}
+            for r in sorted(records, key=lambda x: x.date)
+        ],
+        "quotas": {
+            "max_tests_per_day": user.max_tests_per_day if user else 0,
+            "max_ai_calls_per_day": user.max_ai_calls_per_day if user else 0,
+            "max_projects": user.max_projects if user else 0,
+            "storage_limit_mb": user.storage_limit_mb if user else 0,
+        },
+    }

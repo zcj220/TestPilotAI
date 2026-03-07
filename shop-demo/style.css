@@ -1,0 +1,87 @@
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background:#f0f2f5; }
+
+/* 页面切换 */
+.page { display:none; }
+.page.active { display:block; }
+
+/* 登录 */
+.login-box { width:360px; margin:120px auto; background:#fff; padding:40px; border-radius:12px;
+  box-shadow:0 4px 24px rgba(0,0,0,.1); text-align:center; }
+.login-box h1 { font-size:28px; margin-bottom:6px; }
+.login-box .sub { color:#888; margin-bottom:28px; }
+.login-box .field { text-align:left; margin-bottom:16px; }
+.login-box label { display:block; font-size:13px; color:#555; margin-bottom:4px; }
+.login-box input { width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:8px; font-size:14px; }
+.login-box button { width:100%; padding:12px; background:#4f46e5; color:#fff;
+  border:none; border-radius:8px; font-size:15px; cursor:pointer; margin-top:8px; }
+.login-box button:hover { background:#4338ca; }
+
+/* 布局 */
+.sidebar { width:200px; height:100vh; background:#1e1b4b; position:fixed; top:0; left:0;
+  display:flex; flex-direction:column; padding:20px 0; }
+.sidebar .logo { color:#fff; font-size:18px; font-weight:700; padding:0 20px 20px; border-bottom:1px solid #3730a3; }
+.sidebar ul { list-style:none; margin-top:12px; flex:1; }
+.nav { color:#a5b4fc; padding:12px 20px; cursor:pointer; font-size:14px; }
+.nav:hover, .nav.active { background:#3730a3; color:#fff; }
+#logoutBtn { color:#a5b4fc; padding:12px 20px; cursor:pointer; font-size:13px; }
+#logoutBtn:hover { color:#fff; }
+
+.content { margin-left:200px; padding:32px; min-height:100vh; }
+.tab { display:none; }
+.tab.active { display:block; }
+.tab h2 { font-size:22px; margin-bottom:20px; color:#1e1b4b; }
+
+/* 统计卡片 */
+.stats { display:flex; gap:16px; margin-bottom:28px; }
+.stat { background:#fff; border-radius:10px; padding:20px 24px; flex:1;
+  box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.stat .num { font-size:28px; font-weight:700; color:#4f46e5; }
+.stat .lbl { font-size:13px; color:#888; margin-top:4px; }
+
+/* 表格 */
+table { width:100%; border-collapse:collapse; background:#fff;
+  border-radius:10px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,.08); }
+thead { background:#f8f9ff; }
+th { padding:12px 16px; text-align:left; font-size:13px; color:#555; font-weight:600; }
+td { padding:11px 16px; font-size:13px; color:#333; border-top:1px solid #f0f0f0; }
+tr:hover td { background:#fafafe; }
+
+/* 工具栏 */
+.toolbar { display:flex; gap:12px; align-items:center; margin-bottom:16px; }
+.toolbar input { padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; width:220px; }
+.toolbar select { padding:8px 12px; border:1px solid #ddd; border-radius:8px; font-size:13px; }
+
+/* 按钮 */
+button { padding:8px 16px; border:none; border-radius:8px; cursor:pointer; font-size:13px; }
+#addProductBtn { background:#4f46e5; color:#fff; }
+#addProductBtn:hover { background:#4338ca; }
+#saveProductBtn { background:#10b981; color:#fff; margin-right:8px; }
+
+/* 卡片/表单 */
+.card { background:#fff; border-radius:10px; padding:20px; margin-bottom:20px;
+  box-shadow:0 1px 4px rgba(0,0,0,.08); }
+.card h3 { margin-bottom:16px; font-size:15px; }
+.row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+.field { display:flex; flex-direction:column; }
+.field label { font-size:12px; color:#555; margin-bottom:4px; }
+.field input, .field select { padding:8px 10px; border:1px solid #ddd; border-radius:8px;
+  font-size:13px; min-width:150px; }
+
+/* 徽标/状态 */
+.badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:12px; }
+.badge-success { background:#d1fae5; color:#065f46; }
+.badge-warn    { background:#fef3c7; color:#92400e; }
+.badge-info    { background:#dbeafe; color:#1e40af; }
+.badge-gray    { background:#f3f4f6; color:#6b7280; }
+
+/* 操作按钮 */
+.btn-del { background:#fee2e2; color:#dc2626; padding:4px 10px; font-size:12px; }
+.btn-del:hover { background:#fecaca; }
+.btn-ship { background:#dbeafe; color:#1d4ed8; padding:4px 10px; font-size:12px; }
+.btn-ship:hover { background:#bfdbfe; }
+
+.err { color:#dc2626; font-size:13px; padding:8px 0; }
+.empty { text-align:center; color:#aaa; padding:40px; background:#fff;
+  border-radius:10px; margin-top:4px; }
+#orderTotal { text-align:right; margin-top:12px; font-size:14px; color:#555; }

@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Todo + 购物清单</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; background: #f5f5f5; padding: 40px 20px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { text-align: center; margin-bottom: 24px; color: #333; }
+    .tabs { display: flex; justify-content: center; gap: 0; margin-bottom: 24px; }
+    .tab-btn { padding: 10px 24px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 14px; color: #666; }
+    .tab-btn:first-child { border-radius: 6px 0 0 6px; }
+    .tab-btn:last-child { border-radius: 0 6px 6px 0; }
+    .tab-btn.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .input-row { display: flex; gap: 8px; margin-bottom: 20px; }
+    #todoInput {
+      flex: 1; padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px; outline: none;
+    }
+    #todoInput:focus { border-color: #4f46e5; }
+    #addBtn {
+      padding: 10px 20px; background: #4f46e5; color: #fff; border: none;
+      border-radius: 6px; cursor: pointer; font-size: 14px;
+    }
+    #addBtn:hover { background: #4338ca; }
+    .todo-list { list-style: none; }
+    .todo-item {
+      display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+      background: #fff; border-radius: 8px; margin-bottom: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    }
+    .todo-text { flex: 1; font-size: 14px; color: #333; }
+    .todo-item.done .todo-text { text-decoration: line-through !important; color: #999 !important; }
+    .todo-checkbox { width: 18px; height: 18px; cursor: pointer; }
+    .delete-btn {
+      background: none; border: none; color: #ef4444; cursor: pointer;
+      font-size: 18px; padding: 0 4px;
+    }
+    .delete-btn:hover { color: #dc2626; }
+    .stats { text-align: center; margin-top: 16px; color: #888; font-size: 13px; }
+    .filter-row { display: flex; justify-content: center; gap: 8px; margin-bottom: 16px; }
+    .filter-btn {
+      padding: 6px 14px; border: 1px solid #ddd; background: #fff;
+      border-radius: 4px; cursor: pointer; font-size: 12px;
+    }
+    .filter-btn.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+    .empty { text-align: center; color: #bbb; padding: 40px; }
+    /* 购物清单样式 */
+    .shop-input-row { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .shop-input-row input { padding: 10px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; outline: none; }
+    .shop-input-row input:focus { border-color: #10b981; }
+    #shopName { flex: 2; min-width: 100px; }
+    #shopPrice { width: 90px; }
+    #shopQty { width: 70px; }
+    #shopAddBtn { padding: 10px 16px; background: #10b981; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+    #shopAddBtn:hover { background: #059669; }
+    .shop-list { list-style: none; }
+    .shop-item { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: #fff; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); font-size: 14px; }
+    .shop-item-name { flex: 1; color: #333; font-weight: 500; }
+    .shop-item-detail { color: #666; }
+    .shop-item-subtotal { color: #10b981; font-weight: 600; min-width: 80px; text-align: right; }
+    .shop-delete { background: none; border: none; color: #ef4444; cursor: pointer; font-size: 18px; }
+    .shop-summary { background: #fff; border-radius: 8px; padding: 16px; margin-top: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .shop-summary-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: #666; }
+    .shop-summary-row.total { font-size: 18px; font-weight: 700; color: #333; border-top: 1px solid #eee; padding-top: 8px; margin-bottom: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Todo + 购物清单</h1>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="todo">待办事项</button>
+      <button class="tab-btn" data-tab="shop">购物清单</button>
+    </div>
+
+    <!-- Tab 1: Todo -->
+    <div class="tab-content active" id="tab-todo">
+      <div class="input-row">
+        <input type="text" id="todoInput" placeholder="输入新的待办事项...">
+        <button id="addBtn">添加</button>
+      </div>
+
+      <div class="filter-row">
+        <button class="filter-btn active" data-filter="all">全部</button>
+        <button class="filter-btn" data-filter="active">未完成</button>
+        <button class="filter-btn" data-filter="done">已完成</button>
+      </div>
+
+      <ul class="todo-list" id="todoList"></ul>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <!-- Tab 2: 购物清单 -->
+    <div class="tab-content" id="tab-shop">
+      <div class="shop-input-row">
+        <input type="text" id="shopName" placeholder="商品名称">
+        <input type="number" id="shopPrice" placeholder="单价" min="0" step="0.01">
+        <input type="number" id="shopQty" placeholder="数量" min="1" step="1">
+        <button id="shopAddBtn">添加</button>
+      </div>
+
+      <ul class="shop-list" id="shopList"></ul>
+
+      <div class="shop-summary" id="shopSummary" style="display:none;">
+        <div class="shop-summary-row">
+          <span>商品种类</span>
+          <span id="shopItemCount">0</span>
+        </div>
+        <div class="shop-summary-row">
+          <span>商品总数</span>
+          <span id="shopTotalQty">0</span>
+        </div>
+        <div class="shop-summary-row total">
+          <span>合计</span>
+          <span id="shopTotalPrice">¥0.00</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========== Tab 切换 ==========
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ========== Todo 功能 ==========
+    let todos = [];
+    let filter = 'all';
+
+    const input = document.getElementById('todoInput');
+    const addBtn = document.getElementById('addBtn');
+    const listEl = document.getElementById('todoList');
+    const statsEl = document.getElementById('stats');
+
+    addBtn.addEventListener('click', () => {
+      const text = input.value.trim();
+      if (!text) return;
+      todos.push({ id: Date.now(), text, done: false });
+      input.value = '';
+      renderTodo();
+    });
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') addBtn.click();
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        filter = btn.dataset.filter;
+        renderTodo();
+      });
+    });
+
+    function renderTodo() {
+      let filtered = todos;
+      if (filter === 'active') filtered = todos.filter(t => !t.done);
+      if (filter === 'done') filtered = todos.filter(t => t.done);
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div class="empty">暂无事项</div>';
+      } else {
+        listEl.innerHTML = filtered.map(t => `
+          <li class="todo-item ${t.done ? 'done' : ''}" data-id="${t.id}">
+            <input type="checkbox" class="todo-checkbox" ${t.done ? 'checked' : ''}>
+            <span class="todo-text">${t.text}</span>
+            <button class="delete-btn">&times;</button>
+          </li>
+        `).join('');
+      }
+
+      // ===== BUG 1: 已修复 =====
+      const doneCount = todos.filter(t => t.done).length;
+      const activeCount = todos.filter(t => !t.done).length;
+      statsEl.textContent = `共 ${todos.length} 项，已完成 ${doneCount}，未完成 ${activeCount}`;
+
+      listEl.querySelectorAll('.todo-checkbox').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const id = Number(e.target.closest('.todo-item').dataset.id);
+          const todo = todos.find(t => t.id === id);
+          if (todo) { todo.done = e.target.checked; renderTodo(); }
+        });
+      });
+
+      // ===== BUG 2: 已修复 =====
+      listEl.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = Number(e.target.closest('.todo-item').dataset.id);
+          todos = todos.filter(t => t.id !== id);
+          renderTodo();
+        });
+      });
+    }
+
+    renderTodo();
+
+    // ========== 购物清单功能 ==========
+    let shopItems = [];
+
+    const shopName = document.getElementById('shopName');
+    const shopPrice = document.getElementById('shopPrice');
+    const shopQty = document.getElementById('shopQty');
+    const shopAddBtn = document.getElementById('shopAddBtn');
+    const shopListEl = document.getElementById('shopList');
+
+    shopAddBtn.addEventListener('click', () => {
+      const name = shopName.value.trim();
+      const price = parseFloat(shopPrice.value);
+      const qty = parseInt(shopQty.value);
+      if (!name || isNaN(price) || isNaN(qty) || price < 0 || qty < 1) return;
+      shopItems.push({ id: Date.now(), name, price, qty });
+      shopName.value = '';
+      shopPrice.value = '';
+      shopQty.value = '';
+      renderShop();
+    });
+
+    function renderShop() {
+      if (shopItems.length === 0) {
+        shopListEl.innerHTML = '<div class="empty">暂无商品</div>';
+        document.getElementById('shopSummary').style.display = 'none';
+        return;
+      }
+
+      shopListEl.innerHTML = shopItems.map(item => {
+        // ===== BUG 3: 已修复 =====
+        const subtotal = item.price * item.qty;
+        return `
+          <li class="shop-item" data-id="${item.id}">
+            <span class="shop-item-name">${item.name}</span>
+            <span class="shop-item-detail">¥${item.price.toFixed(2)} × ${item.qty}</span>
+            <span class="shop-item-subtotal" data-subtotal="${subtotal.toFixed(2)}">¥${subtotal.toFixed(2)}</span>
+            <button class="shop-delete">&times;</button>
+          </li>
+        `;
+      }).join('');
+
+      // 汇总
+      const itemCount = shopItems.length;
+      const totalQty = shopItems.reduce((s, i) => s + i.qty, 0);
+      // ===== BUG 4: 已修复 =====
+      const totalPrice = shopItems.reduce((s, i) => s + i.price * i.qty, 0);
+
+      document.getElementById('shopItemCount').textContent = itemCount;
+      document.getElementById('shopTotalQty').textContent = totalQty;
+      document.getElementById('shopTotalPrice').textContent = `¥${totalPrice.toFixed(2)}`;
+      document.getElementById('shopSummary').style.display = 'block';
+
+      // 删除按钮（购物清单的删除正常工作，对比Todo的删除Bug）
+      shopListEl.querySelectorAll('.shop-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const id = Number(e.target.closest('.shop-item').dataset.id);
+          shopItems = shopItems.filter(i => i.id !== id);
+          renderShop();
+        });
+      });
+    }
+
+    renderShop();
+  </script>
+</body>
+</html>

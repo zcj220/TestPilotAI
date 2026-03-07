@@ -1,0 +1,10 @@
+.vscode/**
+node_modules/**
+src/**
+out/**/*.map
+out/engineClient.js
+out/sidebarProvider.js
+esbuild.js
+tsconfig.json
+**/*.ts
+package-lock.json

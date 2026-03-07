@@ -1,0 +1,83 @@
+{
+  "app_name": "BuggyShop 测试商城",
+  "base_url": "http://localhost:8901",
+  "pages": [
+    {
+      "url": "/",
+      "title": "BuggyShop - 有Bug的商城",
+      "elements": {
+        "用户名": "#username",
+        "密码": "#password",
+        "登录按钮": "#login-form .btn-buy",
+        "用户信息": "#user-info",
+        "耳机加购": ".product[data-id='1'] .btn-cart",
+        "键盘加购": ".product[data-id='2'] .btn-cart",
+        "扩展坞加购": ".product[data-id='3'] .btn-cart",
+        "键盘价格": "#price-2",
+        "购物车总价": "#total",
+        "结算按钮": ".btn-checkout",
+        "消息区": "#message"
+      },
+      "scenarios": [
+        {
+          "name": "Bug1-空密码登录",
+          "description": "输入用户名但不输入密码，验证是否能登录（不应该能登录）",
+          "steps": [
+            {"action": "fill", "target": "#username", "value": "testuser"},
+            {"action": "click", "target": "#password"},
+            {"action": "click", "target": "#login-form .btn-buy"},
+            {"action": "assert_text", "target": "#user-info", "expected": "应显示错误提示，如'请输入用户名和密码'，不应显示欢迎信息"}
+          ]
+        },
+        {
+          "name": "Bug2-价格显示与实际不一致",
+          "description": "机械键盘页面显示¥199，但加入购物车后总价是¥599",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8901/index.html"},
+            {"action": "assert_text", "target": "#price-2", "expected": "页面显示机械键盘价格为¥199"},
+            {"action": "click", "target": ".product[data-id='2'] .btn-cart"},
+            {"action": "screenshot"},
+            {"action": "assert_text", "target": "#total", "expected": "总计显示¥199"}
+          ]
+        },
+        {
+          "name": "Bug3-未登录结算",
+          "description": "不登录直接加购商品并结算，应提示请先登录",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8901/index.html"},
+            {"action": "click", "target": ".product[data-id='3'] .btn-cart"},
+            {"action": "click", "target": ".btn-checkout"},
+            {"action": "screenshot"},
+            {"action": "assert_text", "target": "#message", "expected": "应显示'请先登录后再结算'的提示"}
+          ]
+        },
+        {
+          "name": "Bug4-大金额结算报错",
+          "description": "登录后添加三件商品（总价>1000），结算时应成功但系统报500错误",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8901/index.html"},
+            {"action": "fill", "target": "#username", "value": "buyer"},
+            {"action": "fill", "target": "#password", "value": "123456"},
+            {"action": "click", "target": "#login-form .btn-buy"},
+            {"action": "click", "target": ".product[data-id='1'] .btn-cart"},
+            {"action": "click", "target": ".product[data-id='2'] .btn-cart"},
+            {"action": "click", "target": ".product[data-id='3'] .btn-cart"},
+            {"action": "click", "target": ".btn-checkout"},
+            {"action": "assert_text", "target": "#message", "expected": "订单提交成功"}
+          ]
+        },
+        {
+          "name": "Bug5-总价浮点精度",
+          "description": "添加耳机(299)+扩展坞(159)，总价应为¥458整数，但有浮点精度误差",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8901/index.html"},
+            {"action": "click", "target": ".product[data-id='1'] .btn-cart"},
+            {"action": "click", "target": ".product[data-id='3'] .btn-cart"},
+            {"action": "screenshot"},
+            {"action": "assert_text", "target": "#total", "expected": "总计显示¥458，是整数无小数点"}
+          ]
+        }
+      ]
+    }
+  ]
+}

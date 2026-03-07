@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量（含密钥，绝不提交）
+.env
+
+# 日志
+logs/
+
+# 数据文件（截图、录屏等）
+data/
+screenshots/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Poetry
+poetry.toml
+
+# Playwright
+playwright-report/
+test-results/
+
+# VSCode Extension
+extension/node_modules/
+extension/out/
+extension/*.vsix
+
+# Desktop App (React + Vite)
+desktop/node_modules/
+desktop/dist/
+
+# Tauri (Rust桌面应用)
+desktop/src-tauri/target/

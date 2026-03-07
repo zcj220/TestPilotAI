@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单管理系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>订单管理系统</h1>
+        <p class="subtitle">TestPilot AI 测试专用应用（故意含Bug）</p>
+    </div>
+
+    <div class="container">
+        <!-- 添加商品表单 -->
+        <div class="card" id="addForm">
+            <h2>添加商品</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="productName">商品名称</label>
+                    <input type="text" id="productName" placeholder="输入商品名称">
+                </div>
+                <div class="form-group">
+                    <label for="productPrice">单价（元）</label>
+                    <input type="number" id="productPrice" placeholder="0.00" min="0" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label for="productQty">数量</label>
+                    <input type="number" id="productQty" placeholder="1" min="1" value="1">
+                </div>
+                <div class="form-group">
+                    <label for="productCategory">分类</label>
+                    <select id="productCategory">
+                        <option value="">请选择</option>
+                        <option value="electronics">电子产品</option>
+                        <option value="clothing">服装</option>
+                        <option value="food">食品</option>
+                        <option value="books">图书</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" id="addBtn" onclick="addProduct()">添加</button>
+            </div>
+            <div id="formError" class="error" style="display:none;"></div>
+        </div>
+
+        <!-- 订单列表 -->
+        <div class="card">
+            <h2>订单列表 <span id="itemCount" class="badge">0</span></h2>
+            <table id="orderTable">
+                <thead>
+                    <tr>
+                        <th>商品名称</th>
+                        <th>分类</th>
+                        <th>单价</th>
+                        <th>数量</th>
+                        <th>小计</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="orderBody"></tbody>
+            </table>
+            <div id="emptyMsg" class="empty-msg">暂无商品，请添加</div>
+        </div>
+
+        <!-- 汇总 -->
+        <div class="card summary">
+            <div class="summary-item">
+                <span>商品总数</span>
+                <strong id="totalQty">0</strong>
+            </div>
+            <div class="summary-item">
+                <span>订单总价</span>
+                <strong id="totalPrice">¥0.00</strong>
+            </div>
+            <div class="summary-item">
+                <button class="btn btn-submit" id="submitBtn" onclick="submitOrder()">提交订单</button>
+            </div>
+        </div>
+
+        <!-- 提交结果 -->
+        <div id="submitResult" class="card" style="display:none;"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

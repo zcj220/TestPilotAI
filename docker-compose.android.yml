@@ -1,0 +1,65 @@
+# Docker Compose: Android 模拟器 + Appium（v5.1）
+#
+# 用于 CI/CD 环境中运行手机测试，无需真机。
+#
+# 使用方式：
+#   docker compose -f docker-compose.android.yml up -d
+#   python cli.py mobile devices        # 查看模拟器设备
+#   python cli.py run -b blueprint.json  # 执行测试
+#   docker compose -f docker-compose.android.yml down
+#
+# 环境变量：
+#   EMULATOR_DEVICE  - 模拟器设备型号（默认 Samsung Galaxy S10）
+#   ANDROID_VERSION  - Android 版本（默认 12.0）
+
+services:
+  android-emulator:
+    image: budtmo/docker-android:emulator_13.0
+    privileged: true
+    ports:
+      - "6080:6080"    # noVNC（浏览器查看模拟器屏幕）
+      - "4723:4723"    # Appium Server
+      - "5554:5554"    # ADB
+      - "5555:5555"    # ADB
+    environment:
+      EMULATOR_DEVICE: "${EMULATOR_DEVICE:-Samsung Galaxy S10}"
+      WEB_VNC: "true"
+      WEB_LOG: "true"
+      APPIUM: "true"
+      APPIUM_ADDITIONAL_ARGS: "--relaxed-security --allow-insecure=adb_shell"
+      DATAPARTITION_SIZE: "2048"
+    volumes:
+      - android-data:/root/.android
+      - ./screenshots:/screenshots
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4723/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  testpilot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      android-emulator:
+        condition: service_healthy
+    environment:
+      APPIUM_URL: "http://android-emulator:4723"
+      TESTPILOT_ENGINE_HOST: "0.0.0.0"
+      TESTPILOT_ENGINE_PORT: "8900"
+    ports:
+      - "8900:8900"
+    volumes:
+      - ./screenshots:/app/screenshots
+      - ./testpilot.json:/app/blueprint.json:ro
+
+volumes:
+  android-data:

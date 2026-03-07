@@ -1,0 +1,604 @@
+{
+  "app_name": "ShopAdmin 电商后台（含4个Bug）",
+  "base_url": "http://localhost:8900/preview/shop-demo/",
+  "version": "1.0",
+  "pages": [
+    {
+      "url": "/",
+      "title": "ShopAdmin 主页",
+      "elements": {
+        "用户名输入框": "#loginUser",
+        "密码输入框": "#loginPass",
+        "登录按钮": "#loginBtn",
+        "登录错误提示": "#loginError",
+        "仪表盘Tab": "#nav-dashboard",
+        "商品管理Tab": "#nav-products",
+        "订单管理Tab": "#nav-orders",
+        "用户管理Tab": "#nav-users",
+        "退出按钮": "#logoutBtn",
+        "今日销售额": "#stat-sales",
+        "今日订单数": "#stat-orders",
+        "商品总数": "#stat-products",
+        "新增商品按钮": "#addProductBtn",
+        "商品搜索框": "#searchInput",
+        "新增表单": "#addForm",
+        "商品名称输入": "#pName",
+        "商品价格输入": "#pPrice",
+        "商品库存输入": "#pStock",
+        "商品分类选择": "#pCat",
+        "保存商品按钮": "#saveProductBtn",
+        "商品表格体": "#productBody",
+        "商品空提示": "#productEmpty",
+        "商品错误提示": "#pErr",
+        "订单筛选": "#orderFilter",
+        "订单表格体": "#orderBody",
+        "订单合计金额": "#orderTotalAmt",
+        "最近订单表": "#recentBody"
+      },
+      "scenarios": [
+        {
+          "name": "登录失败验证",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin",
+              "description": "输入用户名"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "wrongpass",
+              "description": "输入错误密码"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn",
+              "description": "点击登录"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#loginError",
+              "description": "应显示错误提示"
+            },
+            {
+              "action": "assert_text",
+              "target": "#loginError",
+              "expected": "用户名或密码错误",
+              "description": "验证错误文案"
+            },
+            {
+              "action": "screenshot",
+              "description": "登录失败截图"
+            }
+          ]
+        },
+        {
+          "name": "正常登录",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin",
+              "description": "输入用户名"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456",
+              "description": "输入正确密码"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn",
+              "description": "点击登录"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#mainPage",
+              "description": "应进入主页"
+            },
+            {
+              "action": "assert_text",
+              "target": "#stat-sales",
+              "expected": "¥",
+              "description": "仪表盘显示销售额"
+            },
+            {
+              "action": "screenshot",
+              "description": "登录成功截图"
+            }
+          ]
+        },
+        {
+          "name": "禁用账号登录",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "李四",
+              "description": "输入禁用用户"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "pass88",
+              "description": "输入密码"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn",
+              "description": "点击登录"
+            },
+            {
+              "action": "assert_text",
+              "target": "#loginError",
+              "expected": "该账号已被禁用",
+              "description": "应显示禁用提示"
+            },
+            {
+              "action": "screenshot",
+              "description": "禁用账号截图"
+            }
+          ]
+        },
+        {
+          "name": "仪表盘数据验证",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "assert_text",
+              "target": "#stat-sales",
+              "expected": "¥13,094",
+              "description": "销售额=已付款+已发货+已完成"
+            },
+            {
+              "action": "assert_text",
+              "target": "#stat-orders",
+              "expected": "4",
+              "description": "订单数"
+            },
+            {
+              "action": "assert_text",
+              "target": "#stat-products",
+              "expected": "4",
+              "description": "商品数"
+            },
+            {
+              "action": "screenshot",
+              "description": "仪表盘截图"
+            }
+          ]
+        },
+        {
+          "name": "商品管理-查看列表",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-products",
+              "description": "点击商品管理"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#productBody",
+              "description": "商品列表可见"
+            },
+            {
+              "action": "assert_text",
+              "target": "#productBody",
+              "expected": "iPhone 16 Pro",
+              "description": "包含预设商品"
+            },
+            {
+              "action": "screenshot",
+              "description": "商品列表截图"
+            }
+          ]
+        },
+        {
+          "name": "商品管理-搜索",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/",
+              "description": "打开系统"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-products",
+              "description": "点击商品管理"
+            },
+            {
+              "action": "fill",
+              "target": "#searchInput",
+              "value": "iPhone",
+              "description": "搜索iPhone"
+            },
+            {
+              "action": "assert_text",
+              "target": "#productBody",
+              "expected": "iPhone 16 Pro",
+              "description": "搜索结果包含"
+            },
+            {
+              "action": "screenshot",
+              "description": "搜索结果截图"
+            }
+          ]
+        },
+        {
+          "name": "新增商品-成功",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-products"
+            },
+            {
+              "action": "click",
+              "target": "#addProductBtn",
+              "description": "点击新增"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#addForm",
+              "description": "表单可见"
+            },
+            {
+              "action": "fill",
+              "target": "#pName",
+              "value": "测试商品A"
+            },
+            {
+              "action": "fill",
+              "target": "#pPrice",
+              "value": "99.99"
+            },
+            {
+              "action": "fill",
+              "target": "#pStock",
+              "value": "50"
+            },
+            {
+              "action": "select",
+              "target": "#pCat",
+              "value": "电子",
+              "description": "选择分类"
+            },
+            {
+              "action": "click",
+              "target": "#saveProductBtn",
+              "description": "保存"
+            },
+            {
+              "action": "assert_text",
+              "target": "#productBody",
+              "expected": "测试商品A",
+              "description": "列表包含新商品"
+            },
+            {
+              "action": "screenshot",
+              "description": "新增商品截图"
+            }
+          ]
+        },
+        {
+          "name": "新增商品-空表单验证",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-products"
+            },
+            {
+              "action": "click",
+              "target": "#addProductBtn"
+            },
+            {
+              "action": "click",
+              "target": "#saveProductBtn",
+              "description": "直接提交空表单"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#pErr",
+              "description": "错误提示可见"
+            },
+            {
+              "action": "assert_text",
+              "target": "#pErr",
+              "expected": "请输入商品名称",
+              "description": "验证错误文案"
+            },
+            {
+              "action": "screenshot",
+              "description": "空表单截图"
+            }
+          ]
+        },
+        {
+          "name": "订单管理-筛选与合计",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-orders",
+              "description": "点击订单管理"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#orderBody",
+              "description": "订单列表可见"
+            },
+            {
+              "action": "select",
+              "target": "#orderFilter",
+              "value": "已付款",
+              "description": "筛选已付款"
+            },
+            {
+              "action": "assert_text",
+              "target": "#orderBody",
+              "expected": "ORD-002",
+              "description": "显示已付款订单"
+            },
+            {
+              "action": "assert_text",
+              "target": "#orderTotalAmt",
+              "expected": "¥3,798",
+              "description": "合计金额正确"
+            },
+            {
+              "action": "screenshot",
+              "description": "订单筛选截图"
+            }
+          ]
+        },
+        {
+          "name": "订单管理-发货操作",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-orders"
+            },
+            {
+              "action": "select",
+              "target": "#orderFilter",
+              "value": "已付款"
+            },
+            {
+              "action": "click",
+              "target": ".btn-ship",
+              "description": "点击发货按钮"
+            },
+            {
+              "action": "screenshot",
+              "description": "发货后截图"
+            }
+          ]
+        },
+        {
+          "name": "用户管理-查看列表",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#nav-users",
+              "description": "点击用户管理"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#userBody",
+              "description": "用户列表可见"
+            },
+            {
+              "action": "assert_text",
+              "target": "#userBody",
+              "expected": "admin",
+              "description": "包含admin"
+            },
+            {
+              "action": "assert_text",
+              "target": "#userBody",
+              "expected": "禁用",
+              "description": "显示禁用状态"
+            },
+            {
+              "action": "screenshot",
+              "description": "用户列表截图"
+            }
+          ]
+        },
+        {
+          "name": "退出登录",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "http://localhost:8900/preview/shop-demo/"
+            },
+            {
+              "action": "fill",
+              "target": "#loginUser",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "#loginPass",
+              "value": "123456"
+            },
+            {
+              "action": "click",
+              "target": "#loginBtn"
+            },
+            {
+              "action": "click",
+              "target": "#logoutBtn",
+              "description": "点击退出"
+            },
+            {
+              "action": "assert_visible",
+              "target": "#loginPage",
+              "description": "返回登录页"
+            },
+            {
+              "action": "screenshot",
+              "description": "退出截图"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

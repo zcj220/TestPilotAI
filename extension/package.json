@@ -1,0 +1,256 @@
+{
+  "name": "testpilot-ai",
+  "displayName": "TestPilot AI",
+  "description": "AI驱动的自动化测试机器人 — 像人类一样操作UI、发现Bug、自动修复",
+  "version": "1.0.0",
+  "publisher": "testpilot-ai",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "testing",
+    "ai",
+    "automation",
+    "bug",
+    "repair"
+  ],
+  "icon": "resources/icon.png",
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "testpilot-ai",
+          "title": "TestPilot AI",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "testpilot-ai": [
+        {
+          "type": "webview",
+          "id": "testpilot-ai.panel",
+          "name": "测试面板"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "testpilot-ai.startTest",
+        "title": "TestPilot AI: 开始测试",
+        "icon": "$(play)"
+      },
+      {
+        "command": "testpilot-ai.blueprintTest",
+        "title": "TestPilot AI: 蓝本模式测试",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "testpilot-ai.stopTest",
+        "title": "TestPilot AI: 停止测试",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "testpilot-ai.pauseTest",
+        "title": "TestPilot AI: 暂停测试",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "testpilot-ai.resumeTest",
+        "title": "TestPilot AI: 继续测试",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "testpilot-ai.viewReport",
+        "title": "TestPilot AI: 查看测试报告",
+        "icon": "$(output)"
+      },
+      {
+        "command": "testpilot-ai.autoRepair",
+        "title": "TestPilot AI: 自动修复Bug",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "testpilot-ai.testFolder",
+        "title": "用 TestPilot AI 测试"
+      },
+      {
+        "command": "testpilot-ai.checkEngine",
+        "title": "TestPilot AI: 检查引擎状态"
+      },
+      {
+        "command": "testpilot-ai.startTest.en",
+        "title": "TestPilot AI: Start Test",
+        "icon": "$(play)"
+      },
+      {
+        "command": "testpilot-ai.blueprintTest.en",
+        "title": "TestPilot AI: Blueprint Test",
+        "icon": "$(file-code)"
+      },
+      {
+        "command": "testpilot-ai.stopTest.en",
+        "title": "TestPilot AI: Stop Test",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "testpilot-ai.pauseTest.en",
+        "title": "TestPilot AI: Pause Test",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "testpilot-ai.resumeTest.en",
+        "title": "TestPilot AI: Resume Test",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "command": "testpilot-ai.viewReport.en",
+        "title": "TestPilot AI: View Report",
+        "icon": "$(output)"
+      },
+      {
+        "command": "testpilot-ai.autoRepair.en",
+        "title": "TestPilot AI: Auto Fix Bugs",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "testpilot-ai.checkEngine.en",
+        "title": "TestPilot AI: Check Engine"
+      },
+      {
+        "command": "testpilot-ai.launchEngine",
+        "title": "TestPilot AI: 启动引擎",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "testpilot-ai.launchEngine.en",
+        "title": "TestPilot AI: Launch Engine",
+        "icon": "$(rocket)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "testpilot-ai.testFolder",
+          "when": "explorerResourceIsFolder",
+          "group": "testpilot@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "testpilot-ai.startTest"
+        },
+        {
+          "command": "testpilot-ai.stopTest"
+        },
+        {
+          "command": "testpilot-ai.viewReport"
+        },
+        {
+          "command": "testpilot-ai.autoRepair"
+        },
+        {
+          "command": "testpilot-ai.checkEngine"
+        },
+        {
+          "command": "testpilot-ai.blueprintTest"
+        },
+        {
+          "command": "testpilot-ai.pauseTest"
+        },
+        {
+          "command": "testpilot-ai.resumeTest"
+        },
+        {
+          "command": "testpilot-ai.startTest.en"
+        },
+        {
+          "command": "testpilot-ai.blueprintTest.en"
+        },
+        {
+          "command": "testpilot-ai.stopTest.en"
+        },
+        {
+          "command": "testpilot-ai.pauseTest.en"
+        },
+        {
+          "command": "testpilot-ai.resumeTest.en"
+        },
+        {
+          "command": "testpilot-ai.viewReport.en"
+        },
+        {
+          "command": "testpilot-ai.autoRepair.en"
+        },
+        {
+          "command": "testpilot-ai.checkEngine.en"
+        },
+        {
+          "command": "testpilot-ai.launchEngine"
+        },
+        {
+          "command": "testpilot-ai.launchEngine.en"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "TestPilot AI",
+      "properties": {
+        "testpilotAI.engineUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8900",
+          "description": "核心引擎的 HTTP 地址"
+        },
+        "testpilotAI.wsUrl": {
+          "type": "string",
+          "default": "ws://127.0.0.1:8900/ws",
+          "description": "核心引擎的 WebSocket 地址"
+        },
+        "testpilotAI.autoRepair": {
+          "type": "boolean",
+          "default": false,
+          "description": "发现Bug后是否自动修复"
+        },
+        "testpilotAI.reasoningEffort": {
+          "type": "string",
+          "default": "medium",
+          "enum": [
+            "minimal",
+            "low",
+            "medium",
+            "high"
+          ],
+          "description": "AI 思考深度"
+        },
+        "testpilotAI.projectRoot": {
+          "type": "string",
+          "default": "",
+          "description": "TestPilot AI 项目根目录路径（包含 cli.py 的目录），留空则自动从工作区检测"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "bundle": "node esbuild.js",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

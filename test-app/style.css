@@ -1,0 +1,86 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: "Microsoft YaHei", sans-serif; background: #f5f5f5; color: #333; }
+
+.header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white; padding: 20px 30px;
+}
+.header h1 { font-size: 22px; }
+.header .subtitle { font-size: 13px; opacity: 0.8; margin-top: 4px; }
+
+.container { max-width: 900px; margin: 20px auto; padding: 0 20px; }
+
+.card {
+    background: white; border-radius: 8px; padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 20px;
+}
+.card h2 { font-size: 16px; margin-bottom: 12px; color: #444; }
+
+.form-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; }
+.form-group label { font-size: 12px; color: #666; margin-bottom: 4px; }
+.form-group input, .form-group select {
+    padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px;
+    font-size: 14px; outline: none;
+}
+.form-group input:focus, .form-group select:focus { border-color: #667eea; }
+#productName { width: 200px; }
+#productPrice { width: 100px; }
+#productQty { width: 80px; }
+
+.btn {
+    padding: 8px 16px; border: none; border-radius: 4px;
+    font-size: 14px; cursor: pointer; color: white;
+}
+.btn-primary { background: #667eea; }
+.btn-primary:hover { background: #5a6fd6; }
+.btn-danger { background: #e74c3c; font-size: 12px; padding: 4px 10px; }
+.btn-danger:hover { background: #c0392b; }
+.btn-submit { background: #27ae60; }
+.btn-submit:hover { background: #219a52; }
+
+/* 错误提示 — 异常检测器应能发现这个 .error 元素 */
+.error {
+    color: #e74c3c; background: #fde8e8; padding: 8px 12px;
+    border-radius: 4px; margin-top: 10px; font-size: 13px;
+}
+
+.badge {
+    background: #667eea; color: white; border-radius: 10px;
+    padding: 2px 8px; font-size: 12px; margin-left: 6px;
+}
+
+table {
+    width: 100%; border-collapse: collapse; margin-top: 10px;
+}
+th, td {
+    padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee;
+    font-size: 14px;
+}
+th { color: #666; font-weight: 500; font-size: 12px; text-transform: uppercase; }
+
+/* BUG: 商品名称列没有限制宽度，长名称会溢出 —— 异常检测器应能发现 */
+td.product-name {
+    /* 故意不设 max-width/overflow/text-overflow */
+    white-space: nowrap;
+}
+
+.empty-msg {
+    text-align: center; padding: 30px; color: #999; font-size: 14px;
+}
+
+.summary {
+    display: flex; justify-content: space-between; align-items: center;
+}
+.summary-item { text-align: center; }
+.summary-item span { display: block; font-size: 12px; color: #666; }
+.summary-item strong { font-size: 20px; color: #333; }
+
+.success-msg {
+    color: #27ae60; background: #e8f5e9; padding: 12px;
+    border-radius: 4px; font-size: 14px;
+}
+.error-msg {
+    color: #e74c3c; background: #fde8e8; padding: 12px;
+    border-radius: 4px; font-size: 14px;
+}
