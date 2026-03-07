@@ -595,8 +595,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       </select>
       <button id="btnRefreshProjects" class="btn-secondary" style="width:32px;min-width:32px;margin:0;padding:4px;font-size:14px" title="刷新项目列表">🔄</button>
     </div>
-    <button class="btn-secondary" id="btnCheckEngine">检查连接</button>
-    <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
+    <div class="btn-row">
+      <button class="btn-secondary" id="btnCheckEngine" style="flex:1">检查连接</button>
+      <button id="btnLaunchEngine" style="flex:1;background:#22c55e">🚀 启动引擎</button>
+    </div>
     <button id="btnStopEngine" class="hidden" style="background:#ef4444;margin-top:6px">⏹ 断开引擎</button>
   </div>
 
@@ -1140,6 +1142,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         statusDot.className = "status-dot connected";
         engineStatus.textContent = "v" + (data.version || "?");
         btnLaunchEngine.classList.add("hidden");
+        document.getElementById("btnCheckEngine").classList.add("hidden");
         btnStopEngine.classList.remove("hidden");
         btnStopEngine.textContent = "⏹ 断开引擎";
         btnStopEngine.disabled = false;
@@ -1150,11 +1153,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         statusDot.className = "status-dot disconnected";
         engineStatus.textContent = isStarting ? "启动中..." : "未连接";
         if (!isStarting) {
-          // 只有不在启动中时才恢复启动按钮，避免闪烁
           btnLaunchEngine.classList.remove("hidden");
+          document.getElementById("btnCheckEngine").classList.remove("hidden");
           btnStopEngine.classList.add("hidden");
         }
-        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接，点击「一键启动引擎」按钮启动", isStarting ? "warn" : "error");
+        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接", isStarting ? "warn" : "error");
       }
     }
 
