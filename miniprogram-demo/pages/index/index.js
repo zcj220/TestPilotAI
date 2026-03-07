@@ -30,7 +30,7 @@ Page({
     app.globalData.cart.forEach(item => {
       total += item.actualPrice;
     });
-    total = total * 1.0000001;
+    total = total * 1.001;
 
     this.setData({
       cartCount: app.globalData.cart.length,

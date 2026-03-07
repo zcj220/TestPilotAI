@@ -79,6 +79,23 @@ async function handleAction(action, params) {
         return { success: true, page: currentPage ? currentPage.path : params.url };
       }
 
+      case 'reLaunch': {
+        // reLaunch: 关闭所有页面，打开指定页面
+        try {
+          await miniProgram.reLaunch(params.url);
+        } catch (e) {
+          // 如果 reLaunch 不支持，用 navigateBack + navigateTo
+          try {
+            const curPage = await miniProgram.currentPage();
+            if (curPage && curPage.path !== params.url.replace(/^\//, '')) {
+              await miniProgram.navigateBack();
+            }
+          } catch (_) {}
+        }
+        currentPage = await miniProgram.currentPage();
+        return { success: true, page: currentPage ? currentPage.path : params.url };
+      }
+
       case 'tap': {
         currentPage = await miniProgram.currentPage();
         const tapEl = await currentPage.$(params.selector);
@@ -147,6 +164,23 @@ async function handleAction(action, params) {
           return getApp().globalData;
         });
         return { success: true, data: appData };
+      }
+
+      case 'evaluate': {
+        const evalResult = await miniProgram.evaluate(new Function(params.code));
+        return { success: true, result: evalResult };
+      }
+
+      case 'navigateBack': {
+        await miniProgram.navigateBack();
+        currentPage = await miniProgram.currentPage();
+        return { success: true, page: currentPage ? currentPage.path : '' };
+      }
+
+      case 'setPageData': {
+        currentPage = await miniProgram.currentPage();
+        await currentPage.setData(params.data);
+        return { success: true };
       }
 
       case 'ping': {
