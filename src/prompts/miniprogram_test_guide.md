@@ -139,13 +139,76 @@ const mp = await automator.connect({ wsEndpoint: 'ws://localhost:9420' });
 }
 ```
 
-## 六、常见问题
+## 六、截图功能
+
+### 用法
+```javascript
+// 截取当前页面保存为PNG
+await mp.screenshot({ path: 'screenshots/场景名.png' });
+```
+
+### 最佳实践
+- **每个场景末尾截一张图**：留证，方便复查
+- **Bug场景截图特别重要**：截图能直观看到页面状态
+- 截图目录在脚本启动时自动创建
+- 文件名带序号方便排序：`01_会员价格.png`, `02_库存限制.png`
+
+### 注意
+- `mp.screenshot()` 截的是**模拟器渲染的页面**，和真机一样
+- 截图分辨率取决于开发者工具设置的模拟器尺寸
+- 截图不会影响测试性能（<100ms）
+
+## 七、TestPilotAI 软件针对小程序的完整流程
+
+### 整体架构
+```
+用户 → VSCode插件 → Python引擎 → Node.js桥接服务器 → miniprogram-automator → 微信开发者工具
+```
+
+### 流程步骤
+
+#### 1. 准备阶段
+- 用户在VSCode中选择"小程序测试"
+- 指定小程序项目路径和蓝本（testpilot.json）
+- 系统自动执行 `cli close` + `cli open` + `cli auto --auto-port 9420`
+
+#### 2. 连接阶段
+- Node.js桥接服务器（`miniprogram_bridge_server.js`）启动在端口9421
+- 桥接服务器连接 `ws://localhost:9420` 建立automator会话
+- Python引擎通过HTTP请求与桥接服务器通信
+
+#### 3. 蓝本解析
+- 读取 `testpilot.json` 中的功能需求和测试场景
+- LLM根据蓝本生成测试脚本（不知道Bug在哪）
+- 测试场景包括：功能验证、边界值、溢出、异常输入等
+
+#### 4. 执行阶段
+- 每个场景前调用 `resetForNextScenario()` 重置状态
+- 首页操作用 `tap()`/`callMethod()`
+- 跳页面用 `evaluate(() => wx.navigateTo())`
+- 回首页用 `evaluate(() => wx.reLaunch())`
+- 每个场景末尾截图留证
+
+#### 5. 报告阶段
+- 输出JSON格式报告（Bug/通过/跳过）
+- 截图保存到 `screenshots/` 目录
+- LLM分析报告，给出Bug严重级别和修复建议
+
+### 关键规则（必须遵守）
+1. **绝不使用SDK导航方法**：`mp.navigateTo()`等全部超时，用`evaluate(wx.xxx())`
+2. **开头重启1次，中途不重启**：靠`reLaunch`回首页
+3. **场景独立**：每个场景开头重置全局状态
+4. **截图留证**：每个场景截图
+5. **失败不阻塞**：一个场景失败不影响后续场景
+
+## 八、常见问题
 
 | 问题 | 原因 | 解决 |
 |------|------|------|
-| 连接超时 | 未启动 `cli auto` | 运行 `cli auto --auto-port 9420` |
-| 端口连不上 | HTTP端口≠自动化端口 | 确认用 `--auto-port` 指定的端口 |
-| navigateBack 不生效 | SDK 限制 | 用 setData/evaluate 重置，或跳过 |
-| 选择器找不到元素 | WXML 结构不同 | 用 `page.$$('.class')` 获取数组再索引 |
-| 页面空白 | 之前测试把页面搞坏 | 在开发者工具中点编译，或 `cli auto` 重启 |
-| 购物车数据残留 | globalData 未重置 | `mp.evaluate(() => { getApp().globalData.cart = [] })` |
+| 连接超时 | 未启动 `cli auto` | `cli close` + `cli open` + `cli auto --auto-port 9420` |
+| 端口连不上 | HTTP端口≠自动化端口 | 确认用 `--auto-port` 指定的端口（9420） |
+| SDK导航超时 | SDK封装方法有bug | 用 `evaluate(() => wx.navigateTo())` 代替 |
+| 页面残留 | 上次测试未清理 | `cli close` + `cli open` 重启 |
+| 选择器找不到 | WXML结构不同 | 用 `page.$$('.class')` 获取数组再索引 |
+| 购物车残留 | globalData未重置 | `evaluate(() => { getApp().globalData.cart = [] })` |
+| 跳页面后操作报错 | 需等页面渲染 | `evaluate(wx.navigateTo)` 后 `await sleep(1500)` |
