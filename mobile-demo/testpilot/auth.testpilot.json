@@ -1,0 +1,155 @@
+{
+  "app_name": "鲜果坊-登录注册",
+  "description": "登录注册模块：正常登录、异常校验、游客模式、注册流程、认证安全审计",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "2.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/",
+      "title": "登录页",
+      "elements": {
+        "手机号输入": "#loginPhone",
+        "密码输入": "#loginPass",
+        "登录按钮": "#loginBtn",
+        "登录错误提示": "#loginError",
+        "随便逛逛": "#guestBtn",
+        "注册链接": "#registerLink"
+      },
+      "scenarios": [
+        {
+          "name": "登录-正常登录",
+          "description": "输入正确手机号和密码，验证登录成功跳转到首页",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "验证跳转到首页"},
+            {"action": "assert_visible", "target": ".product-card", "description": "验证商品列表显示"}
+          ]
+        },
+        {
+          "name": "登录-空手机号",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "请输入手机号"}
+          ]
+        },
+        {
+          "name": "登录-手机号格式错误",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "abc123"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "手机号格式不正确"}
+          ]
+        },
+        {
+          "name": "登录-空密码",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "请输入密码"}
+          ]
+        },
+        {
+          "name": "登录-密码太短",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "密码至少6位"}
+          ]
+        },
+        {
+          "name": "登录-错误密码",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "wrongpw"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "密码错误"}
+          ]
+        },
+        {
+          "name": "【安全审计】认证绕过-任意手机号+万能密码",
+          "description": "用从未注册的手机号+123456测试，验证是否存在硬编码万能密码",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13999999999"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "【认证漏洞】未注册手机号用123456成功登录"}
+          ]
+        },
+        {
+          "name": "登录-游客模式",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "assert_visible", "target": "#tabHome"},
+            {"action": "assert_visible", "target": ".product-card"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/register",
+      "title": "注册页",
+      "elements": {
+        "手机号": "#regPhone",
+        "昵称": "#regNickname",
+        "密码": "#regPass",
+        "确认密码": "#regPass2",
+        "注册按钮": "#regSubmitBtn",
+        "返回按钮": "#regBackBtn",
+        "注册错误提示": "#regError"
+      },
+      "scenarios": [
+        {
+          "name": "注册-正常注册",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "assert_visible", "target": "#registerPage"},
+            {"action": "fill", "target": "#regPhone", "value": "13900139000"},
+            {"action": "fill", "target": "#regNickname", "value": "测试用户"},
+            {"action": "fill", "target": "#regPass", "value": "test123456"},
+            {"action": "fill", "target": "#regPass2", "value": "test123456"},
+            {"action": "click", "target": "#regSubmitBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "注册后自动登录跳转首页"}
+          ]
+        },
+        {
+          "name": "注册-两次密码不一致",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "fill", "target": "#regPhone", "value": "13900139000"},
+            {"action": "fill", "target": "#regNickname", "value": "测试"},
+            {"action": "fill", "target": "#regPass", "value": "test123456"},
+            {"action": "fill", "target": "#regPass2", "value": "different99"},
+            {"action": "click", "target": "#regSubmitBtn"},
+            {"action": "assert_text", "target": "#regError", "expected": "两次密码不一致"}
+          ]
+        },
+        {
+          "name": "注册-返回登录",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "assert_visible", "target": "#registerPage"},
+            {"action": "click", "target": "#regBackBtn"},
+            {"action": "assert_visible", "target": "#loginPage"}
+          ]
+        }
+      ]
+    }
+  ]
+}

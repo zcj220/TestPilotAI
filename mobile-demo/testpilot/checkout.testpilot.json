@@ -1,0 +1,103 @@
+{
+  "app_name": "鲜果坊-结算",
+  "description": "结算模块：完整下单流程、表单校验、配送费审计、优惠券审计、组合验证",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "2.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/checkout",
+      "title": "结算页",
+      "scenarios": [
+        {
+          "name": "结算-完整下单（端到端）",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_visible", "target": "#checkoutPage"},
+            {"action": "fill", "target": "#addrName", "value": "张三"},
+            {"action": "fill", "target": "#addrPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#addrDetail", "value": "北京市朝阳区建国路88号"},
+            {"action": "assert_text", "target": "#checkoutSubtotal", "expected": "¥19.30"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "¥8.00"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_visible", "target": "#orderResultPage"},
+            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"}
+          ]
+        },
+        {
+          "name": "结算-空姓名校验",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_text", "target": "#checkoutError", "expected": "请输入收货人姓名"}
+          ]
+        },
+        {
+          "name": "【安全审计】配送费-到店自提应免费",
+          "description": "验证自提时实付金额是否包含隐藏运费",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_text", "target": "#checkoutSubtotal", "expected": "¥12.80"},
+            {"action": "click", "target": "#deliverySelf"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "免费"},
+            {"action": "assert_text", "target": "#checkoutTotal", "expected": "¥7.80", "description": "自提免运费+首单减5：12.80-5=7.80"}
+          ]
+        },
+        {
+          "name": "【安全审计】优惠券-首单减5元验证",
+          "description": "Banner写首单立减5元，验证优惠是否真正从总价扣除",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_text", "target": "#checkoutSubtotal", "expected": "¥12.80"},
+            {"action": "assert_text", "target": "#checkoutDiscount", "expected": "-¥5.00"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "¥8.00"},
+            {"action": "assert_text", "target": "#checkoutTotal", "expected": "¥15.80", "description": "12.80+8-5=15.80"}
+          ]
+        },
+        {
+          "name": "【安全审计】优惠+自提组合",
+          "description": "番茄5.50+自提免运费-首单5元=0.50",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-6"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "click", "target": "#deliverySelf"},
+            {"action": "assert_text", "target": "#checkoutSubtotal", "expected": "¥5.50"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "免费"},
+            {"action": "assert_text", "target": "#checkoutDiscount", "expected": "-¥5.00"},
+            {"action": "assert_text", "target": "#checkoutTotal", "expected": "¥0.50", "description": "5.50+0-5=0.50"}
+          ]
+        }
+      ]
+    }
+  ]
+}

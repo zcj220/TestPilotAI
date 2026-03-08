@@ -1,0 +1,72 @@
+{
+  "app_name": "鲜果坊-个人中心",
+  "description": "个人中心模块：用户信息、游客模式、退出登录、下单后查看订单",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "2.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/me",
+      "title": "个人中心",
+      "scenarios": [
+        {
+          "name": "个人中心-登录后信息",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "assert_text", "target": "#userName", "expected": "用户8000"},
+            {"action": "assert_text", "target": "#userPhone", "expected": "13800138000"},
+            {"action": "assert_text", "target": "#couponCount", "expected": "2"},
+            {"action": "assert_visible", "target": "#logoutBtn"}
+          ]
+        },
+        {
+          "name": "个人中心-游客模式",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "assert_text", "target": "#userName", "expected": "游客模式"},
+            {"action": "assert_text", "target": "#couponCount", "expected": "0"}
+          ]
+        },
+        {
+          "name": "个人中心-退出登录",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "click", "target": "#logoutBtn"},
+            {"action": "assert_visible", "target": "#loginPage"}
+          ]
+        },
+        {
+          "name": "个人中心-下单后查看订单（端到端）",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "fill", "target": "#addrName", "value": "张三"},
+            {"action": "fill", "target": "#addrPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#addrDetail", "value": "北京朝阳区"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"},
+            {"action": "click", "target": "#viewOrderBtn"},
+            {"action": "assert_visible", "target": "#orderListPage"},
+            {"action": "assert_visible", "target": ".order-card"},
+            {"action": "assert_text", "target": ".order-status", "expected": "待发货"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,95 @@
+{
+  "app_name": "鲜果坊-首页商品",
+  "description": "首页模块：商品列表、分类筛选、搜索、售罄状态",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "2.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/home",
+      "title": "首页-商品浏览",
+      "elements": {
+        "搜索框": "#searchInput",
+        "搜索按钮": "#searchBtn",
+        "全部分类": "#catAll",
+        "水果分类": "#catFruit",
+        "蔬菜分类": "#catVeg",
+        "零食分类": "#catSnack",
+        "商品列表": "#productList"
+      },
+      "scenarios": [
+        {
+          "name": "首页-商品列表+数据验证",
+          "description": "验证商品名称、价格、库存正确显示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "assert_visible", "target": ".product-card"},
+            {"action": "assert_text", "target": "#pname-1", "expected": "红富士苹果"},
+            {"action": "assert_text", "target": "#pname-2", "expected": "进口香蕉"},
+            {"action": "assert_text", "target": "#pstock-3", "expected": "已售罄"}
+          ]
+        },
+        {
+          "name": "首页-分类筛选水果",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#catFruit"},
+            {"action": "assert_visible", "target": "#product-1"},
+            {"action": "assert_visible", "target": "#product-2"}
+          ]
+        },
+        {
+          "name": "首页-分类筛选蔬菜",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#catVeg"},
+            {"action": "assert_visible", "target": "#product-5"},
+            {"action": "assert_visible", "target": "#product-6"}
+          ]
+        },
+        {
+          "name": "首页-分类筛选零食",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#catSnack"},
+            {"action": "assert_visible", "target": "#product-7"},
+            {"action": "assert_visible", "target": "#product-8"}
+          ]
+        },
+        {
+          "name": "首页-搜索商品",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "fill", "target": "#searchInput", "value": "苹果"},
+            {"action": "click", "target": "#searchBtn"},
+            {"action": "assert_visible", "target": "#product-1"}
+          ]
+        },
+        {
+          "name": "首页-搜索无结果",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "fill", "target": "#searchInput", "value": "榴莲"},
+            {"action": "click", "target": "#searchBtn"},
+            {"action": "assert_text", "target": "#noResult", "expected": "没有找到相关商品"}
+          ]
+        },
+        {
+          "name": "首页-售罄商品不可购买",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "assert_text", "target": "#pstock-3", "expected": "已售罄"},
+            {"action": "assert_text", "target": "#addBtn-3", "expected": "已售罄"}
+          ]
+        }
+      ]
+    }
+  ]
+}

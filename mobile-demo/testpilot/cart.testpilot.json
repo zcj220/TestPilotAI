@@ -1,0 +1,107 @@
+{
+  "app_name": "鲜果坊-购物车",
+  "description": "购物车模块：空状态、加购、数量修改、清空、游客结算拦截、库存边界审计、浮点精度审计",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "2.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/cart",
+      "title": "购物车",
+      "scenarios": [
+        {
+          "name": "购物车-空状态",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_visible", "target": "#cartEmpty"},
+            {"action": "assert_text", "target": ".empty-text", "expected": "购物车是空的"}
+          ]
+        },
+        {
+          "name": "购物车-加入商品+总价验证",
+          "description": "加入苹果12.80+香蕉6.50，验证总价19.30",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "assert_text", "target": "#cartBadge", "expected": "1"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "assert_text", "target": "#cartBadge", "expected": "2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_visible", "target": "#cartItem-1"},
+            {"action": "assert_visible", "target": "#cartItem-2"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥19.30"}
+          ]
+        },
+        {
+          "name": "购物车-修改数量",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#qty-1", "expected": "1"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥12.80"},
+            {"action": "click", "target": "#cartItem-1 .qty-btn:last-of-type"},
+            {"action": "assert_text", "target": "#qty-1", "expected": "2"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥25.60"}
+          ]
+        },
+        {
+          "name": "【安全审计】浮点精度-多商品总价",
+          "description": "12.8+6.5+6.5可能因浮点精度显示25.799999而非25.80",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥25.80", "description": "浮点精度验证"}
+          ]
+        },
+        {
+          "name": "【安全审计】库存边界-超量加购",
+          "description": "苹果库存50，代码不检查已加数量，可无限加购",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#qty-1", "expected": "3"},
+            {"action": "click", "target": "#navHome"},
+            {"action": "assert_text", "target": "#addBtn-1", "expected": "再来一份(已加3)", "description": "无库存上限校验可无限加"}
+          ]
+        },
+        {
+          "name": "购物车-清空",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#cartItemCount", "expected": "2"},
+            {"action": "click", "target": "#cartClearBtn"},
+            {"action": "assert_visible", "target": "#cartEmpty"}
+          ]
+        },
+        {
+          "name": "购物车-游客结算拦截",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_visible", "target": "#loginPage"}
+          ]
+        }
+      ]
+    }
+  ]
+}
