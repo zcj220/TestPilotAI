@@ -553,8 +553,14 @@ def create_router(
             controller = MiniProgramController(config)
 
             # 简化执行：记录步骤结果
-            from src.testing.models import StepResult, TestReport, BugReport
+            from src.testing.models import StepResult, TestReport, BugReport, ActionType, StepStatus, BugSeverity
             import time
+
+            def _to_action_type(action_str: str) -> ActionType:
+                try:
+                    return ActionType(action_str)
+                except ValueError:
+                    return ActionType.SCREENSHOT
 
             start = time.time()
             steps_results = []
@@ -582,21 +588,23 @@ def create_router(
                                     raise AssertionError(f"预期文本未找到: {step.expected}")
 
                             steps_results.append(StepResult(
-                                step_number=len(steps_results) + 1,
-                                action=action,
-                                status="passed",
-                                duration=time.time() - step_start,
+                                step=len(steps_results) + 1,
+                                action=_to_action_type(action),
+                                status=StepStatus.PASSED,
+                                description=step.description or action,
+                                duration_seconds=time.time() - step_start,
                             ))
                         except Exception as e:
                             steps_results.append(StepResult(
-                                step_number=len(steps_results) + 1,
-                                action=step.action,
-                                status="failed",
-                                error=str(e),
-                                duration=time.time() - step_start,
+                                step=len(steps_results) + 1,
+                                action=_to_action_type(step.action),
+                                status=StepStatus.FAILED,
+                                description=step.description or step.action,
+                                error_message=str(e),
+                                duration_seconds=time.time() - step_start,
                             ))
                             bugs.append(BugReport(
-                                severity="medium",
+                                severity=BugSeverity.MEDIUM,
                                 title=f"步骤{len(steps_results)}失败: {step.action}",
                                 description=str(e),
                             ))
@@ -604,28 +612,35 @@ def create_router(
             await controller.close()
 
             total = len(steps_results)
-            passed = sum(1 for s in steps_results if s.status == "passed")
+            passed = sum(1 for s in steps_results if s.status == StepStatus.PASSED)
+            failed = total - passed
             duration = time.time() - start
+
+            from datetime import datetime, timezone, timedelta
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(seconds=duration)
 
             report = TestReport(
                 test_name=f"小程序蓝本测试-{blueprint.app_name}",
                 url=base_url,
+                start_time=start_time,
+                end_time=end_time,
                 total_steps=total,
                 passed_steps=passed,
-                failed_steps=total - passed,
+                failed_steps=failed,
+                step_results=steps_results,
                 bugs=bugs,
-                duration_seconds=duration,
-                steps=steps_results,
             )
 
+            pass_rate = passed / total * 100 if total > 0 else 0
             return TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
-                total_steps=report.total_steps,
-                passed_steps=report.passed_steps,
-                failed_steps=report.failed_steps,
-                bug_count=len(report.bugs),
-                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                total_steps=total,
+                passed_steps=passed,
+                failed_steps=failed,
+                bug_count=len(bugs),
+                pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
             )
