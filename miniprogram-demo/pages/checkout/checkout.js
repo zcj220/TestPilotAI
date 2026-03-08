@@ -56,10 +56,11 @@ Page({
     const type = types[e.detail.value];
     getApp().globalData.deliveryType = type;
 
-    // BUG 4 已修复: 同城配送免费(0元)
+    // BUG 4（隐蔽）: 同城配送应该免费(0元)，但实际收了5元
+    // express 收 10元
     let fee = 0;
     if (type === 'same_city') {
-      fee = 0;
+      fee = 5;   // 应该是 0，这是Bug
     } else if (type === 'express') {
       fee = 10;
     }

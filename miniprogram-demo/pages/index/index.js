@@ -77,12 +77,8 @@ Page({
       return;
     }
 
-    // BUG 2 已修复: 检查购物车中已有数量是否超过库存
-    const cartQty = app.globalData.cart.filter(c => c.id === product.id).length;
-    if (cartQty >= product.stock) {
-      this.setData({ message: product.name + ' 已达库存上限(' + product.stock + ')', msgClass: 'err' });
-      return;
-    }
+    // BUG 2（隐蔽）: 库存检查只看是否>0，不检查购物车中已有数量
+    // 库存10但可以无限加入购物车
 
     // 计算价格
     let price = product.price;
