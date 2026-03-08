@@ -28,7 +28,8 @@
             {"action": "assert_text", "target": "#checkoutDelivery", "expected": "¥8.00"},
             {"action": "click", "target": "#submitOrderBtn"},
             {"action": "assert_visible", "target": "#orderResultPage"},
-            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"}
+            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"},
+            {"action": "screenshot"}
           ]
         },
         {

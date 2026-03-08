@@ -490,17 +490,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - 如果没有文档，则从代码注释、变量命名、函数名中推断业务意图，对比实际行为是否一致
 
 【规则11：截图策略（省钱省时）】
-- ❌ 禁止在每个场景末尾无脑加 screenshot，这会浪费视觉大模型费用和测试时间
-- ✅ 只在以下3种情况使用 screenshot：
-  1. 断言失败时（引擎会自动截图留证，蓝本不用写）
-  2. 关键业务流程的最终结果页（如下单成功页、支付结果页，每个模块最多1张）
-  3. 专门的视觉测试场景：布局溢出、遮挡重叠、响应式适配、图片加载等——这类Bug只有截图能发现
-- 普通的文本断言、元素可见性断言场景，绝对不要加 screenshot
+- 截图用于发现视觉Bug（布局溢出、元素遮挡、样式错乱、响应式崩坏），断言无法检测这类问题
+- 规则：每个蓝本模块的第1个场景末尾加1张 screenshot，其余场景不加
+  * 例：auth.testpilot.json 的第1个场景末尾 → screenshot（覆盖登录页视觉）
+  * 例：cart.testpilot.json 的第1个场景末尾 → screenshot（覆盖购物车视觉）
+  * 同模块的第2、3、4…个场景 → 不加 screenshot
+- 断言失败时引擎会自动截图留证，蓝本不用额外写
+- ❌ 禁止每个场景末尾都加 screenshot（浪费视觉大模型费用和时间）
 
-【规则12：蓝本按功能拆分】
-- 项目超过3个页面时，必须按功能模块拆分为多个蓝本文件
-- 命名规范：testpilot/ 目录下 <模块名>.testpilot.json（如 auth.testpilot.json、cart.testpilot.json）
-- 每个蓝本文件独立可运行，场景开头都要从 navigate 开始
+【规则12：蓝本按功能模块拆分】
+- 按业务功能模块拆分蓝本，不要把所有场景塞进一个文件
+- 拆分原则：一个功能模块 = 一个蓝本文件，改了哪个功能就只跑哪个蓝本
+  * 例：auth（登录注册）、cart（购物车）、checkout（结算支付）、profile（个人中心）
+  * 跨页面的端到端流程归属到终点功能模块（如"加购→结算→下单"归入 checkout）
+- 命名规范：testpilot/<模块名>.testpilot.json
+- 每个蓝本独立可运行，场景开头都要从 navigate 开始
 - 全量测试时通过 run_blueprint_batch 批量运行所有蓝本
 
 【规则13：蓝本增量修改（省Token）】

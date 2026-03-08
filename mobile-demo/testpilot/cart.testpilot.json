@@ -16,7 +16,8 @@
             {"action": "click", "target": "#guestBtn"},
             {"action": "click", "target": "#navCart"},
             {"action": "assert_visible", "target": "#cartEmpty"},
-            {"action": "assert_text", "target": ".empty-text", "expected": "购物车是空的"}
+            {"action": "assert_text", "target": ".empty-text", "expected": "购物车是空的"},
+            {"action": "screenshot"}
           ]
         },
         {

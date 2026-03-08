@@ -20,7 +20,8 @@
             {"action": "assert_text", "target": "#userName", "expected": "用户8000"},
             {"action": "assert_text", "target": "#userPhone", "expected": "13800138000"},
             {"action": "assert_text", "target": "#couponCount", "expected": "2"},
-            {"action": "assert_visible", "target": "#logoutBtn"}
+            {"action": "assert_visible", "target": "#logoutBtn"},
+            {"action": "screenshot"}
           ]
         },
         {

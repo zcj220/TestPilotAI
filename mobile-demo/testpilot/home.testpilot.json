@@ -27,7 +27,8 @@
             {"action": "assert_visible", "target": ".product-card"},
             {"action": "assert_text", "target": "#pname-1", "expected": "红富士苹果"},
             {"action": "assert_text", "target": "#pname-2", "expected": "进口香蕉"},
-            {"action": "assert_text", "target": "#pstock-3", "expected": "已售罄"}
+            {"action": "assert_text", "target": "#pstock-3", "expected": "已售罄"},
+            {"action": "screenshot"}
           ]
         },
         {

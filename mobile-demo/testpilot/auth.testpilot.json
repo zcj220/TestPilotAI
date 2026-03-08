@@ -26,7 +26,8 @@
             {"action": "fill", "target": "#loginPass", "value": "123456"},
             {"action": "click", "target": "#loginBtn"},
             {"action": "assert_visible", "target": "#tabHome", "description": "验证跳转到首页"},
-            {"action": "assert_visible", "target": ".product-card", "description": "验证商品列表显示"}
+            {"action": "assert_visible", "target": ".product-card", "description": "验证商品列表显示"},
+            {"action": "screenshot"}
           ]
         },
         {
