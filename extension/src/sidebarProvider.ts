@@ -77,7 +77,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           await this._handleBrowseBlueprint();
           break;
         case "copyBlueprintPrompt":
-          await this._handleCopyBlueprintPrompt();
+          await this._handleCopyBlueprintPrompt(msg.platform || "web");
           break;
         case "platformPrecheck":
           await this._handlePlatformPrecheck(msg);
@@ -372,7 +372,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         ];
         const seen = new Set<string>();
         for (const pattern of patterns) {
-          const files = await vscode.workspace.findFiles(pattern, "**/node_modules/**", 50);
+          const files = await vscode.workspace.findFiles(pattern, "{**/node_modules/**,**/test_fixtures/**,**/.venv/**}", 50);
           for (const f of files) {
             if (seen.has(f.fsPath)) { continue; }
             seen.add(f.fsPath);
@@ -429,8 +429,156 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleCopyBlueprintPrompt(): Promise<void> {
-    const prompt = `请帮我为当前项目生成测试蓝本文件，放在项目的 testpilot/ 文件夹下。
+  private async _handleCopyBlueprintPrompt(platform: string): Promise<void> {
+    const commonRules = `要求：
+1. 分析源代码中所有可操作 UI 元素（按钮/表单/导航/弹窗）
+2. 选择器使用代码中的真实 id（如 #login-btn）或稳定 class，禁止用 div:nth-child(3) 这类脆弱选择器
+3. 每个功能页面对应一个场景，覆盖正常流程和异常场景（空表单提交、错误输入）
+4. 每个 fill 操作后必须有 assert_text 或 screenshot 验证
+5. 每次导航后必须有断言验证页面已正确加载
+6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空
+
+重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本，无需用户提醒！`;
+
+    let prompt = "";
+    if (platform === "miniprogram") {
+      prompt = `请帮我为当前【微信小程序】项目生成测试蓝本文件 testpilot/testpilot.json。
+
+⚠️ 小程序蓝本与Web蓝本完全不同！必须严格遵守以下铁律：
+
+【铁律1】evaluate 的 value 必须是可被 new Function(code) 包裹的纯JS代码字符串
+  ✅ "value": "(() => { const app = getApp(); return app.globalData.cart.length; })()"
+  ❌ "value": "() => getApp().globalData.cart.length"（箭头函数不能被new Function直接执行）
+
+【铁律2】小程序没有 document 对象！evaluate 里只能用：
+  ✅ getApp() / getCurrentPages() / wx.xxx / Page方法
+  ❌ document.querySelector / window.location（这些在小程序里不存在）
+
+【铁律3】每个场景的第一步必须是 reset_state（清空购物车等全局状态+reLaunch回首页）
+  {"action": "reset_state", "description": "重置状态回首页"}
+
+【铁律4】跨页面导航必须用 navigate_to，不能用 navigate
+  {"action": "navigate_to", "value": "/pages/cart/cart", "description": "跳转到购物车页"}
+
+【铁律5】call_method 的参数必须用 JSON 格式
+  {"action": "call_method", "target": "onCategoryTap", "value": "{\\"detail\\": {\\"dataset\\": {\\"cat\\": \\"水果\\"}}}"}
+
+【铁律6】assert_compare 的 value 格式为 "操作符 期望值"
+  {"action": "assert_compare", "target": "#cartCount", "value": "> 0"}
+  {"action": "assert_compare", "target": "#total", "value": "== 100"}
+
+【铁律7】page_query 读取DOM文本/数量时用 value 指定返回类型
+  {"action": "page_query", "target": ".product", "value": "count"}  → 返回元素数量
+  {"action": "page_query", "target": "#price", "value": "text"}    → 返回文本内容
+
+支持的 action（15种）：
+reset_state / navigate_to / click / fill / call_method / evaluate / read_text / assert_text / assert_compare / page_query / tap_multiple / screenshot / wait / select / scroll
+
+蓝本格式：
+{
+  "app_name": "小程序名称",
+  "description": "功能说明",
+  "base_url": "miniprogram://项目绝对路径",
+  "version": "1.0",
+  "platform": "miniprogram",
+  "pages": [
+    {
+      "url": "/pages/index/index",
+      "title": "首页",
+      "elements": { "元素描述": "CSS选择器（来自wxml）" },
+      "scenarios": [
+        {
+          "name": "场景名",
+          "steps": [
+            {"action": "reset_state", "description": "重置状态回首页"},
+            {"action": "read_text", "target": "#price", "description": "读取价格"},
+            {"action": "evaluate", "value": "(() => { return getApp().globalData.isVip; })()", "expected": "true", "description": "验证会员状态"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+请先阅读项目中所有 .wxml 和 .js 文件，提取选择器和业务逻辑，再生成蓝本。
+
+${commonRules}`;
+    } else if (platform === "android") {
+      prompt = `请帮我为当前【Android】项目生成测试蓝本文件 testpilot/testpilot.json。
+
+蓝本格式：
+{
+  "app_name": "应用名称",
+  "description": "功能说明",
+  "base_url": "http://被测网页URL（手机浏览器测试）",
+  "version": "1.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/",
+      "title": "页面标题",
+      "elements": { "元素描述": "#CSS选择器" },
+      "scenarios": [
+        {
+          "name": "场景名",
+          "steps": [
+            {"action": "navigate", "value": "http://被测URL"},
+            {"action": "click", "target": "#btn"},
+            {"action": "assert_text", "target": "#result", "expected": "预期文本"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+注意：Android测试通过手机浏览器执行，选择器与Web相同（CSS选择器）。
+如果是原生App测试，target改用 resource-id 格式（如 com.app:id/btnLogin）。
+
+支持的 action：navigate / click / fill / select / wait / screenshot / assert_text / assert_visible / hover / scroll
+
+${commonRules}`;
+    } else if (platform === "desktop") {
+      prompt = `请帮我为当前【Windows桌面应用】项目生成测试蓝本文件 testpilot/testpilot.json。
+
+蓝本格式：
+{
+  "app_name": "桌面应用名称",
+  "description": "功能说明",
+  "base_url": "desktop://应用名称",
+  "version": "1.0",
+  "platform": "desktop",
+  "pages": [
+    {
+      "url": "/",
+      "title": "主窗口",
+      "elements": { "元素描述": "选择器" },
+      "scenarios": [
+        {
+          "name": "场景名",
+          "steps": [
+            {"action": "click", "target": "name:按钮名称"},
+            {"action": "fill", "target": "automationid:inputField", "value": "测试值"},
+            {"action": "assert_text", "target": "name:结果标签", "expected": "预期文本"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+桌面选择器格式（4种）：
+- name:XXX — 按UI元素Name属性查找
+- automationid:XXX — 按AutomationId查找（最稳定）
+- class:XXX — 按ClassName查找
+- point:X,Y — 按屏幕坐标点击（兜底方案）
+
+支持的 action：click / fill / assert_text / screenshot / wait
+
+${commonRules}`;
+    } else {
+      // Web（默认）
+      prompt = `请帮我为当前【Web】项目生成测试蓝本文件，放在项目的 testpilot/ 文件夹下。
 
 重要：按功能模块拆分成多个蓝本文件，不要创建单一的 testpilot.json！
 
@@ -440,26 +588,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - testpilot/order.testpilot.json（订单管理）
 - testpilot/cart.testpilot.json（购物车）
 
-要求：
-1. 分析源代码中所有可操作 UI 元素（按钮/表单/导航/弹窗）
-2. 选择器使用代码中的真实 id（如 #login-btn）或稳定 class，禁止用 div:nth-child(3) 这类脆弱选择器
-3. 每个功能页面对应一个场景，覆盖正常流程和异常场景（空表单提交、错误输入）
-4. 每个 fill 操作后必须有 assert_text 或 screenshot 验证
-5. 每次 navigate 必须有断言验证页面已正确加载
-6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空
-7. 如果 platform 是 miniprogram，必须固定自动化端口，不要依赖动态端口：
-   - 在蓝本中写: "start_command": "cli auto --project . --auto-port 9420"
-   - 或等效命令，核心是固定 --auto-port 9420
-
-每个蓝本文件格式：
+蓝本文件格式：
 {
-  "app_name": "模块名称（如：用户认证模块）",
-  "description": "蓝本功能说明（50-200字，描述本蓝本覆盖哪些功能和测试范围）",
+  "app_name": "模块名称",
+  "description": "蓝本功能说明（50-200字）",
   "base_url": "http://localhost:端口",
   "version": "1.0",
   "platform": "web",
   "start_command": "npm start 或 python app.py（纯HTML留空）",
-  "start_cwd": "./（启动命令的工作目录，默认项目根目录）",
+  "start_cwd": "./",
   "pages": [
     {
       "url": "/",
@@ -482,9 +619,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
 支持的 action：navigate / click / fill / select / wait / screenshot / assert_text / assert_visible / hover / scroll
 
-重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本，无需用户提醒！`;
+${commonRules}`;
+    }
+
     await vscode.env.clipboard.writeText(prompt);
-    vscode.window.showInformationMessage("✅ 提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。");
+    const platformNames: Record<string, string> = { web: "Web", miniprogram: "微信小程序", android: "Android", desktop: "Windows桌面", ios: "iOS" };
+    const pName = platformNames[platform] || "Web";
+    vscode.window.showInformationMessage(`✅ ${pName}蓝本提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。`);
   }
 
   private _guessProjectPathFromBlueprint(blueprintPath: string): string {
@@ -1163,9 +1304,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ command: "platformPrecheck", platform: platform, blueprint_path: firstPath });
     });
 
-    // 复制蓝本生成提示词
+    // 复制蓝本生成提示词（根据当前选中项目的平台生成不同提示词）
     document.getElementById("btnCopyBlueprintPrompt").addEventListener("click", () => {
-      vscode.postMessage({ command: "copyBlueprintPrompt" });
+      const sel = document.getElementById("projectSelect");
+      const platform = sel && sel.selectedOptions[0] ? (sel.selectedOptions[0].dataset.platform || "web") : "web";
+      vscode.postMessage({ command: "copyBlueprintPrompt", platform: platform });
     });
 
     // 探索测试
@@ -1295,6 +1438,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       allProjects.forEach(function(proj, i) {
         var opt = document.createElement("option");
         opt.value = String(i);
+        opt.dataset.platform = proj.platform || "web";
         var pName = platformNames[proj.platform] || proj.platform || "Web";
         // iOS项目在Windows下灰色不可选
         if (proj.platform === "ios" && isWindows) {
