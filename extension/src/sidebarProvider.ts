@@ -82,6 +82,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "platformPrecheck":
           await this._handlePlatformPrecheck(msg);
           break;
+        case "checkDeviceStatus":
+          await this._handleCheckDeviceStatus(msg);
+          break;
       }
     });
 
@@ -590,6 +593,46 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private async _handleCheckDeviceStatus(msg: { platform?: string }): Promise<void> {
+    const platform = (msg.platform || "web").toLowerCase();
+    try {
+      if (platform === "android" || platform === "ios") {
+        const devices = await this._client.listMobileDevices();
+        if ((devices.count || 0) === 0) {
+          this._postMessage({
+            command: "deviceStatusResult",
+            data: {
+              connected: false,
+              message: "未检测到设备，请连接手机并开启USB调试",
+              deviceName: "",
+            },
+          });
+          return;
+        }
+        const first = devices.devices?.[0] || {};
+        const deviceName = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "未知设备");
+        this._postMessage({
+          command: "deviceStatusResult",
+          data: {
+            connected: true,
+            message: `设备已连接：${deviceName}`,
+            deviceName,
+          },
+        });
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._postMessage({
+        command: "deviceStatusResult",
+        data: {
+          connected: false,
+          message: `检测失败: ${message}`,
+          deviceName: "",
+        },
+      });
+    }
+  }
+
   private _getHtml(webview: vscode.Webview): string {
     const nonce = getNonce();
 
@@ -738,7 +781,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       </select>
       <button id="btnRefreshProjects" class="btn-secondary" style="width:28px;min-width:28px;margin:0;padding:3px;font-size:13px" title="刷新项目列表">🔄</button>
     </div>
-    <button class="btn-secondary" id="btnCheckEngine">检查连接</button>
+    <!-- 设备状态提示（仅Android/iOS项目显示） -->
+    <div id="deviceStatusRow" class="hidden" style="background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span id="deviceStatusIcon">📱</span>
+        <span id="deviceStatusText" style="flex:1;color:var(--muted)">检测中...</span>
+        <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:2px 8px">检测设备</button>
+      </div>
+    </div>
     <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
     <button id="btnStopEngine" class="hidden" style="background:#ef4444;margin-top:6px">⏹ 断开引擎</button>
   </div>
@@ -922,6 +972,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         blueprintEntries = [];
       }
       renderBlueprintList(blueprintEntries);
+      updateDeviceStatusVisibility();
+    });
+
+    // 根据当前项目平台更新设备状态行可见性
+    function updateDeviceStatusVisibility() {
+      const platform = getCurrentPlatform();
+      const deviceRow = document.getElementById("deviceStatusRow");
+      if (platform === "android" || platform === "ios") {
+        deviceRow.classList.remove("hidden");
+        checkDeviceStatus();
+      } else {
+        deviceRow.classList.add("hidden");
+      }
+    }
+
+    // 检测设备连接状态
+    function checkDeviceStatus() {
+      const statusText = document.getElementById("deviceStatusText");
+      const statusIcon = document.getElementById("deviceStatusIcon");
+      statusText.textContent = "检测中...";
+      statusText.style.color = "var(--muted)";
+      statusIcon.textContent = "📱";
+      vscode.postMessage({ command: "checkDeviceStatus", platform: getCurrentPlatform() });
+    }
+
+    // 检测设备按钮
+    document.getElementById("btnDetectDevice").addEventListener("click", () => {
+      checkDeviceStatus();
     });
 
     // 刷新项目按钮
@@ -1116,8 +1194,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "blueprintList": onBlueprintList(msg.data); break;
         case "blueprintSelected": onBlueprintSelected(msg.data); break;
         case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
+        case "deviceStatusResult": onDeviceStatusResult(msg.data); break;
       }
     });
+
+    function onDeviceStatusResult(data) {
+      const statusText = document.getElementById("deviceStatusText");
+      const statusIcon = document.getElementById("deviceStatusIcon");
+      if (!data) return;
+      
+      if (data.connected) {
+        statusText.textContent = data.message || "设备已连接";
+        statusText.style.color = "var(--success,#22c55e)";
+        statusIcon.textContent = "✅";
+      } else {
+        statusText.textContent = data.message || "未检测到设备";
+        statusText.style.color = "var(--error,#ef4444)";
+        statusIcon.textContent = "❌";
+      }
+    }
 
     function onPlatformPrecheckResult(data) {
       if (!data || !pendingBlueprintRun) {
@@ -1193,6 +1288,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       projectSelect.value = "0";
       blueprintEntries = allProjects[0].blueprints || [];
       renderBlueprintList(blueprintEntries);
+      updateDeviceStatusVisibility();
 
       var totalBp = allProjects.reduce(function(n, p) { return n + (p.blueprints ? p.blueprints.length : 0); }, 0);
       addLog("找到 " + allProjects.length + " 个项目，共 " + totalBp + " 个蓝本", "info");
@@ -1255,7 +1351,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         var cbWrap = document.createElement("span");
         cbWrap.className = "local-blueprint-cbwrap";
         cbWrap.style.cssText = "flex-shrink:0;display:inline-flex;align-items:center;padding:2px";
-        cbWrap.title = "勾选以加入局部测试";
+        cbWrap.title = "已启用全局蓝本，如需局部选择请先取消全局蓝本";
         var cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "local-blueprint-cb";
