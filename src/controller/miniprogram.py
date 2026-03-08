@@ -142,13 +142,18 @@ class MiniProgramController(BaseController):
     async def launch(self) -> None:
         """启动小程序自动化连接（长连接模式）。
 
-        完整流程（参考盲测v4/v5跑通的经验）：
+        完整流程（参考盲测v4/v5和test_connect.js跑通的经验）：
         1. cli close 关闭开发者工具中的项目（防止端口占用）
         2. cli open 重新打开项目
         3. cli auto --auto-port 9420 启动自动化，指定固定端口
-        4. 启动桥接服务器连接该端口
-        5. 桥接服务器中导航全部使用evaluate(wx.xxx())原生API（SDK方法会超时！）
+        4. 等待WebSocket端口就绪（TCP探测）
+        5. 启动桥接服务器（HTTP端口9421）
+        6. 等HTTP服务器就绪 → POST connect命令主动触发连接
+        7. 桥接服务器中导航全部使用evaluate(wx.xxx())原生API（SDK方法会超时！）
         """
+        import socket
+        import urllib.request
+
         if not self._config.project_path:
             raise RuntimeError("请指定小程序项目路径 (project_path)")
 
@@ -159,48 +164,50 @@ class MiniProgramController(BaseController):
         if not cli_path:
             raise RuntimeError("未找到微信开发者工具cli，请安装微信开发者工具并确保cli.bat在默认路径")
 
-        # ── 强制重启小程序（关键！不重启可能端口不通或状态不干净） ──
-        logger.info("强制重启小程序 | cli: {} | 项目: {}", cli_path, project_path)
+        # ═══ 阶段1: 强制重启小程序 ═══
+        logger.info("═══ 阶段1: 强制重启小程序 ═══")
+        logger.info("cli: {} | 项目: {}", cli_path, project_path)
 
-        # 步骤1: cli close 关闭项目
-        try:
-            subprocess.run(
-                [cli_path, "close", "--project", project_path],
-                capture_output=True, timeout=15, encoding="utf-8", errors="replace",
+        for cmd_name, cmd_args in [
+            ("close", [cli_path, "close", "--project", project_path]),
+            ("open",  [cli_path, "open", "--project", project_path]),
+            ("auto",  [cli_path, "auto", "--project", project_path, "--auto-port", str(ws_port)]),
+        ]:
+            try:
+                subprocess.run(cmd_args, capture_output=True, timeout=15,
+                               encoding="utf-8", errors="replace")
+                logger.info("cli {} 完成", cmd_name)
+            except Exception as e:
+                logger.warning("cli {} 失败: {}", cmd_name, e)
+            await asyncio.sleep(3)
+
+        # ═══ 阶段2: 等待WebSocket端口就绪（TCP探测，最多等15秒） ═══
+        logger.info("═══ 阶段2: 等待WS端口 {} 就绪 ═══", ws_port)
+        port_ready = False
+        for i in range(15):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.settimeout(1)
+                s.connect(("127.0.0.1", ws_port))
+                s.close()
+                port_ready = True
+                logger.info("WS端口 {} 已就绪（第{}秒）", ws_port, i + 1)
+                break
+            except Exception:
+                s.close()
+                await asyncio.sleep(1)
+
+        if not port_ready:
+            raise RuntimeError(
+                f"WebSocket端口 {ws_port} 未就绪（等了15秒）。"
+                f"请检查微信开发者工具是否已打开项目并开启了服务端口。"
             )
-            logger.info("cli close 完成")
-        except Exception as e:
-            logger.warning("cli close 失败（可忽略）: {}", e)
-        await asyncio.sleep(2)
 
-        # 步骤2: cli open 打开项目
-        try:
-            subprocess.run(
-                [cli_path, "open", "--project", project_path],
-                capture_output=True, timeout=15, encoding="utf-8", errors="replace",
-            )
-            logger.info("cli open 完成")
-        except Exception as e:
-            logger.warning("cli open 失败: {}", e)
-        await asyncio.sleep(2)
-
-        # 步骤3: cli auto 启动自动化，指定端口
-        try:
-            subprocess.run(
-                [cli_path, "auto", "--project", project_path, "--auto-port", str(ws_port)],
-                capture_output=True, timeout=15, encoding="utf-8", errors="replace",
-            )
-            logger.info("cli auto --auto-port {} 完成", ws_port)
-        except Exception as e:
-            logger.warning("cli auto 失败: {}", e)
-        # cli auto后开发者工具需要较长时间准备WebSocket端口（首次可能弹信任确认框）
-        await asyncio.sleep(5)
-
-        # ── 启动桥接服务器连接 ──
+        # ═══ 阶段3: 启动桥接服务器 ═══
         self._http_port = 9421
         self._http_base = f"http://127.0.0.1:{self._http_port}"
 
-        logger.info("启动桥接服务器 | WS端口: {} | HTTP端口: {}", ws_port, self._http_port)
+        logger.info("═══ 阶段3: 启动桥接服务器 ═══ WS:{} HTTP:{}", ws_port, self._http_port)
 
         bridge_server = Path(__file__).parent / "miniprogram_bridge_server.js"
         if not bridge_server.exists():
@@ -212,31 +219,63 @@ class MiniProgramController(BaseController):
             stderr=subprocess.PIPE,
         )
 
-        # 等待服务器启动并连接（最多等30秒）
-        # 桥接服务器内部也有重试逻辑（6次×3秒），所以Python端要等够时间
-        import urllib.request
-        for i in range(60):
+        # ═══ 阶段4: 等HTTP服务器就绪（最多5秒） ═══
+        logger.info("═══ 阶段4: 等待HTTP服务器就绪 ═══")
+        http_ready = False
+        for i in range(10):
             await asyncio.sleep(0.5)
             try:
                 req = urllib.request.Request(self._http_base)
                 with urllib.request.urlopen(req, timeout=2) as resp:
-                    data = json.loads(resp.read())
-                    if data.get("connected"):
-                        self._connected = True
-                        self._device.is_connected = True
-                        self._device.extra = {"project": project_path, "port": ws_port}
-                        logger.info("小程序自动化已连接（长连接模式） | 端口: {}", ws_port)
-                        return
+                    json.loads(resp.read())  # 只要能响应就行，不管connected状态
+                    http_ready = True
+                    logger.info("HTTP服务器已就绪（第{:.1f}秒）", (i + 1) * 0.5)
+                    break
             except Exception:
                 continue
 
-        # 如果循环结束还没连接成功
-        if self._bridge_proc.poll() is not None:
-            stdout = self._bridge_proc.stdout.read().decode("utf-8", errors="replace") if self._bridge_proc.stdout else ""
-            stderr = self._bridge_proc.stderr.read().decode("utf-8", errors="replace") if self._bridge_proc.stderr else ""
-            raise RuntimeError(f"桥接服务器启动失败:\n{stdout}\n{stderr}")
+        if not http_ready:
+            self._kill_bridge()
+            raise RuntimeError("桥接服务器HTTP端口9421未响应")
 
-        raise RuntimeError("桥接服务器启动超时（30秒），请确认微信开发者工具已安装并开启服务端口")
+        # ═══ 阶段5: POST connect命令，主动触发连接（重试5次×3秒） ═══
+        logger.info("═══ 阶段5: 发送connect命令 ═══")
+        for i in range(5):
+            try:
+                payload = json.dumps({"action": "connect", "params": {}}).encode("utf-8")
+                req = urllib.request.Request(
+                    self._http_base, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    data = json.loads(resp.read())
+                    if data.get("success"):
+                        self._connected = True
+                        self._device.is_connected = True
+                        self._device.extra = {"project": project_path, "port": ws_port}
+                        logger.info("小程序自动化已连接 | 端口: {} | 第{}次尝试", ws_port, i + 1)
+                        return
+                    else:
+                        logger.warning("connect返回失败: {}（第{}次）", data.get("error", ""), i + 1)
+            except Exception as e:
+                logger.warning("connect请求异常: {}（第{}次）", e, i + 1)
+            await asyncio.sleep(3)
+
+        self._kill_bridge()
+        raise RuntimeError(
+            f"桥接服务器connect命令5次均失败。WS端口{ws_port}已确认打开，"
+            f"但automator连接失败。请确认开发者工具已打开项目。"
+        )
+
+    def _kill_bridge(self) -> None:
+        """清理桥接服务器进程。"""
+        if self._bridge_proc and self._bridge_proc.poll() is None:
+            self._bridge_proc.terminate()
+            try:
+                self._bridge_proc.wait(timeout=3)
+            except Exception:
+                self._bridge_proc.kill()
+        self._bridge_proc = None
 
     async def close(self) -> None:
         """关闭小程序自动化连接。"""

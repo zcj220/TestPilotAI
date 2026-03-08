@@ -221,23 +221,13 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
-server.listen(HTTP_PORT, '127.0.0.1', async () => {
+server.listen(HTTP_PORT, '127.0.0.1', () => {
   console.log('========================================');
-  console.log('  小程序自动化桥接服务器 v8.2');
+  console.log('  小程序自动化桥接服务器 v8.3');
   console.log(`  HTTP 端口: ${HTTP_PORT}`);
   console.log(`  WebSocket 端口: ${WS_PORT}`);
   console.log('========================================');
-
-  // 启动时自动连接（重试最多6次，每次等3秒，共18秒）
-  // cli auto执行后开发者工具需要时间准备WebSocket端口
-  for (let retry = 0; retry < 6; retry++) {
-    const ok = await ensureConnected();
-    if (ok) {
-      console.log(`[OK] 连接成功（第${retry + 1}次尝试）`);
-      return;
-    }
-    console.log(`[RETRY] 连接失败，等待3秒后重试 ${retry + 1}/6...`);
-    await new Promise(r => setTimeout(r, 3000));
-  }
-  console.error('[FAIL] 6次重试均失败，等待手动连接或请求时重试');
+  console.log('[READY] HTTP服务器已启动，等待connect命令...');
+  // 不在启动时自动连接！由Python端通过POST connect命令主动触发
+  // 这样HTTP服务器能立即响应Python的健康检查
 });
