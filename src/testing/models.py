@@ -21,6 +21,7 @@ class ActionType(str, Enum):
     """测试步骤的操作类型。"""
 
     NAVIGATE = "navigate"
+    NAVIGATE_TO = "navigate_to"
     CLICK = "click"
     FILL = "fill"
     SELECT = "select"
@@ -29,6 +30,12 @@ class ActionType(str, Enum):
     SCROLL = "scroll"
     ASSERT_TEXT = "assert_text"
     ASSERT_VISIBLE = "assert_visible"
+    ASSERT_COMPARE = "assert_compare"
+    EVALUATE = "evaluate"
+    CALL_METHOD = "call_method"
+    READ_TEXT = "read_text"
+    TAP_MULTIPLE = "tap_multiple"
+    RESET_STATE = "reset_state"
 
 
 class StepStatus(str, Enum):

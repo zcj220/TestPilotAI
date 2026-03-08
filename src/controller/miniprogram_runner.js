@@ -167,12 +167,103 @@ async function executeStep(step, stepNum) {
         break;
       }
       case 'wait': {
-        await sleep(step.timeout_ms || 2000);
+        await sleep(step.timeout_ms || parseInt(step.value) || 2000);
         break;
       }
       case 'scroll': {
-        await mp.evaluate('wx.pageScrollTo({ scrollTop: 400 })');
+        const scrollTop = parseInt(step.value) || 400;
+        await mp.evaluate(`wx.pageScrollTo({ scrollTop: ${scrollTop} })`);
         await sleep(500);
+        break;
+      }
+      case 'evaluate': {
+        // 通用JS执行：蓝本里写evaluate表达式，执行器执行
+        // value里是JS代码，可以访问 getApp()、wx.xxx 等
+        const code = step.value || '';
+        const evalResult = await mp.evaluate(code);
+        // 如果有expected，对比返回值
+        if (step.expected !== undefined && step.expected !== '') {
+          const actual = JSON.stringify(evalResult);
+          const expect = String(step.expected);
+          if (!actual.includes(expect)) {
+            throw new Error(`evaluate断言失败: 预期包含"${expect}"，实际="${actual}"`);
+          }
+        }
+        await sleep(parseInt(step.wait_ms) || 500);
+        return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: evalResult };
+      }
+      case 'call_method': {
+        // 调用页面方法：target=方法名，value=JSON参数
+        const method = step.target || '';
+        let args = {};
+        try { args = JSON.parse(step.value || '{}'); } catch(e) {}
+        await page.callMethod(method, args);
+        await sleep(parseInt(step.wait_ms) || 500);
+        break;
+      }
+      case 'read_text': {
+        // 读取元素文本，存入结果data字段
+        const el = await page.$(step.target);
+        const text = el ? await el.text() : '';
+        // 如果有expected，做断言
+        if (step.expected !== undefined && step.expected !== '') {
+          if (!text.includes(step.expected)) {
+            throw new Error(`文本断言失败: "${step.target}"的文本"${text}"不包含"${step.expected}"`);
+          }
+        }
+        return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: text };
+      }
+      case 'tap_multiple': {
+        // 连续点击：target=选择器，value=次数，wait_ms=每次间隔
+        const selector = step.target || '';
+        const times = parseInt(step.value) || 1;
+        const interval = parseInt(step.wait_ms) || 150;
+        const els = await page.$$(selector);
+        if (!els || els.length === 0) throw new Error(`元素未找到: ${selector}`);
+        for (let t = 0; t < times; t++) {
+          await els[0].tap();
+          await sleep(interval);
+        }
+        await sleep(300);
+        break;
+      }
+      case 'assert_compare': {
+        // 数值比较断言：target=选择器读数值，value=比较表达式如"<=10"
+        const el = await page.$(step.target);
+        const text = el ? await el.text() : '0';
+        const num = parseFloat(text.replace(/[^0-9.\-]/g, ''));
+        const expr = step.value || '';
+        const match = expr.match(/^([<>=!]+)\s*([\d.]+)$/);
+        if (!match) throw new Error(`无效比较表达式: "${expr}"`);
+        const op = match[1];
+        const expected = parseFloat(match[2]);
+        let ok = false;
+        switch(op) {
+          case '==': ok = Math.abs(num - expected) < 0.01; break;
+          case '!=': ok = Math.abs(num - expected) >= 0.01; break;
+          case '<': ok = num < expected; break;
+          case '<=': ok = num <= expected; break;
+          case '>': ok = num > expected; break;
+          case '>=': ok = num >= expected; break;
+          default: throw new Error(`不支持的比较运算符: ${op}`);
+        }
+        if (!ok) throw new Error(`数值断言失败: ${num} ${op} ${expected} 为false`);
+        return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: { actual: num, expected, op } };
+      }
+      case 'navigate_to': {
+        // wx.navigateTo（不清空页面栈，跟reLaunch不同）
+        const url = step.value || '';
+        await mp.evaluate(`wx.navigateTo({ url: '${url}' })`);
+        await sleep(1500);
+        break;
+      }
+      case 'reset_state': {
+        // 重置全局状态（场景间清理）
+        const code = step.value || "const g=getApp().globalData; g.cart=[]; g.coupon=null; g.address=''; g.deliveryType=''; g.isVip=true;";
+        await mp.evaluate(code);
+        // reLaunch回首页
+        await mp.evaluate("wx.reLaunch({ url: '/pages/index/index' })");
+        await sleep(2000);
         break;
       }
       default:
