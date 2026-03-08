@@ -200,6 +200,16 @@ class AndroidController(BaseController):
         except Exception as e:
             logger.warning("logcat 启动失败（非致命）: {}", e)
 
+    def is_session_alive(self) -> bool:
+        """检查当前 Appium Session 是否仍然有效。"""
+        if not self._session_id:
+            return False
+        try:
+            resp = self._request("GET", f"/session/{self._session_id}", timeout=5)
+            return "value" in resp
+        except Exception:
+            return False
+
     async def close(self) -> None:
         """关闭 Appium Session 并恢复屏幕设置。"""
         # 停止 logcat

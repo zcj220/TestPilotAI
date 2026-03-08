@@ -1608,13 +1608,25 @@ def create_router(
 
     @router.get("/mobile/sessions", tags=["手机测试"])
     async def list_mobile_sessions() -> dict:
-        """列出所有活跃的手机测试会话。"""
+        """列出所有活跃的手机测试会话（自动清理失效session）。"""
+        dead_sids = []
         sessions = []
         for sid, ctrl in _mobile_sessions.items():
-            sessions.append({
-                "session_id": sid,
-                "device": ctrl.device_info.model_dump(),
-            })
+            if ctrl.is_session_alive():
+                sessions.append({
+                    "session_id": sid,
+                    "device": ctrl.device_info.model_dump(),
+                })
+            else:
+                dead_sids.append(sid)
+        # 清理失效session
+        for sid in dead_sids:
+            logger.info("清理失效session: {}", sid)
+            try:
+                await _mobile_sessions[sid].close()
+            except Exception:
+                pass
+            del _mobile_sessions[sid]
         return {"sessions": sessions, "count": len(sessions)}
 
     # ── 桌面测试（v7.0）─────────────────────────────

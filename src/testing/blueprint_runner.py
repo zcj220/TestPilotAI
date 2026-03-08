@@ -3,7 +3,7 @@
 
 按 testpilot.json 蓝本精确执行测试：
 - 使用蓝本中的精确CSS选择器，不靠AI猜测
-- 每步执行后截图 + AI视觉验证预期结果
+- 按需截图（蓝本写了screenshot或有expected时）+ AI视觉验证预期结果
 - 生成与盲测模式格式一致的测试报告
 """
 
@@ -32,7 +32,7 @@ class BlueprintRunner:
     """蓝本模式执行器。
 
     按蓝本中定义的精确选择器和步骤执行测试，
-    每步截图并调用AI视觉分析验证预期结果。
+    按需截图（仅蓝本写了screenshot动作或有expected字段时），调用AI视觉分析验证预期结果。
 
     典型使用：
         runner = BlueprintRunner(browser, ai_client)
@@ -406,23 +406,25 @@ class BlueprintRunner:
             if step_def.wait_after_ms and step_def.wait_after_ms > 0:
                 await asyncio.sleep(step_def.wait_after_ms / 1000.0)
 
-            # 每步截图
-            screenshot_path_obj = await self._browser.screenshot(f"step{step_num}_{step_def.action}")
-            screenshot_path = str(screenshot_path_obj)
+            # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
+            need_screenshot = (step_def.action == "screenshot") or (step_def.expected and self._ai)
+            if need_screenshot:
+                screenshot_path_obj = await self._browser.screenshot(f"step{step_num}_{step_def.action}")
+                screenshot_path = str(screenshot_path_obj)
 
-            # 截图推送到前端（WebSocket）
-            if self._on_screenshot:
-                try:
-                    img_data = Path(screenshot_path).read_bytes()
-                    img_b64 = base64.b64encode(img_data).decode("ascii")
-                    await self._on_screenshot(step_num, img_b64)
-                except Exception as e:
-                    logger.debug("截图推送失败: {}", e)
+                # 截图推送到前端（WebSocket）
+                if self._on_screenshot:
+                    try:
+                        img_data = Path(screenshot_path).read_bytes()
+                        img_b64 = base64.b64encode(img_data).decode("ascii")
+                        await self._on_screenshot(step_num, img_b64)
+                    except Exception as e:
+                        logger.debug("截图推送失败: {}", e)
 
             # AI视觉验证（如果有预期结果描述）
             ai_verdict = "passed"
             ai_detail = ""
-            if step_def.expected and self._ai:
+            if step_def.expected and self._ai and screenshot_path:
                 ai_verdict, ai_detail = await self._ai_verify(screenshot_path, step_def.expected)
 
             elapsed = time.time() - start

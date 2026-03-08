@@ -3,7 +3,7 @@
 
 在真实 Android 设备上按 testpilot.json 蓝本执行测试：
 - 通过 Appium + WebView 上下文在手机浏览器中操作 CSS 元素
-- 每步截图（ADB 快速截图）
+- 按需截图（蓝本写了screenshot或有expected时才截图）
 - 生成与 Web 测试格式完全一致的测试报告
 - 收集 adb logcat + 浏览器 JS 日志注入到 Bug 报告
 """
@@ -224,8 +224,10 @@ class MobileBlueprintRunner:
                         error_message=f"文本断言失败: 预期'{value}'，实际'{text}'",
                     ), bug
 
-            # 每步截图
-            screenshot_path = await self._ctrl.screenshot(f"step{step_num:03d}_{step_def.action}")
+            # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
+            need_screenshot = (step_def.action == "screenshot") or (step_def.expected and self._ai)
+            if need_screenshot:
+                screenshot_path = await self._ctrl.screenshot(f"step{step_num:03d}_{step_def.action}")
 
         except Exception as exc:
             elapsed = time.time() - start
