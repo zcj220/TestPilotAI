@@ -1486,6 +1486,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     }
 
+    let testingTimer = null;
     function onTestStarted() {
       controlSection.classList.remove("hidden");
       resultSection.classList.add("hidden");
@@ -1497,9 +1498,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       stepSection.classList.add("hidden");
       logArea.innerHTML = "";
       addLog("测试任务已启动...", "info");
+      // 持续跳动提示，让用户知道系统在运行
+      let dots = 0;
+      const phases = ["正在连接模拟器...", "正在执行测试步骤...", "仍在测试中，请耐心等待..."];
+      let phase = 0;
+      if (testingTimer) clearInterval(testingTimer);
+      testingTimer = setInterval(() => {
+        dots = (dots + 1) % 4;
+        const dotStr = ".".repeat(dots + 1);
+        addLog("⏳ " + phases[phase] + dotStr, "info");
+        if (dots === 3) phase = Math.min(phase + 1, phases.length - 1);
+      }, 5000);
     }
 
     function onTestResult(report) {
+      if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
       lastReport = report;
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
@@ -1593,6 +1606,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     function onTestError(data) {
+      if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
       controlSection.classList.add("hidden");
       addLog("测试失败: " + data.error, "error");
     }
