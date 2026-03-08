@@ -74,24 +74,18 @@ async function handleAction(action, params) {
       }
 
       case 'navigateTo': {
-        await miniProgram.navigateTo(params.url);
+        // 使用evaluate调用原生wx.navigateTo（SDK方法会超时！64ms vs 10秒）
+        await miniProgram.evaluate(`wx.navigateTo({ url: '${params.url}' })`);
+        await new Promise(r => setTimeout(r, 1500));
         currentPage = await miniProgram.currentPage();
         return { success: true, page: currentPage ? currentPage.path : params.url };
       }
 
       case 'reLaunch': {
-        // reLaunch: 关闭所有页面，打开指定页面
-        try {
-          await miniProgram.reLaunch(params.url);
-        } catch (e) {
-          // 如果 reLaunch 不支持，用 navigateBack + navigateTo
-          try {
-            const curPage = await miniProgram.currentPage();
-            if (curPage && curPage.path !== params.url.replace(/^\//, '')) {
-              await miniProgram.navigateBack();
-            }
-          } catch (_) {}
-        }
+        // 使用evaluate调用原生wx.reLaunch（SDK方法会超时！41ms vs 10秒）
+        // reLaunch会清空页面栈，回到指定页面
+        await miniProgram.evaluate(`wx.reLaunch({ url: '${params.url}' })`);
+        await new Promise(r => setTimeout(r, 1500));
         currentPage = await miniProgram.currentPage();
         return { success: true, page: currentPage ? currentPage.path : params.url };
       }
@@ -172,7 +166,9 @@ async function handleAction(action, params) {
       }
 
       case 'navigateBack': {
-        await miniProgram.navigateBack();
+        // 使用evaluate调用原生wx.navigateBack（SDK方法会超时！25ms vs 10秒）
+        await miniProgram.evaluate(`wx.navigateBack()`);
+        await new Promise(r => setTimeout(r, 1500));
         currentPage = await miniProgram.currentPage();
         return { success: true, page: currentPage ? currentPage.path : '' };
       }

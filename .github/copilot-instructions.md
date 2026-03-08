@@ -103,3 +103,56 @@ shop-demo/
 
 支持的 action：`navigate` / `click` / `fill` / `select` / `wait` / `screenshot` / `assert_text` / `assert_visible` / `hover` / `scroll`
 
+## 小程序蓝本编写规范
+
+小程序蓝本与Web蓝本的关键区别：
+
+1. **`platform` 字段必须设为 `"miniprogram"`**
+2. **`base_url` 格式**：`miniprogram://绝对路径`（如 `miniprogram://D:/projects/my-app`）
+3. **引擎会自动处理环境准备**：蓝本不需要写"重启小程序"步骤，引擎会自动执行 `cli close → cli open → cli auto --auto-port 9420`
+4. **页面URL使用小程序路径格式**：`/pages/index/index`（不是HTTP URL）
+5. **选择器与小程序一致**：`.class-name`、`#id`、`view`、`.parent .child`
+
+### 小程序蓝本模板
+
+```json
+{
+  "app_name": "你的小程序名",
+  "description": "功能描述",
+  "base_url": "miniprogram://D:/projects/你的小程序路径",
+  "version": "1.0",
+  "platform": "miniprogram",
+  "pages": [
+    {
+      "url": "/pages/index/index",
+      "title": "首页",
+      "description": "首页功能描述",
+      "scenarios": [
+        {
+          "title": "场景名",
+          "steps": [
+            {"action": "navigate", "value": "/pages/index/index"},
+            {"action": "click", "target": ".product-item"},
+            {"action": "assert_text", "target": ".price", "expected": "¥"},
+            {"action": "screenshot", "value": "场景截图"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### 小程序蓝本注意事项
+
+- **不需要写启动/重启步骤**：引擎自动处理（cli close/open/auto）
+- **不需要指定端口**：引擎固定使用9420端口
+- **导航用页面路径**：`/pages/detail/detail?id=1`，不是HTTP URL
+- **场景间重置**：引擎会自动用 `wx.reLaunch` 回首页，蓝本无需关心
+- **截图**：每个关键场景末尾加 `screenshot` 步骤留证
+
+## Android蓝本编写规范
+
+1. **`platform` 字段必须设为 `"android"`**
+2. **引擎会自动检测设备连接**：未连接会提示用户
+3. **Windows下不支持iOS**（需macOS环境）
