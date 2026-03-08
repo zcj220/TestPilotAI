@@ -34,7 +34,8 @@ if (!stepsFile || !fs.existsSync(stepsFile)) {
   process.exit(1);
 }
 
-const input = JSON.parse(fs.readFileSync(stepsFile, 'utf8'));
+const rawContent = fs.readFileSync(stepsFile, 'utf8').replace(/^\uFEFF/, '');
+const input = JSON.parse(rawContent);
 const PROJECT_PATH = input.project_path || '';
 const WS_PORT = input.ws_port || 9420;
 const steps = input.steps || [];
@@ -100,22 +101,27 @@ async function initConnect() {
     }
   }
 
-  // 策略3: open+auto（不做close！close会破坏模拟器状态）
-  console.log('[策略3] 执行 open + auto（不close）...');
-  runCli(`open --project "${PROJECT_PATH}"`);
+  // 策略3: quit彻底杀进程 → open → auto（跟手动修复流程一致）
+  console.log('[策略3] cli quit 彻底杀进程后重启...');
+  runCli('quit');
   await sleep(5000);
+  console.log('[策略3] cli open...');
+  runCli(`open --project "${PROJECT_PATH}"`);
+  await sleep(8000);
+  console.log('[策略3] cli auto...');
   runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
   await sleep(3000);
   for (let i = 0; i < 5; i++) {
     try {
       const p = await tryConnect();
-      console.log('[策略3] open+auto后连接成功，页面: ' + p);
+      console.log('[策略3] 重启后连接成功，页面: ' + p);
       return p;
     } catch (e) {
+      console.log('[策略3] 重试 ' + (i+1) + '/5: ' + e.message);
       if (i < 4) await sleep(3000);
     }
   }
-  throw new Error('所有策略均失败。请手动在开发者工具中点编译(Ctrl+B)后重试');
+  throw new Error('所有策略均失败。请确认: 1)微信开发者工具已安装 2)设置→安全设置→已开启服务端口');
 }
 
 // ── 执行单个步骤 ──
