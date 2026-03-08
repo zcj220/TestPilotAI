@@ -320,10 +320,14 @@ async function main() {
   // 初始化连接
   const initPage = await initConnect();
 
-  // 执行所有步骤
+  // 执行所有步骤（逐步输出进度到stderr，Python端实时读取）
   for (let i = 0; i < steps.length; i++) {
+    const stepDesc = steps[i].description || steps[i].action;
+    process.stderr.write(`[PROGRESS] ${i+1}/${steps.length} ${stepDesc}\n`);
     const result = await executeStep(steps[i], i + 1);
     results.push(result);
+    const icon = result.status === 'passed' ? '✅' : '❌';
+    process.stderr.write(`[STEP] ${icon} #${i+1} ${result.status} ${stepDesc} (${result.duration.toFixed(1)}s)\n`);
   }
 
   // 断开连接

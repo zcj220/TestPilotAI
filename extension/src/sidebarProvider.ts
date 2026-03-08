@@ -1529,8 +1529,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // 渲染Bug列表
       renderBugs(report.bugs || []);
 
-      // 渲染步骤详情
+      // 渲染步骤详情（自动展开）
       renderSteps(report.steps || []);
+      if ((report.steps || []).length > 0) {
+        stepExpanded = true;
+        stepList.classList.remove("hidden");
+        stepToggle.textContent = "📝 步骤详情 ▾";
+      }
 
       // MCP闭环提示
       if (report.bug_count > 0) {
