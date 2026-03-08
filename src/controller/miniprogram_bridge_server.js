@@ -33,9 +33,11 @@ async function ensureConnected() {
 
   try {
     automator = require('miniprogram-automator');
-    miniProgram = await automator.connect({
-      wsEndpoint: `ws://localhost:${WS_PORT}`,
-    });
+    // 加超时！参考test_connect.js用Promise.race，避免永远挂住
+    miniProgram = await Promise.race([
+      automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('automator连接超时(8秒)')), 8000)),
+    ]);
     currentPage = await miniProgram.currentPage();
     connected = true;
     console.log(`[OK] 已连接到 ws://localhost:${WS_PORT}`);
@@ -44,6 +46,7 @@ async function ensureConnected() {
   } catch (e) {
     console.error(`[ERR] 连接失败: ${e.message}`);
     connected = false;
+    miniProgram = null;
     return false;
   }
 }

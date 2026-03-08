@@ -180,32 +180,35 @@ class MiniProgramController(BaseController):
                 "未找到微信开发者工具cli，请安装微信开发者工具"
             )
 
-        # ═══ 阶段1: 启动自动化 ═══
-        logger.info("═══ 阶段1: 启动自动化 ═══")
+        # ═══ 阶段1: 检测或启动自动化 ═══
+        logger.info("═══ 阶段1: 检测或启动自动化 ═══")
         logger.info("cli: {} | 项目: {} | 端口: {}", cli_path, project_path, ws_port)
 
-        # 先尝试直接 cli auto（如果项目已打开，这步就够了）
-        auto_ok = self._run_cli("auto", [
-            cli_path, "auto", "--project", project_path,
-            "--auto-port", str(ws_port),
-        ])
-        await asyncio.sleep(3)
-
-        # 检查端口是否已通
+        # 先探测端口：如果9420已通，说明auto已经开启，跳过cli auto（避免重载模拟器！）
         port_ok = self._check_tcp_port(ws_port)
-
-        if not port_ok:
-            # 项目可能没打开，先open再auto
-            logger.info("端口未通，尝试 cli open + cli auto ...")
-            self._run_cli("open", [cli_path, "open", "--project", project_path])
-            # open后需要等模拟器启动（关键！模拟器需要时间加载）
-            logger.info("等待模拟器启动（10秒）...")
-            await asyncio.sleep(10)
+        if port_ok:
+            logger.info("WS端口 {} 已通，跳过cli auto（避免重载模拟器）", ws_port)
+        else:
+            # 端口未通，才执行cli auto
+            logger.info("WS端口 {} 未通，执行cli auto...", ws_port)
             self._run_cli("auto", [
                 cli_path, "auto", "--project", project_path,
                 "--auto-port", str(ws_port),
             ])
             await asyncio.sleep(3)
+
+            # 再检查
+            if not self._check_tcp_port(ws_port):
+                # 项目可能没打开，先open再auto
+                logger.info("端口仍未通，尝试 cli open + cli auto ...")
+                self._run_cli("open", [cli_path, "open", "--project", project_path])
+                logger.info("等待模拟器启动（15秒）...")
+                await asyncio.sleep(15)
+                self._run_cli("auto", [
+                    cli_path, "auto", "--project", project_path,
+                    "--auto-port", str(ws_port),
+                ])
+                await asyncio.sleep(5)
 
         # ═══ 阶段2: 等待WS端口就绪（TCP探测，最多20秒） ═══
         logger.info("═══ 阶段2: 等待WS端口 {} 就绪 ═══", ws_port)
