@@ -193,7 +193,8 @@ class MiniProgramController(BaseController):
             logger.info("cli auto --auto-port {} 完成", ws_port)
         except Exception as e:
             logger.warning("cli auto 失败: {}", e)
-        await asyncio.sleep(2)
+        # cli auto后开发者工具需要较长时间准备WebSocket端口（首次可能弹信任确认框）
+        await asyncio.sleep(5)
 
         # ── 启动桥接服务器连接 ──
         self._http_port = 9421
@@ -211,9 +212,10 @@ class MiniProgramController(BaseController):
             stderr=subprocess.PIPE,
         )
 
-        # 等待服务器启动并连接（最多等15秒）
+        # 等待服务器启动并连接（最多等30秒）
+        # 桥接服务器内部也有重试逻辑（6次×3秒），所以Python端要等够时间
         import urllib.request
-        for i in range(30):
+        for i in range(60):
             await asyncio.sleep(0.5)
             try:
                 req = urllib.request.Request(self._http_base)
@@ -234,7 +236,7 @@ class MiniProgramController(BaseController):
             stderr = self._bridge_proc.stderr.read().decode("utf-8", errors="replace") if self._bridge_proc.stderr else ""
             raise RuntimeError(f"桥接服务器启动失败:\n{stdout}\n{stderr}")
 
-        raise RuntimeError("桥接服务器启动超时（15秒），请确认微信开发者工具已安装并开启服务端口")
+        raise RuntimeError("桥接服务器启动超时（30秒），请确认微信开发者工具已安装并开启服务端口")
 
     async def close(self) -> None:
         """关闭小程序自动化连接。"""

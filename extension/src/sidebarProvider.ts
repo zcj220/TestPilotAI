@@ -964,11 +964,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       return Array.from(cbs).map(cb => cb.value);
     }
 
-    // 项目切换
+    // 项目切换（记住上次选中的项目）
     projectSelect.addEventListener("change", () => {
       currentProjectIdx = parseInt(projectSelect.value);
       if (allProjects.length > 0 && allProjects[currentProjectIdx]) {
         blueprintEntries = allProjects[currentProjectIdx].blueprints || [];
+        // 记住选中的项目（按项目名+平台唯一标识）
+        var proj = allProjects[currentProjectIdx];
+        localStorage.setItem("testpilot_lastProject", (proj.projectName || "") + "|" + (proj.platform || ""));
       } else {
         blueprintEntries = [];
       }
@@ -1305,12 +1308,23 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         projectSelect.appendChild(opt);
       });
 
-      // 默认选中第一个可选的项目
+      // 尝试恢复上次选中的项目（按项目名+平台匹配）
       if (firstSelectableIdx === -1) { firstSelectableIdx = 0; }
+      var lastProjectKey = localStorage.getItem("testpilot_lastProject") || "";
+      var restoredIdx = -1;
+      if (lastProjectKey) {
+        allProjects.forEach(function(proj, i) {
+          var key = (proj.projectName || "") + "|" + (proj.platform || "");
+          if (key === lastProjectKey && !(proj.platform === "ios" && isWindows)) {
+            restoredIdx = i;
+          }
+        });
+      }
+      var selectedIdx = restoredIdx >= 0 ? restoredIdx : firstSelectableIdx;
       projectSelect.disabled = allProjects.length <= 1;
-      currentProjectIdx = firstSelectableIdx;
-      projectSelect.value = String(firstSelectableIdx);
-      blueprintEntries = allProjects[firstSelectableIdx] ? (allProjects[firstSelectableIdx].blueprints || []) : [];
+      currentProjectIdx = selectedIdx;
+      projectSelect.value = String(selectedIdx);
+      blueprintEntries = allProjects[selectedIdx] ? (allProjects[selectedIdx].blueprints || []) : [];
       renderBlueprintList(blueprintEntries);
       updateDeviceStatusVisibility();
 
