@@ -1074,6 +1074,7 @@ def create_router(
                 app_name=req.app_name,
                 description=req.description,
                 output_path=req.output_path or None,
+                platform=req.platform or "web",
             )
             return GenerateBlueprintResponse(
                 success=True,

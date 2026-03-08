@@ -111,6 +111,7 @@ class GenerateBlueprintRequest(BaseModel):
     app_name: str = Field(default="", description="应用名称（空则从页面标题自动推断）")
     description: str = Field(default="", description="应用描述（帮助AI理解上下文）")
     output_path: str = Field(default="", description="保存路径（空则不保存文件，只返回JSON）")
+    platform: str = Field(default="web", description="平台类型：web/miniprogram/android/desktop")
 
 
 class GenerateBlueprintResponse(BaseModel):

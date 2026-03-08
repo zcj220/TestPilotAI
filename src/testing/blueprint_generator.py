@@ -24,7 +24,7 @@ from loguru import logger
 
 from src.browser.automator import BrowserAutomator, BrowserConfig
 from src.core.ai_client import AIClient
-from src.core.prompts import SYSTEM_BLUEPRINT_GENERATOR
+from src.core.prompts import SYSTEM_BLUEPRINT_GENERATOR, get_blueprint_prompt_for_platform
 from src.testing.blueprint import Blueprint, BlueprintParser
 
 
@@ -161,6 +161,7 @@ class BlueprintGenerator:
         app_name: str = "",
         description: str = "",
         output_path: Optional[str] = None,
+        platform: str = "web",
     ) -> Blueprint:
         """访问 URL，提取页面信息，AI 生成蓝本。
 
@@ -203,6 +204,7 @@ class BlueprintGenerator:
             page_info=page_info,
             html_body=html_body,
             screenshot_b64=screenshot_b64,
+            platform=platform,
         )
 
         # 7. 保存
@@ -294,6 +296,7 @@ class BlueprintGenerator:
         page_info: dict,
         html_body: str,
         screenshot_b64: str,
+        platform: str = "web",
     ) -> Blueprint:
         """调用 AI 生成蓝本 JSON 并解析。"""
         if not self._ai:
@@ -312,11 +315,14 @@ class BlueprintGenerator:
             html_body=html_body[:8000] if html_body else "（未提供）",
         )
 
+        # 按平台获取统一提示词（黄金8规则+平台特色）
+        system_prompt, _ = get_blueprint_prompt_for_platform(platform)
+
         # 调用 AI（纯文字模式：HTML+元素信息已足够生成蓝本，不发截图避免超时）
-        logger.info("AI 蓝本生成中... | app={} | url={}", app_name, url)
+        logger.info("AI 蓝本生成中... | app={} | url={} | platform={}", app_name, url, platform)
         raw = await asyncio.to_thread(
             self._ai.chat,
-            user_prompt, SYSTEM_BLUEPRINT_GENERATOR,
+            user_prompt, system_prompt,
         )
 
         # 解析 AI 返回的 JSON
