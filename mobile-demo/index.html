@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>鲜果坊 - 移动商城</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 登录页 -->
+<div id="loginPage" class="page active">
+  <div class="login-wrap">
+    <div class="login-logo">🍊</div>
+    <h1 class="login-title">鲜果坊</h1>
+    <p class="login-sub">新鲜水果 送到家门口</p>
+    <div class="form-group">
+      <input id="loginPhone" type="tel" placeholder="手机号" maxlength="11">
+    </div>
+    <div class="form-group">
+      <input id="loginPass" type="password" placeholder="密码">
+    </div>
+    <div id="loginError" class="error-msg"></div>
+    <button id="loginBtn" class="btn-primary btn-full">登 录</button>
+    <div class="login-footer">
+      <span id="guestBtn" class="link">随便逛逛</span>
+      <span id="registerLink" class="link">注册新账号</span>
+    </div>
+  </div>
+</div>
+
+<!-- 注册页 -->
+<div id="registerPage" class="page">
+  <div class="header">
+    <span id="regBackBtn" class="back-btn">←</span>
+    <span class="header-title">注册新账号</span>
+  </div>
+  <div class="page-body">
+    <div class="form-group">
+      <label>手机号</label>
+      <input id="regPhone" type="tel" placeholder="请输入手机号" maxlength="11">
+    </div>
+    <div class="form-group">
+      <label>昵称</label>
+      <input id="regNickname" type="text" placeholder="请输入昵称">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input id="regPass" type="password" placeholder="请输入密码（6位以上）">
+    </div>
+    <div class="form-group">
+      <label>确认密码</label>
+      <input id="regPass2" type="password" placeholder="请再次输入密码">
+    </div>
+    <div id="regError" class="error-msg"></div>
+    <button id="regSubmitBtn" class="btn-primary btn-full">注 册</button>
+  </div>
+</div>
+
+<!-- 主页面（底部Tab） -->
+<div id="mainPage" class="page">
+  <!-- 顶部搜索栏 -->
+  <div class="top-bar">
+    <div class="search-box">
+      <input id="searchInput" type="text" placeholder="搜索水果...">
+      <button id="searchBtn" class="search-icon">🔍</button>
+    </div>
+  </div>
+
+  <!-- Tab内容区 -->
+  <div class="tab-content">
+    <!-- 首页 -->
+    <div id="tabHome" class="tab active">
+      <!-- 轮播Banner -->
+      <div class="banner" id="banner">
+        <div class="banner-text">🎉 新用户首单立减5元</div>
+      </div>
+      <!-- 分类 -->
+      <div class="category-bar">
+        <span class="cat-item active" data-cat="all" id="catAll">全部</span>
+        <span class="cat-item" data-cat="fruit" id="catFruit">水果</span>
+        <span class="cat-item" data-cat="vegetable" id="catVeg">蔬菜</span>
+        <span class="cat-item" data-cat="snack" id="catSnack">零食</span>
+      </div>
+      <!-- 商品列表 -->
+      <div id="productList" class="product-grid"></div>
+    </div>
+
+    <!-- 购物车 -->
+    <div id="tabCart" class="tab">
+      <div class="cart-header">
+        <h2>购物车</h2>
+        <span id="cartClearBtn" class="link">清空</span>
+      </div>
+      <div id="cartList" class="cart-list"></div>
+      <div id="cartEmpty" class="empty-state">
+        <div class="empty-icon">🛒</div>
+        <div class="empty-text">购物车是空的</div>
+        <button id="goShopBtn" class="btn-outline">去逛逛</button>
+      </div>
+      <div id="cartFooter" class="cart-footer">
+        <div class="cart-total">合计：<span id="cartTotal">¥0.00</span></div>
+        <button id="checkoutBtn" class="btn-primary">去结算(<span id="cartItemCount">0</span>)</button>
+      </div>
+    </div>
+
+    <!-- 我的 -->
+    <div id="tabMe" class="tab">
+      <div class="profile-card">
+        <div class="avatar" id="userAvatar">👤</div>
+        <div class="user-info">
+          <div id="userName" class="user-name">未登录</div>
+          <div id="userPhone" class="user-phone"></div>
+        </div>
+      </div>
+      <div class="menu-list">
+        <div class="menu-item" id="menuOrders">
+          <span>📦 我的订单</span><span class="arrow">›</span>
+        </div>
+        <div class="menu-item" id="menuAddress">
+          <span>📍 收货地址</span><span class="arrow">›</span>
+        </div>
+        <div class="menu-item" id="menuCoupon">
+          <span>🎫 优惠券</span><span id="couponCount" class="badge">0</span><span class="arrow">›</span>
+        </div>
+        <div class="menu-item" id="menuAbout">
+          <span>ℹ️ 关于我们</span><span class="arrow">›</span>
+        </div>
+      </div>
+      <button id="logoutBtn" class="btn-danger btn-full" style="display:none">退出登录</button>
+    </div>
+  </div>
+
+  <!-- 底部Tab栏 -->
+  <div class="tab-bar">
+    <div class="tab-item active" id="navHome" data-tab="tabHome">
+      <span class="tab-icon">🏠</span>
+      <span class="tab-label">首页</span>
+    </div>
+    <div class="tab-item" id="navCart" data-tab="tabCart">
+      <span class="tab-icon">🛒</span>
+      <span class="tab-label">购物车</span>
+      <span id="cartBadge" class="tab-badge" style="display:none">0</span>
+    </div>
+    <div class="tab-item" id="navMe" data-tab="tabMe">
+      <span class="tab-icon">👤</span>
+      <span class="tab-label">我的</span>
+    </div>
+  </div>
+</div>
+
+<!-- 结算页 -->
+<div id="checkoutPage" class="page">
+  <div class="header">
+    <span id="checkoutBackBtn" class="back-btn">←</span>
+    <span class="header-title">确认订单</span>
+  </div>
+  <div class="page-body">
+    <div class="section">
+      <h3>📍 收货地址</h3>
+      <div class="form-group">
+        <input id="addrName" type="text" placeholder="收货人姓名">
+      </div>
+      <div class="form-group">
+        <input id="addrPhone" type="tel" placeholder="联系电话" maxlength="11">
+      </div>
+      <div class="form-group">
+        <input id="addrDetail" type="text" placeholder="详细地址">
+      </div>
+    </div>
+    <div class="section">
+      <h3>🚚 配送方式</h3>
+      <div class="delivery-options">
+        <label class="radio-item">
+          <input type="radio" name="delivery" value="express" id="deliveryExpress" checked> 快递配送（¥8）
+        </label>
+        <label class="radio-item">
+          <input type="radio" name="delivery" value="selfpick" id="deliverySelf"> 到店自提（免费）
+        </label>
+      </div>
+    </div>
+    <div class="section">
+      <h3>📋 订单明细</h3>
+      <div id="checkoutItems"></div>
+    </div>
+    <div class="section order-summary">
+      <div class="summary-row"><span>商品合计</span><span id="checkoutSubtotal">¥0.00</span></div>
+      <div class="summary-row"><span>配送费</span><span id="checkoutDelivery">¥8.00</span></div>
+      <div class="summary-row"><span>优惠</span><span id="checkoutDiscount">-¥0.00</span></div>
+      <div class="summary-row total"><span>实付金额</span><span id="checkoutTotal">¥0.00</span></div>
+    </div>
+    <div id="checkoutError" class="error-msg"></div>
+    <button id="submitOrderBtn" class="btn-primary btn-full">提交订单</button>
+  </div>
+</div>
+
+<!-- 订单结果页 -->
+<div id="orderResultPage" class="page">
+  <div class="header">
+    <span class="header-title">订单详情</span>
+  </div>
+  <div class="page-body" style="text-align:center;padding-top:60px">
+    <div class="result-icon">✅</div>
+    <h2 id="resultTitle">下单成功！</h2>
+    <p id="resultOrderNo" class="result-sub"></p>
+    <p id="resultAmount" class="result-amount"></p>
+    <button id="backHomeBtn" class="btn-primary">返回首页</button>
+    <button id="viewOrderBtn" class="btn-outline" style="margin-top:12px">查看订单</button>
+  </div>
+</div>
+
+<!-- 我的订单页 -->
+<div id="orderListPage" class="page">
+  <div class="header">
+    <span id="orderListBackBtn" class="back-btn">←</span>
+    <span class="header-title">我的订单</span>
+  </div>
+  <div class="page-body">
+    <div id="orderList"></div>
+    <div id="orderListEmpty" class="empty-state">
+      <div class="empty-icon">📦</div>
+      <div class="empty-text">暂无订单</div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast提示 -->
+<div id="toast" class="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

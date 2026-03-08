@@ -1,0 +1,478 @@
+{
+  "app_name": "鲜果坊 移动商城",
+  "description": "移动端H5水果商城完整功能测试：登录注册、商品浏览分类搜索、购物车增删改、结算配送、订单查看、个人中心，含5个预埋Bug验证",
+  "base_url": "http://localhost:8900/preview/mobile-demo/",
+  "version": "1.0",
+  "platform": "android",
+  "pages": [
+    {
+      "url": "/",
+      "title": "登录页",
+      "elements": {
+        "手机号输入": "#loginPhone",
+        "密码输入": "#loginPass",
+        "登录按钮": "#loginBtn",
+        "登录错误提示": "#loginError",
+        "随便逛逛": "#guestBtn",
+        "注册链接": "#registerLink"
+      },
+      "scenarios": [
+        {
+          "name": "场景1-正常登录",
+          "description": "输入正确手机号和密码，验证登录成功跳转到首页",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "验证跳转到首页"},
+            {"action": "assert_visible", "target": ".product-card", "description": "验证商品列表显示"}
+          ]
+        },
+        {
+          "name": "场景2-空手机号登录（异常）",
+          "description": "不输入手机号直接登录，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "请输入手机号"}
+          ]
+        },
+        {
+          "name": "场景3-手机号格式错误（异常）",
+          "description": "输入格式错误的手机号，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "abc123"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "手机号格式不正确"}
+          ]
+        },
+        {
+          "name": "场景4-空密码登录（异常）",
+          "description": "输入手机号但不输入密码，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "请输入密码"}
+          ]
+        },
+        {
+          "name": "场景5-密码太短（异常）",
+          "description": "输入少于6位的密码，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "密码至少6位"}
+          ]
+        },
+        {
+          "name": "场景6-错误密码登录（异常）",
+          "description": "输入错误密码，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "wrongpw"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_text", "target": "#loginError", "expected": "密码错误"}
+          ]
+        },
+        {
+          "name": "场景7-游客模式",
+          "description": "点击随便逛逛，以游客身份进入首页",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "验证跳转到首页"},
+            {"action": "assert_visible", "target": ".product-card", "description": "验证商品列表显示"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/register",
+      "title": "注册页",
+      "elements": {
+        "手机号": "#regPhone",
+        "昵称": "#regNickname",
+        "密码": "#regPass",
+        "确认密码": "#regPass2",
+        "注册按钮": "#regSubmitBtn",
+        "返回按钮": "#regBackBtn",
+        "注册错误提示": "#regError"
+      },
+      "scenarios": [
+        {
+          "name": "场景8-正常注册",
+          "description": "填写完整注册信息，验证注册成功自动登录",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "assert_visible", "target": "#registerPage", "description": "验证跳转到注册页"},
+            {"action": "fill", "target": "#regPhone", "value": "13900139000"},
+            {"action": "fill", "target": "#regNickname", "value": "测试用户"},
+            {"action": "fill", "target": "#regPass", "value": "test123456"},
+            {"action": "fill", "target": "#regPass2", "value": "test123456"},
+            {"action": "click", "target": "#regSubmitBtn"},
+            {"action": "assert_visible", "target": "#tabHome", "description": "验证注册后跳转到首页"}
+          ]
+        },
+        {
+          "name": "场景9-两次密码不一致（异常）",
+          "description": "两次密码输入不同，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "fill", "target": "#regPhone", "value": "13900139000"},
+            {"action": "fill", "target": "#regNickname", "value": "测试"},
+            {"action": "fill", "target": "#regPass", "value": "test123456"},
+            {"action": "fill", "target": "#regPass2", "value": "different99"},
+            {"action": "click", "target": "#regSubmitBtn"},
+            {"action": "assert_text", "target": "#regError", "expected": "两次密码不一致"}
+          ]
+        },
+        {
+          "name": "场景10-注册返回登录",
+          "description": "点击返回按钮回到登录页",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#registerLink"},
+            {"action": "assert_visible", "target": "#registerPage"},
+            {"action": "click", "target": "#regBackBtn"},
+            {"action": "assert_visible", "target": "#loginPage", "description": "验证返回登录页"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/home",
+      "title": "首页-商品浏览",
+      "elements": {
+        "搜索框": "#searchInput",
+        "搜索按钮": "#searchBtn",
+        "全部分类": "#catAll",
+        "水果分类": "#catFruit",
+        "蔬菜分类": "#catVeg",
+        "零食分类": "#catSnack",
+        "商品列表": "#productList",
+        "商品卡片": ".product-card",
+        "购物车徽章": "#cartBadge"
+      },
+      "scenarios": [
+        {
+          "name": "场景11-商品列表加载",
+          "description": "登录后验证首页商品列表正确显示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "assert_visible", "target": ".product-card", "description": "验证商品卡片可见"},
+            {"action": "assert_text", "target": "#pname-1", "expected": "红富士苹果"},
+            {"action": "assert_text", "target": "#pname-3", "expected": "水蜜桃"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景12-分类筛选-水果",
+          "description": "点击水果分类，验证只显示水果商品",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#catFruit"},
+            {"action": "assert_visible", "target": "#product-1", "description": "苹果应该显示"},
+            {"action": "assert_visible", "target": "#product-2", "description": "香蕉应该显示"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景13-分类筛选-蔬菜",
+          "description": "点击蔬菜分类，验证只显示蔬菜商品",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#catVeg"},
+            {"action": "assert_visible", "target": "#product-5", "description": "西兰花应该显示"},
+            {"action": "assert_visible", "target": "#product-6", "description": "番茄应该显示"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景14-搜索商品",
+          "description": "搜索苹果，验证搜索结果正确",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "fill", "target": "#searchInput", "value": "苹果"},
+            {"action": "click", "target": "#searchBtn"},
+            {"action": "assert_visible", "target": "#product-1", "description": "苹果应该出现"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景15-搜索无结果",
+          "description": "搜索不存在的商品，验证空结果提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "fill", "target": "#searchInput", "value": "榴莲"},
+            {"action": "click", "target": "#searchBtn"},
+            {"action": "assert_text", "target": "#noResult", "expected": "没有找到相关商品"}
+          ]
+        },
+        {
+          "name": "场景16-售罄商品不可购买",
+          "description": "水蜜桃库存为0，验证按钮显示已售罄且不可点击",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "assert_text", "target": "#pstock-3", "expected": "已售罄"},
+            {"action": "assert_text", "target": "#addBtn-3", "expected": "已售罄"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/cart",
+      "title": "购物车",
+      "elements": {
+        "购物车列表": "#cartList",
+        "购物车空状态": "#cartEmpty",
+        "清空按钮": "#cartClearBtn",
+        "总价": "#cartTotal",
+        "结算按钮": "#checkoutBtn",
+        "去逛逛按钮": "#goShopBtn"
+      },
+      "scenarios": [
+        {
+          "name": "场景17-空购物车",
+          "description": "验证购物车为空时显示空状态",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_visible", "target": "#cartEmpty", "description": "验证空购物车提示可见"},
+            {"action": "assert_text", "target": ".empty-text", "expected": "购物车是空的"}
+          ]
+        },
+        {
+          "name": "场景18-加入购物车+数量变化",
+          "description": "加入商品后验证购物车数量和总价变化",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1", "description": "加入红富士苹果 ¥12.80"},
+            {"action": "assert_visible", "target": "#cartBadge", "description": "购物车徽章出现"},
+            {"action": "assert_text", "target": "#cartBadge", "expected": "1"},
+            {"action": "click", "target": "#addBtn-2", "description": "加入进口香蕉 ¥6.50"},
+            {"action": "assert_text", "target": "#cartBadge", "expected": "2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_visible", "target": "#cartItem-1", "description": "苹果在购物车中"},
+            {"action": "assert_visible", "target": "#cartItem-2", "description": "香蕉在购物车中"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥19.30"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景19-修改购物车数量",
+          "description": "增加和减少商品数量，验证总价联动变化",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#qty-1", "expected": "1"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥12.80"},
+            {"action": "click", "target": "#cartItem-1 .qty-btn:last-of-type", "description": "点击+号增加数量"},
+            {"action": "assert_text", "target": "#qty-1", "expected": "2"},
+            {"action": "assert_text", "target": "#cartTotal", "expected": "¥25.60"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景20-清空购物车",
+          "description": "清空购物车后验证回到空状态",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#addBtn-2"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "assert_text", "target": "#cartItemCount", "expected": "2"},
+            {"action": "click", "target": "#cartClearBtn"},
+            {"action": "assert_visible", "target": "#cartEmpty", "description": "验证清空后显示空状态"}
+          ]
+        },
+        {
+          "name": "场景21-游客结算被拦截",
+          "description": "游客模式下点结算，验证提示请先登录",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_visible", "target": "#loginPage", "description": "验证跳转到登录页"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/checkout",
+      "title": "结算页",
+      "elements": {
+        "收货人": "#addrName",
+        "联系电话": "#addrPhone",
+        "详细地址": "#addrDetail",
+        "快递配送": "#deliveryExpress",
+        "到店自提": "#deliverySelf",
+        "商品合计": "#checkoutSubtotal",
+        "配送费": "#checkoutDelivery",
+        "优惠": "#checkoutDiscount",
+        "实付金额": "#checkoutTotal",
+        "提交订单": "#submitOrderBtn",
+        "结算错误提示": "#checkoutError"
+      },
+      "scenarios": [
+        {
+          "name": "场景22-完整下单流程（端到端）",
+          "description": "登录→加购→结算→填地址→提交订单，验证全流程",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1", "description": "加入苹果 ¥12.80"},
+            {"action": "click", "target": "#addBtn-2", "description": "加入香蕉 ¥6.50"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "assert_visible", "target": "#checkoutPage", "description": "验证跳转到结算页"},
+            {"action": "fill", "target": "#addrName", "value": "张三"},
+            {"action": "fill", "target": "#addrPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#addrDetail", "value": "北京市朝阳区建国路88号"},
+            {"action": "assert_text", "target": "#checkoutSubtotal", "expected": "¥19.30"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "¥8.00"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_visible", "target": "#orderResultPage", "description": "验证跳转到订单结果页"},
+            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景23-结算表单校验（空姓名）",
+          "description": "不填姓名直接提交，验证错误提示",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_text", "target": "#checkoutError", "expected": "请输入收货人姓名"}
+          ]
+        },
+        {
+          "name": "场景24-到店自提配送费验证",
+          "description": "选择到店自提，验证配送费显示为免费（BUG: 实际收了3元）",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1", "description": "加入苹果 ¥12.80"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "click", "target": "#deliverySelf", "description": "选择到店自提"},
+            {"action": "assert_text", "target": "#checkoutDelivery", "expected": "免费"},
+            {"action": "assert_text", "target": "#checkoutTotal", "expected": "¥7.80", "description": "BUG5: 应该是12.80-5=7.80，但优惠没生效"},
+            {"action": "screenshot"}
+          ]
+        }
+      ]
+    },
+    {
+      "url": "/me",
+      "title": "个人中心",
+      "elements": {
+        "用户名": "#userName",
+        "手机号": "#userPhone",
+        "我的订单": "#menuOrders",
+        "优惠券数量": "#couponCount",
+        "退出登录": "#logoutBtn",
+        "关于我们": "#menuAbout"
+      },
+      "scenarios": [
+        {
+          "name": "场景25-登录后个人信息显示",
+          "description": "登录后切换到我的页面，验证用户信息正确",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "assert_text", "target": "#userName", "expected": "用户8000"},
+            {"action": "assert_text", "target": "#userPhone", "expected": "13800138000"},
+            {"action": "assert_text", "target": "#couponCount", "expected": "2"},
+            {"action": "assert_visible", "target": "#logoutBtn", "description": "退出按钮可见"},
+            {"action": "screenshot"}
+          ]
+        },
+        {
+          "name": "场景26-游客模式个人中心",
+          "description": "游客模式下我的页面显示未登录状态",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "click", "target": "#guestBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "assert_text", "target": "#userName", "expected": "游客模式"},
+            {"action": "assert_text", "target": "#couponCount", "expected": "0"}
+          ]
+        },
+        {
+          "name": "场景27-退出登录",
+          "description": "点击退出登录，验证回到登录页",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#navMe"},
+            {"action": "click", "target": "#logoutBtn"},
+            {"action": "assert_visible", "target": "#loginPage", "description": "验证回到登录页"}
+          ]
+        },
+        {
+          "name": "场景28-查看订单列表",
+          "description": "下单后查看我的订单，验证订单记录存在",
+          "steps": [
+            {"action": "navigate", "value": "http://localhost:8900/preview/mobile-demo/"},
+            {"action": "fill", "target": "#loginPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#loginPass", "value": "123456"},
+            {"action": "click", "target": "#loginBtn"},
+            {"action": "click", "target": "#addBtn-1"},
+            {"action": "click", "target": "#navCart"},
+            {"action": "click", "target": "#checkoutBtn"},
+            {"action": "fill", "target": "#addrName", "value": "张三"},
+            {"action": "fill", "target": "#addrPhone", "value": "13800138000"},
+            {"action": "fill", "target": "#addrDetail", "value": "北京朝阳区"},
+            {"action": "click", "target": "#submitOrderBtn"},
+            {"action": "assert_text", "target": "#resultTitle", "expected": "下单成功"},
+            {"action": "click", "target": "#viewOrderBtn"},
+            {"action": "assert_visible", "target": "#orderListPage", "description": "验证跳转到订单列表"},
+            {"action": "assert_visible", "target": ".order-card", "description": "验证订单记录存在"},
+            {"action": "assert_text", "target": ".order-status", "expected": "待发货"},
+            {"action": "screenshot"}
+          ]
+        }
+      ]
+    }
+  ]
+}
