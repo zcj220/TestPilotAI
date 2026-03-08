@@ -183,8 +183,13 @@ async function executeStep(step, stepNum) {
       }
       case 'evaluate': {
         // 小程序端执行：用 new Function 构造函数传给 evaluate
-        // 这样能支持 const/let/var 声明语句和复杂逻辑
+        // 自动给表达式/IIFE加return，确保返回值能被获取
         var code = step.value || '';
+        // 如果代码不以return开头，且看起来是表达式/IIFE，自动加return
+        var trimmed = code.trim();
+        if (!trimmed.startsWith('return ') && !trimmed.startsWith('{')) {
+          code = 'return ' + code;
+        }
         const evalFn = new Function(code);
         const evalResult = await mp.evaluate(evalFn);
         if (step.expected !== undefined && step.expected !== '') {
