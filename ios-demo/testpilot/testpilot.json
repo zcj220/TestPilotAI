@@ -1,0 +1,27 @@
+{
+  "app_name": "iOS示例应用",
+  "description": "iOS移动端应用，用于验证iOS项目在Windows下的屏蔽逻辑",
+  "base_url": "http://localhost:8080",
+  "version": "1.0",
+  "platform": "ios",
+  "pages": [
+    {
+      "url": "/",
+      "title": "首页",
+      "description": "应用首页"
+    }
+  ],
+  "scenarios": [
+    {
+      "title": "启动应用",
+      "description": "验证应用正常启动",
+      "steps": [
+        {
+          "action": "navigate",
+          "target": "/",
+          "expected": "页面正常显示"
+        }
+      ]
+    }
+  ]
+}

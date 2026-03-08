@@ -781,7 +781,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       </select>
       <button id="btnRefreshProjects" class="btn-secondary" style="width:28px;min-width:28px;margin:0;padding:3px;font-size:13px" title="刷新项目列表">🔄</button>
     </div>
-    <button class="btn-secondary" id="btnCheckEngine">检查连接</button>
+    <button class="btn-secondary hidden" id="btnCheckEngine">检查连接</button>
     <!-- 设备状态提示（仅Android/iOS项目显示） -->
     <div id="deviceStatusRow" class="hidden" style="background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
       <div style="display:flex;align-items:center;gap:6px">
@@ -980,8 +980,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     function updateDeviceStatusVisibility() {
       const platform = getCurrentPlatform();
       const deviceRow = document.getElementById("deviceStatusRow");
-      if (platform === "android" || platform === "ios") {
+      const isWin = navigator.userAgent.indexOf("Windows") !== -1 || navigator.platform.indexOf("Win") !== -1;
+      if (platform === "ios" && isWin) {
+        // iOS在Windows下：显示提示但不检测设备
         deviceRow.classList.remove("hidden");
+        document.getElementById("deviceStatusIcon").textContent = "🍎";
+        document.getElementById("deviceStatusText").textContent = "iOS项目需要macOS环境才能运行测试";
+        document.getElementById("deviceStatusText").style.color = "var(--warning,#f59e0b)";
+        document.getElementById("btnDetectDevice").style.display = "none";
+      } else if (platform === "android") {
+        deviceRow.classList.remove("hidden");
+        document.getElementById("btnDetectDevice").style.display = "";
         checkDeviceStatus();
       } else {
         deviceRow.classList.add("hidden");
@@ -1275,19 +1284,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         desktop: "Windows桌面"
       };
 
+      // 检测当前操作系统
+      var isWindows = navigator.userAgent.indexOf("Windows") !== -1 || navigator.platform.indexOf("Win") !== -1;
+
       // 各项目选项（无“全部项目”）
+      var firstSelectableIdx = -1;
       allProjects.forEach(function(proj, i) {
         var opt = document.createElement("option");
         opt.value = String(i);
         var pName = platformNames[proj.platform] || proj.platform || "Web";
-        opt.textContent = proj.projectName + "（" + pName + "）";
+        // iOS项目在Windows下灰色不可选
+        if (proj.platform === "ios" && isWindows) {
+          opt.textContent = proj.projectName + "（" + pName + "）— 需macOS环境";
+          opt.disabled = true;
+          opt.style.color = "#666";
+        } else {
+          opt.textContent = proj.projectName + "（" + pName + "）";
+          if (firstSelectableIdx === -1) { firstSelectableIdx = i; }
+        }
         projectSelect.appendChild(opt);
       });
 
+      // 默认选中第一个可选的项目
+      if (firstSelectableIdx === -1) { firstSelectableIdx = 0; }
       projectSelect.disabled = allProjects.length <= 1;
-      currentProjectIdx = 0;
-      projectSelect.value = "0";
-      blueprintEntries = allProjects[0].blueprints || [];
+      currentProjectIdx = firstSelectableIdx;
+      projectSelect.value = String(firstSelectableIdx);
+      blueprintEntries = allProjects[firstSelectableIdx] ? (allProjects[firstSelectableIdx].blueprints || []) : [];
       renderBlueprintList(blueprintEntries);
       updateDeviceStatusVisibility();
 
