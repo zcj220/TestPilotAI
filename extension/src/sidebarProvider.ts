@@ -1280,6 +1280,7 @@ ${commonRules}`;
     const btnLaunchEngine = document.getElementById("btnLaunchEngine");
     const btnStopEngine = document.getElementById("btnStopEngine");
     let isStarting = false;  // 是否处于「正在启动中」状态
+    let engineFound = false;   // 引擎是否已连接成功（防止重复检查）
     document.getElementById("btnCheckEngine").addEventListener("click", () => {
       vscode.postMessage({ command: "checkEngine" });
     });
@@ -1294,15 +1295,15 @@ ${commonRules}`;
       btnStopEngine.disabled = false;
       addLog("正在启动引擎，请稍候（最长约25秒）...", "info");
 
-      // 分别在 8s / 16s / 25s 重试检查连接，哪次成功就停止
-      let checked = 0;
+      // 分别在 8s / 16s / 25s 重试检查连接，连接成功后停止后续检查
+      engineFound = false;
       const delays = [8000, 16000, 25000];
       function scheduleCheck(idx) {
-        if (idx >= delays.length) { return; }
+        if (idx >= delays.length || engineFound) { return; }
         setTimeout(() => {
-          checked++;
+          if (engineFound) { return; }
           vscode.postMessage({ command: "checkEngine" });
-          if (checked < delays.length) { scheduleCheck(idx + 1); }
+          scheduleCheck(idx + 1);
         }, delays[idx] - (idx > 0 ? delays[idx - 1] : 0));
       }
       scheduleCheck(0);
@@ -1311,6 +1312,8 @@ ${commonRules}`;
     // 一键断开引擎
     btnStopEngine.addEventListener("click", () => {
       isStarting = false;
+      wasConnected = false;
+      engineFound = false;
       vscode.postMessage({ command: "stopEngine" });
       btnStopEngine.textContent = "⏳ 断开中...";
       btnStopEngine.disabled = true;
@@ -1640,18 +1643,23 @@ ${commonRules}`;
       }
     }
 
+    var wasConnected = false;  // 防止重复触发连接成功日志和扫描
     function updateEngineStatus(data) {
       if (data.connected) {
         isStarting = false;
+        engineFound = true;
         statusDot.className = "status-dot connected";
         engineStatus.textContent = "v" + (data.version || "?");
         btnLaunchEngine.classList.add("hidden");
         btnStopEngine.classList.remove("hidden");
         btnStopEngine.textContent = "⏹ 断开引擎";
         btnStopEngine.disabled = false;
-        addLog("引擎连接成功 | v" + data.version, "success");
-        // 引擎连接成功时自动重新扫描项目
-        vscode.postMessage({ command: "scanBlueprints" });
+        if (!wasConnected) {
+          wasConnected = true;
+          addLog("引擎连接成功 | v" + data.version, "success");
+          // 引擎连接成功时自动重新扫描项目（仅首次）
+          vscode.postMessage({ command: "scanBlueprints" });
+        }
       } else {
         statusDot.className = "status-dot disconnected";
         engineStatus.textContent = isStarting ? "启动中..." : "未连接";

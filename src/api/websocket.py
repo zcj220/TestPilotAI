@@ -141,7 +141,7 @@ class ConnectionManager:
         await self.broadcast("test_done", {
             "pass_rate": pass_rate,
             "bug_count": bug_count,
-            "message": f"测试完成 | 通过率 {pass_rate:.0%} | Bug {bug_count} 个",
+            "message": f"测试完成 | 通过率 {pass_rate:.0f}% | Bug {bug_count} 个",
         })
 
     # ── v2.0 新增推送 ────────────────────────────────
