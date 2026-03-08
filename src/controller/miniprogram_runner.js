@@ -101,13 +101,18 @@ async function initConnect() {
     }
   }
 
-  // 策略3: quit彻底杀进程 → open → auto（跟手动修复流程一致）
-  console.log('[策略3] cli quit 彻底杀进程后重启...');
-  runCli('quit');
+  // 策略3: 强杀所有进程 → open → auto（最终手段）
+  console.log('[策略3] 强杀所有微信开发者工具进程...');
+  try {
+    execSync('taskkill /F /IM wechatdevtools.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+  } catch (e) {}
+  try {
+    execSync('taskkill /F /IM WeChatAppEx.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+  } catch (e) {}
   await sleep(5000);
   console.log('[策略3] cli open...');
   runCli(`open --project "${PROJECT_PATH}"`);
-  await sleep(8000);
+  await sleep(10000);
   console.log('[策略3] cli auto...');
   runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
   await sleep(3000);
