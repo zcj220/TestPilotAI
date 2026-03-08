@@ -10,6 +10,7 @@
  */
 
 import * as vscode from "vscode";
+import * as path from "path";
 import { EngineClient, WsMessage, TestReportResponse, StepDetail, BugDetail } from "./engineClient";
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
@@ -77,6 +78,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           break;
         case "copyBlueprintPrompt":
           await this._handleCopyBlueprintPrompt();
+          break;
+        case "platformPrecheck":
+          await this._handlePlatformPrecheck(msg);
           break;
       }
     });
@@ -146,14 +150,38 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async _handleBlueprintTest(msg: {
     blueprint_path: string;
     base_url?: string;
+    platform?: string;
+    mobile_session_id?: string;
   }): Promise<void> {
     try {
       this._postMessage({ command: "testStarted" });
 
-      const report: TestReportResponse = await this._client.startBlueprintTest({
-        blueprint_path: msg.blueprint_path,
-        base_url: msg.base_url || undefined,
-      });
+      const platform = (msg.platform || "web").toLowerCase();
+      let report: TestReportResponse;
+
+      if (platform === "miniprogram") {
+        report = await this._client.startMiniprogramBlueprintTest({
+          blueprint_path: msg.blueprint_path,
+          base_url: msg.base_url || undefined,
+          project_path: this._guessProjectPathFromBlueprint(msg.blueprint_path),
+        });
+      } else if (platform === "desktop") {
+        report = await this._client.startDesktopBlueprintTest({
+          blueprint_path: msg.blueprint_path,
+          base_url: msg.base_url || undefined,
+        });
+      } else if (platform === "android" || platform === "ios") {
+        report = await this._client.startMobileBlueprintTest({
+          blueprint_path: msg.blueprint_path,
+          base_url: msg.base_url || undefined,
+          mobile_session_id: msg.mobile_session_id || "",
+        });
+      } else {
+        report = await this._client.startBlueprintTest({
+          blueprint_path: msg.blueprint_path,
+          base_url: msg.base_url || undefined,
+        });
+      }
 
       this._postMessage({ command: "testResult", data: report });
     } catch (err: unknown) {
@@ -165,6 +193,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async _handleBlueprintBatchTest(msg: {
     blueprint_paths: string[];
     base_url?: string;
+    platform?: string;
+    mobile_session_id?: string;
   }): Promise<void> {
     try {
       this._postMessage({ command: "testStarted" });
@@ -173,10 +203,33 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const results: TestReportResponse[] = [];
       for (const bp of msg.blueprint_paths) {
         try {
-          const report = await this._client.startBlueprintTest({
-            blueprint_path: bp,
-            base_url: msg.base_url || undefined,
-          });
+          const platform = (msg.platform || "web").toLowerCase();
+          let report: TestReportResponse;
+
+          if (platform === "miniprogram") {
+            report = await this._client.startMiniprogramBlueprintTest({
+              blueprint_path: bp,
+              base_url: msg.base_url || undefined,
+              project_path: this._guessProjectPathFromBlueprint(bp),
+            });
+          } else if (platform === "desktop") {
+            report = await this._client.startDesktopBlueprintTest({
+              blueprint_path: bp,
+              base_url: msg.base_url || undefined,
+            });
+          } else if (platform === "android" || platform === "ios") {
+            report = await this._client.startMobileBlueprintTest({
+              blueprint_path: bp,
+              base_url: msg.base_url || undefined,
+              mobile_session_id: msg.mobile_session_id || "",
+            });
+          } else {
+            report = await this._client.startBlueprintTest({
+              blueprint_path: bp,
+              base_url: msg.base_url || undefined,
+            });
+          }
+
           results.push(report);
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
@@ -391,6 +444,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 4. 每个 fill 操作后必须有 assert_text 或 screenshot 验证
 5. 每次 navigate 必须有断言验证页面已正确加载
 6. 如果应用需要命令行启动（如 npm start、python app.py），必须填写 start_command 字段；纯HTML静态应用留空
+7. 如果 platform 是 miniprogram，必须固定自动化端口，不要依赖动态端口：
+   - 在蓝本中写: "start_command": "cli auto --project . --auto-port 9420"
+   - 或等效命令，核心是固定 --auto-port 9420
 
 每个蓝本文件格式：
 {
@@ -426,6 +482,112 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本，无需用户提醒！`;
     await vscode.env.clipboard.writeText(prompt);
     vscode.window.showInformationMessage("✅ 提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。");
+  }
+
+  private _guessProjectPathFromBlueprint(blueprintPath: string): string {
+    const normalized = blueprintPath.replace(/\\/g, "/");
+    const parts = normalized.split("/");
+    if (parts.length <= 1) {
+      return "";
+    }
+    parts.pop(); // file
+    if (parts.length > 0 && parts[parts.length - 1] === "testpilot") {
+      parts.pop();
+    }
+    return parts.join("/");
+  }
+
+  private async _handlePlatformPrecheck(msg: { platform?: string; blueprint_path?: string }): Promise<void> {
+    const platform = (msg.platform || "web").toLowerCase();
+    try {
+      if (platform === "android" || platform === "ios") {
+        const devices = await this._client.listMobileDevices();
+        if ((devices.count || 0) === 0) {
+          this._postMessage({
+            command: "platformPrecheckResult",
+            data: {
+              ok: false,
+              platform,
+              message: "未检测到手机设备，请先连接手机并开启USB调试。",
+            },
+          });
+          return;
+        }
+
+        const sessions = await this._client.listMobileSessions();
+        if ((sessions.count || 0) === 0) {
+          const first = devices.devices?.[0] || {};
+          const deviceName = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "");
+          const created = await this._client.createMobileSession({ device_name: deviceName });
+          this._postMessage({
+            command: "platformPrecheckResult",
+            data: {
+              ok: true,
+              platform,
+              message: `设备已连接，已创建会话 ${created.session_id}，可以开始测试。`,
+              mobile_session_id: created.session_id,
+            },
+          });
+          return;
+        }
+
+        const sid = String((sessions.sessions?.[0] as Record<string, unknown>)?.session_id || "");
+        this._postMessage({
+          command: "platformPrecheckResult",
+          data: {
+            ok: true,
+            platform,
+            message: `检测到已连接设备和活跃会话 ${sid}，可以开始测试。`,
+            mobile_session_id: sid,
+          },
+        });
+        return;
+      }
+
+      if (platform === "miniprogram") {
+        const status = await this._client.getMiniprogramDevtoolsStatus();
+        if (!status.found) {
+          this._postMessage({
+            command: "platformPrecheckResult",
+            data: {
+              ok: false,
+              platform,
+              message: status.message || "未检测到微信开发者工具，请先安装并开启服务端口。",
+            },
+          });
+          return;
+        }
+
+        this._postMessage({
+          command: "platformPrecheckResult",
+          data: {
+            ok: true,
+            platform,
+            message: "微信开发者工具可用。请确保已使用固定端口（建议9420）启动自动化。",
+          },
+        });
+        return;
+      }
+
+      this._postMessage({
+        command: "platformPrecheckResult",
+        data: {
+          ok: true,
+          platform,
+          message: "平台检查通过，可以开始测试。",
+        },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._postMessage({
+        command: "platformPrecheckResult",
+        data: {
+          ok: false,
+          platform,
+          message: `平台检查失败: ${message}`,
+        },
+      });
+    }
   }
 
   private _getHtml(webview: vscode.Webview): string {
@@ -593,7 +755,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       <label>蓝本列表
         <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
       </label>
-      <div id="blueprintList" style="max-height:150px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px"></div>
+      <div id="blueprintList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px"></div>
       <div class="btn-row" style="margin-top:4px">
         <button class="btn-secondary" id="btnScanBp" style="flex:1;font-size:11px;padding:4px">🔍 扫描蓝本</button>
         <button class="btn-secondary" id="btnBrowseBp" style="flex:1;font-size:11px;padding:4px">📂 浏览文件</button>
@@ -753,11 +915,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     // 项目切换
     projectSelect.addEventListener("change", () => {
-      currentProjectIdx = projectSelect.selectedIndex;
+      currentProjectIdx = parseInt(projectSelect.value);
       if (allProjects.length > 0 && allProjects[currentProjectIdx]) {
         blueprintEntries = allProjects[currentProjectIdx].blueprints || [];
-        renderBlueprintList(blueprintEntries);
+      } else {
+        blueprintEntries = [];
       }
+      renderBlueprintList(blueprintEntries);
     });
 
     // 刷新项目按钮
@@ -887,7 +1051,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       addLog("正在断开引擎...", "info");
     });
 
-    // 蓝本测试（支持多选批量 + 平台路由）
+    let currentMobileSessionId = "";
+    let pendingBlueprintRun = null;
+
+    // 蓝本测试（支持多选批量 + 平台路由 + 前置检查）
     document.getElementById("btnBlueprintTest").addEventListener("click", () => {
       const selected = getSelectedBlueprints();
       const manualPath = document.getElementById("inputBlueprintPath").value.trim();
@@ -900,14 +1067,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       const paths = selected.length > 0 ? selected : [manualPath];
-      const platformNames = {web:"Web(Playwright)",miniprogram:"小程序(automator)",android:"手机(Appium)",desktop:"桌面(Win32)"};
-      addLog("平台: " + (platformNames[platform] || platform) + " | 蓝本: " + paths.length + "个", "info");
-
-      if (paths.length > 1) {
-        vscode.postMessage({ command: "blueprintBatchTest", blueprint_paths: paths, base_url: baseUrl, platform: platform });
-      } else {
-        vscode.postMessage({ command: "blueprintTest", blueprint_path: paths[0], base_url: baseUrl, platform: platform });
-      }
+      pendingBlueprintRun = { paths, baseUrl, platform };
+      const firstPath = paths[0] || "";
+      vscode.postMessage({ command: "platformPrecheck", platform: platform, blueprint_path: firstPath });
     });
 
     // 复制蓝本生成提示词
@@ -953,8 +1115,49 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "controlError": addLog("控制失败: " + msg.data.error, "error"); break;
         case "blueprintList": onBlueprintList(msg.data); break;
         case "blueprintSelected": onBlueprintSelected(msg.data); break;
+        case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
       }
     });
+
+    function onPlatformPrecheckResult(data) {
+      if (!data || !pendingBlueprintRun) {
+        return;
+      }
+      if (!data.ok) {
+        addLog(data.message || "平台检查未通过", "error");
+        pendingBlueprintRun = null;
+        return;
+      }
+
+      if (data.mobile_session_id) {
+        currentMobileSessionId = data.mobile_session_id;
+      }
+
+      addLog(data.message || "平台检查通过", "success");
+
+      const run = pendingBlueprintRun;
+      pendingBlueprintRun = null;
+      const platformNames = {web:"Web",miniprogram:"微信小程序",android:"Android",ios:"iOS",desktop:"Windows桌面"};
+      addLog("平台: " + (platformNames[run.platform] || run.platform) + " | 蓝本: " + run.paths.length + "个", "info");
+
+      if (run.paths.length > 1) {
+        vscode.postMessage({
+          command: "blueprintBatchTest",
+          blueprint_paths: run.paths,
+          base_url: run.baseUrl,
+          platform: run.platform,
+          mobile_session_id: currentMobileSessionId || undefined,
+        });
+      } else {
+        vscode.postMessage({
+          command: "blueprintTest",
+          blueprint_path: run.paths[0],
+          base_url: run.baseUrl,
+          platform: run.platform,
+          mobile_session_id: currentMobileSessionId || undefined,
+        });
+      }
+    }
 
     function onBlueprintList(projects) {
       allProjects = projects || [];
@@ -967,20 +1170,30 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         blueprintListEl.innerHTML = '<div style="color:var(--muted);padding:12px;text-align:center;font-size:12px;line-height:1.6">暂无测试项目<br><br>请在项目中创建蓝本文件，<br>或点击下方「📋 复制蓝本生成提示词」<br>让编程AI自动生成。</div>';
         return;
       }
-      var platformBadges = {web:"🌐",android:"📱",ios:"📱",miniprogram:"💬",desktop:"🖥️"};
+
+      var platformNames = {
+        web: "Web",
+        android: "Android",
+        ios: "iOS",
+        miniprogram: "微信小程序",
+        desktop: "Windows桌面"
+      };
+
+      // 各项目选项（无“全部项目”）
       allProjects.forEach(function(proj, i) {
         var opt = document.createElement("option");
         opt.value = String(i);
-        var badge = platformBadges[proj.platform] || "📄";
-        var bpCount = proj.blueprints ? proj.blueprints.length : 0;
-        opt.textContent = badge + " " + proj.projectName + " (" + bpCount + ")";
+        var pName = platformNames[proj.platform] || proj.platform || "Web";
+        opt.textContent = proj.projectName + "（" + pName + "）";
         projectSelect.appendChild(opt);
       });
+
       projectSelect.disabled = allProjects.length <= 1;
       currentProjectIdx = 0;
-      projectSelect.selectedIndex = 0;
+      projectSelect.value = "0";
       blueprintEntries = allProjects[0].blueprints || [];
       renderBlueprintList(blueprintEntries);
+
       var totalBp = allProjects.reduce(function(n, p) { return n + (p.blueprints ? p.blueprints.length : 0); }, 0);
       addLog("找到 " + allProjects.length + " 个项目，共 " + totalBp + " 个蓝本", "info");
     }
@@ -1035,53 +1248,55 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         var item = document.createElement("label");
         item.className = "local-blueprint-item";
         item.style.cssText = "display:flex;align-items:flex-start;gap:4px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;overflow:hidden;width:100%;box-sizing:border-box";
-        item.title = tooltipText;
         item.addEventListener("mouseenter", function() { item.style.background = "var(--hover-bg,#2a2d2e)"; });
         item.addEventListener("mouseleave", function() { item.style.background = "transparent"; });
 
+        // 复选框区域（独立tooltip：操作提示）
+        var cbWrap = document.createElement("span");
+        cbWrap.className = "local-blueprint-cbwrap";
+        cbWrap.style.cssText = "flex-shrink:0;display:inline-flex;align-items:center;padding:2px";
+        cbWrap.title = "勾选以加入局部测试";
         var cb = document.createElement("input");
         cb.type = "checkbox";
         cb.className = "local-blueprint-cb";
         cb.value = path;
         cb.checked = false;
         cb.disabled = true;
-        cb.style.cssText = "margin-top:2px;flex-shrink:0;width:14px;height:14px";
+        cb.style.cssText = "width:14px;height:14px;cursor:pointer";
+        cbWrap.appendChild(cb);
 
         var fileName = path.replace(/\\\\/g, "/").split("/").pop() || path;
 
+        // 内容区域（独立tooltip：蓝本详情）
         var info = document.createElement("div");
+        info.className = "local-blueprint-info";
         info.style.cssText = "flex:1;min-width:0;overflow:hidden";
+        info.title = tooltipText;
         info.innerHTML = '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + platformBadge + ' ' + displayName + '</div>'
           + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + desc + '</div>' : '')
           + '<div style="color:var(--muted);font-size:10px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + scenarios + '场景 ' + steps + '步骤 · ' + fileName + '</div>';
 
-        item.appendChild(cb);
+        item.appendChild(cbWrap);
         item.appendChild(info);
         blueprintListEl.appendChild(item);
       });
 
-      // 全局蓝本checkbox交互逻辑
+      // 全局蓝本checkbox交互逻辑（Tooltip分区：复选框区=操作提示，内容区=蓝本详情）
       globalCb.addEventListener("change", function() {
         var localItems = blueprintListEl.querySelectorAll(".local-blueprint-item");
         var localCbs = blueprintListEl.querySelectorAll(".local-blueprint-cb");
+        var cbWraps = blueprintListEl.querySelectorAll(".local-blueprint-cbwrap");
         if (globalCb.checked) {
           localCbs.forEach(function(cb) { cb.disabled = true; cb.checked = false; });
-          localItems.forEach(function(item) { 
-            item.style.opacity = "0.5"; 
-            item.title = "已勾选全局蓝本，无需勾选局部。如需局部测试，请取消全局勾选。";
-          });
+          localItems.forEach(function(item) { item.style.opacity = "0.5"; });
+          // 复选框区：显示操作提示
+          cbWraps.forEach(function(w) { w.title = "已启用全局蓝本，如需局部选择请先取消全局蓝本"; });
+          // 内容区：保持蓝本详情不变（不覆盖）
         } else {
           localCbs.forEach(function(cb) { cb.disabled = false; });
-          localItems.forEach(function(item, i) { 
-            item.style.opacity = "1";
-            var entry = entries[i];
-            if (!entry) return;
-            var desc = entry.description || "";
-            var scenarios = entry.scenarioCount || 0;
-            var steps = entry.stepCount || 0;
-            var path = entry.path;
-            item.title = desc ? (desc + "\\n场景:" + scenarios + " 步骤:" + steps + "\\n" + path) : ("场景:" + scenarios + " 步骤:" + steps + "\\n" + path);
-          });
+          localItems.forEach(function(item) { item.style.opacity = "1"; });
+          // 恢复复选框区提示
+          cbWraps.forEach(function(w) { w.title = "勾选以加入局部测试"; });
         }
       });
 

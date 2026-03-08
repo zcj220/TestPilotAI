@@ -123,12 +123,39 @@ export class EngineClient {
     return this._get<unknown[]>(`/api/v1/memory/history${qs ? "?" + qs : ""}`);
   }
 
-  /** 蓝本模式测试（v2.3） */
+  /** Web 蓝本模式测试 */
   async startBlueprintTest(params: {
     blueprint_path: string;
     base_url?: string;
   }): Promise<TestReportResponse> {
     return this._post<TestReportResponse>("/api/v1/test/blueprint", params);
+  }
+
+  /** 手机蓝本测试（Android/iOS） */
+  async startMobileBlueprintTest(params: {
+    blueprint_path: string;
+    base_url?: string;
+    mobile_session_id: string;
+  }): Promise<TestReportResponse> {
+    return this._post<TestReportResponse>("/api/v1/test/mobile-blueprint", params);
+  }
+
+  /** 小程序蓝本测试 */
+  async startMiniprogramBlueprintTest(params: {
+    blueprint_path: string;
+    base_url?: string;
+    project_path?: string;
+  }): Promise<TestReportResponse> {
+    return this._post<TestReportResponse>("/api/v1/test/miniprogram-blueprint", params);
+  }
+
+  /** 桌面蓝本测试 */
+  async startDesktopBlueprintTest(params: {
+    blueprint_path: string;
+    base_url?: string;
+    window_title?: string;
+  }): Promise<TestReportResponse> {
+    return this._post<TestReportResponse>("/api/v1/test/desktop-blueprint", params);
   }
 
   /** 蓝本自动生成（v10.1） */
@@ -157,6 +184,32 @@ export class EngineClient {
   /** 查询测试状态（v2.0） */
   async getTestStatus(): Promise<TestStatus> {
     return this._get<TestStatus>("/api/v1/test/status");
+  }
+
+  /** 列出已连接移动设备 */
+  async listMobileDevices(): Promise<{ devices: Array<Record<string, unknown>>; count: number; error?: string }> {
+    return this._get<{ devices: Array<Record<string, unknown>>; count: number; error?: string }>("/api/v1/mobile/devices");
+  }
+
+  /** 列出活动移动会话 */
+  async listMobileSessions(): Promise<{ sessions: Array<Record<string, unknown>>; count: number }> {
+    return this._get<{ sessions: Array<Record<string, unknown>>; count: number }>("/api/v1/mobile/sessions");
+  }
+
+  /** 创建移动会话 */
+  async createMobileSession(params: {
+    device_name?: string;
+    app_package?: string;
+    app_activity?: string;
+    app_path?: string;
+    permissions?: string[];
+  } = {}): Promise<{ session_id: string; message: string; device?: Record<string, unknown> }> {
+    return this._post<{ session_id: string; message: string; device?: Record<string, unknown> }>("/api/v1/mobile/session/create", params);
+  }
+
+  /** 检查小程序开发者工具状态 */
+  async getMiniprogramDevtoolsStatus(): Promise<{ found: boolean; path?: string; message?: string }> {
+    return this._get<{ found: boolean; path?: string; message?: string }>("/api/v1/miniprogram/devtools/status");
   }
 
   /** 测试控制：暂停/继续/停止（v2.0） */
