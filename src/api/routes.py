@@ -532,6 +532,7 @@ def create_router(
         import subprocess as sp
         import tempfile
         import time
+        import asyncio
 
         blueprint_path = req.get("blueprint_path", "")
         project_path = req.get("project_path", "")
