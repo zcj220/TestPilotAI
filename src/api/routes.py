@@ -526,6 +526,7 @@ def create_router(
 
         需要：微信开发者工具已安装、已开启服务端口。
         """
+        from pathlib import Path
         from src.testing.blueprint import BlueprintParser
         from src.controller.miniprogram import MiniProgramController, MiniProgramConfig
 
@@ -639,6 +640,7 @@ def create_router(
     @router.post("/test/desktop-blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_desktop_blueprint_test(req: dict) -> TestReportResponse:
         """桌面应用蓝本测试：通过 pywinauto 操控 Windows 桌面应用窗口。"""
+        from pathlib import Path
         from src.testing.blueprint import BlueprintParser
         from src.controller.desktop import DesktopController, DesktopConfig
 
@@ -752,6 +754,7 @@ def create_router(
         3. 目录下 testpilot/ 子目录中的 testpilot.json
         """
         import glob
+        from pathlib import Path
 
         dir_path = Path(directory)
         if not dir_path.exists():
@@ -805,6 +808,7 @@ def create_router(
         根据每个蓝本的 platform 字段自动分发到对应的测试端点。
         """
         import time as _time
+        from pathlib import Path
 
         results: list[BatchReportItem] = []
         total_start = _time.time()
