@@ -621,7 +621,13 @@ def create_router(
 
             if not result_data:
                 logger.error("执行器无JSON输出:\nstdout:{}\nstderr:{}", stdout[-300:], stderr[-300:])
-                raise RuntimeError(f"执行器无有效输出。stderr: {stderr[-200:]}")
+                # crash时返回友好错误报告，不抛500
+                hint = ""
+                if rc and rc != 0:
+                    hint = f"执行器异常退出(rc={rc})。可能原因：小程序代码修改后未重新编译，或模拟器状态异常。请在微信开发者工具中点击'编译'后重试。"
+                else:
+                    hint = f"执行器无有效输出。stderr: {stderr[-200:]}"
+                raise RuntimeError(hint)
 
             if not result_data.get("success"):
                 raise RuntimeError(f"执行器失败: {result_data.get('error', '未知错误')}")
