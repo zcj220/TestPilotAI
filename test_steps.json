@@ -1,1 +1,9 @@
-﻿{"project_path":"D:/projects/TestPilotAI/miniprogram-demo","ws_port":9420,"steps":[{"action":"screenshot","description":"首页截图"}]}
+﻿{"project_path":"D:/projects/TestPilotAI/miniprogram-demo","ws_port":9420,"steps":[
+  {"action":"evaluate","value":"return getApp().globalData.products.length","description":"test1-读商品数"},
+  {"action":"reset_state","description":"test2-重置状态"},
+  {"action":"screenshot","description":"test3-截图"},
+  {"action":"navigate_to","value":"/pages/cart/cart","description":"test4-跳购物车"},
+  {"action":"screenshot","description":"test5-购物车截图"},
+  {"action":"reset_state","description":"test6-再次重置"},
+  {"action":"screenshot","description":"test7-重置后截图"}
+]}

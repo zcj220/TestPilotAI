@@ -132,10 +132,10 @@ async function executeStep(step, stepNum) {
   try {
     switch (step.action) {
       case 'navigate': {
-        // 用 evaluate(wx.reLaunch) —— 跟 run_blind_test.js 一样，不用SDK方法
-        const url = step.value || '';
-        await mp.evaluate(`wx.reLaunch({ url: '${url}' })`);
-        await sleep(1500);
+        // 用 new Function + evaluate，跟 run_blind_test.js 传箭头函数一样
+        const navUrl = step.value || '';
+        await mp.evaluate(new Function('wx.reLaunch({ url: "' + navUrl + '" })'));
+        await sleep(2000);
         break;
       }
       case 'click': {
@@ -177,10 +177,11 @@ async function executeStep(step, stepNum) {
         break;
       }
       case 'evaluate': {
-        // 小程序端执行：value里的JS在小程序环境运行，能访问 getApp()、wx.xxx
-        // 注意：没有document对象！用getApp().globalData等
-        const code = step.value || '';
-        const evalResult = await mp.evaluate(code);
+        // 小程序端执行：用 new Function 构造函数传给 evaluate
+        // 这样能支持 const/let/var 声明语句和复杂逻辑
+        var code = step.value || '';
+        const evalFn = new Function(code);
+        const evalResult = await mp.evaluate(evalFn);
         if (step.expected !== undefined && step.expected !== '') {
           const actual = JSON.stringify(evalResult);
           const expect = String(step.expected);
@@ -280,18 +281,20 @@ async function executeStep(step, stepNum) {
         return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: { actual: num, expected, op } };
       }
       case 'navigate_to': {
-        // wx.navigateTo（不清空页面栈，跟reLaunch不同）
-        const url = step.value || '';
-        await mp.evaluate(`wx.navigateTo({ url: '${url}' })`);
+        // wx.navigateTo（不清空页面栈）—— 用new Function
+        const navToUrl = step.value || '';
+        await mp.evaluate(new Function('wx.navigateTo({ url: "' + navToUrl + '" })'));
         await sleep(1500);
         break;
       }
       case 'reset_state': {
-        // 重置全局状态（场景间清理）
-        const code = step.value || "const g=getApp().globalData; g.cart=[]; g.coupon=null; g.address=''; g.deliveryType=''; g.isVip=true;";
-        await mp.evaluate(code);
-        // reLaunch回首页
-        await mp.evaluate("wx.reLaunch({ url: '/pages/index/index' })");
+        // 重置全局状态（场景间清理）—— 用 new Function 传函数给 evaluate
+        await mp.evaluate(new Function(
+          'var g = getApp().globalData;' +
+          'g.cart = []; g.coupon = null; g.address = ""; g.deliveryType = ""; g.isVip = true;'
+        ));
+        // reLaunch回首页（不调callMethod，避免SDK超时）
+        await mp.evaluate(new Function('wx.reLaunch({ url: "/pages/index/index" })'));
         await sleep(2000);
         break;
       }
