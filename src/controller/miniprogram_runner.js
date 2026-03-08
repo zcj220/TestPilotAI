@@ -64,32 +64,58 @@ function runCli(cmd) {
   }
 }
 
+async function tryConnect() {
+  mp = await Promise.race([
+    automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` }),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('超时5秒')), 5000)),
+  ]);
+  const page = await mp.currentPage();
+  return page.path;
+}
+
 async function initConnect() {
   if (!CLI_PATH) throw new Error('未找到微信开发者工具CLI');
   if (!PROJECT_PATH) throw new Error('未指定项目路径');
 
-  // 跟 run_blind_test.js 一模一样：close → open → auto → connect
-  runCli(`close --project "${PROJECT_PATH}"`);
-  await sleep(2000);
-  runCli(`open --project "${PROJECT_PATH}"`);
-  await sleep(2000);
-  runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
-  await sleep(2000);
+  // 策略1: 先直接连（如果模拟器已开且auto已启动，0秒就能连上）
+  try {
+    const p = await tryConnect();
+    console.log('[策略1] 直接连接成功，页面: ' + p);
+    return p;
+  } catch (e) {
+    console.log('[策略1] 直接连接失败: ' + e.message);
+  }
 
-  // 重试连接（跟 run_blind_test.js 一样）
+  // 策略2: 只执行auto（不close不open，避免模拟器崩溃）
+  console.log('[策略2] 执行 cli auto...');
+  runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
+  await sleep(3000);
+  for (let i = 0; i < 3; i++) {
+    try {
+      const p = await tryConnect();
+      console.log('[策略2] auto后连接成功，页面: ' + p);
+      return p;
+    } catch (e) {
+      if (i < 2) await sleep(3000);
+    }
+  }
+
+  // 策略3: open+auto（不做close！close会破坏模拟器状态）
+  console.log('[策略3] 执行 open + auto（不close）...');
+  runCli(`open --project "${PROJECT_PATH}"`);
+  await sleep(5000);
+  runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
+  await sleep(3000);
   for (let i = 0; i < 5; i++) {
     try {
-      mp = await Promise.race([
-        automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('超时5秒')), 5000)),
-      ]);
-      const page = await mp.currentPage();
-      return page.path;
+      const p = await tryConnect();
+      console.log('[策略3] open+auto后连接成功，页面: ' + p);
+      return p;
     } catch (e) {
       if (i < 4) await sleep(3000);
     }
   }
-  throw new Error('5次连接均失败');
+  throw new Error('所有策略均失败。请手动在开发者工具中点编译(Ctrl+B)后重试');
 }
 
 // ── 执行单个步骤 ──
