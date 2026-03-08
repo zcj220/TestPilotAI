@@ -522,13 +522,16 @@ def create_router(
 
     @router.post("/test/miniprogram-blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_miniprogram_blueprint_test(req: dict) -> TestReportResponse:
-        """小程序蓝本测试：通过微信开发者工具 + miniprogram-automator 执行。
+        """小程序蓝本测试：直接调用Node.js执行器（参照run_blind_test.js）。
 
+        不使用桥接服务器！Python把蓝本步骤写成JSON，Node.js一次性执行完返回结果。
         需要：微信开发者工具已安装、已开启服务端口。
         """
         from pathlib import Path
         from src.testing.blueprint import BlueprintParser
-        from src.controller.miniprogram import MiniProgramController, MiniProgramConfig
+        import subprocess as sp
+        import tempfile
+        import time
 
         blueprint_path = req.get("blueprint_path", "")
         project_path = req.get("project_path", "")
@@ -542,81 +545,120 @@ def create_router(
             blueprint = BlueprintParser.parse_file(str(bp_file))
             base_url = base_url_override or blueprint.base_url
 
-            # 从 base_url 推断项目路径（miniprogram://path 格式）
             if not project_path and base_url.startswith("miniprogram://"):
                 project_path = base_url.replace("miniprogram://", "")
-
             if not project_path:
                 project_path = str(bp_file.parent)
 
-            config = MiniProgramConfig(project_path=project_path)
-            controller = MiniProgramController(config)
+            # 收集蓝本中所有步骤
+            all_steps = []
+            for page in blueprint.pages:
+                for scenario in page.scenarios:
+                    for step in scenario.steps:
+                        all_steps.append({
+                            "action": step.action,
+                            "target": step.target or "",
+                            "value": step.value or "",
+                            "expected": step.expected or "",
+                            "description": step.description or step.action,
+                        })
 
-            # 简化执行：记录步骤结果
+            if not all_steps:
+                raise HTTPException(status_code=400, detail="蓝本中没有可执行步骤（pages.scenarios.steps为空）")
+
+            logger.info("小程序蓝本测试 | 项目:{} | 步骤数:{}", project_path, len(all_steps))
+
+            # 写入临时JSON文件
+            runner_input = {
+                "project_path": project_path,
+                "ws_port": 9420,
+                "steps": all_steps,
+            }
+            tmp_file = Path(tempfile.mktemp(suffix=".json", prefix="mp_steps_"))
+            tmp_file.write_text(json.dumps(runner_input, ensure_ascii=False), encoding="utf-8")
+
+            # 调用Node.js执行器（跟run_blind_test.js一样的逻辑）
+            runner_script = Path(__file__).parent.parent / "controller" / "miniprogram_runner.js"
+            if not runner_script.exists():
+                raise RuntimeError(f"执行器脚本不存在: {runner_script}")
+
+            logger.info("启动Node.js执行器: {}", runner_script.name)
+            start = time.time()
+
+            proc = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: sp.run(
+                    ["node", str(runner_script), str(tmp_file)],
+                    capture_output=True, timeout=120,
+                    encoding="utf-8", errors="replace",
+                )
+            )
+
+            # 清理临时文件
+            try:
+                tmp_file.unlink()
+            except Exception:
+                pass
+
+            duration = time.time() - start
+            logger.info("Node.js执行器完成 | 耗时:{:.1f}秒 | rc:{}", duration, proc.returncode)
+
+            # 解析结果
+            stdout = proc.stdout or ""
+            stderr = proc.stderr or ""
+
+            # 从stdout找JSON（最后一行）
+            result_data = None
+            for line in reversed(stdout.strip().split("\n")):
+                line = line.strip()
+                if line.startswith("{"):
+                    try:
+                        result_data = json.loads(line)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+
+            if not result_data:
+                logger.error("执行器无JSON输出:\nstdout:{}\nstderr:{}", stdout[-300:], stderr[-300:])
+                raise RuntimeError(f"执行器无有效输出。stderr: {stderr[-200:]}")
+
+            if not result_data.get("success"):
+                raise RuntimeError(f"执行器失败: {result_data.get('error', '未知错误')}")
+
+            # 转换为TestReport
             from src.testing.models import StepResult, TestReport, BugReport, ActionType, StepStatus, BugSeverity
-            import time
+            from datetime import datetime, timezone, timedelta
 
-            def _to_action_type(action_str: str) -> ActionType:
+            def _to_action(s: str) -> ActionType:
                 try:
-                    return ActionType(action_str)
+                    return ActionType(s)
                 except ValueError:
                     return ActionType.SCREENSHOT
 
-            start = time.time()
             steps_results = []
             bugs = []
-
-            await controller.launch()
-
-            for page in blueprint.pages:
-                for scenario in page.scenarios:
-                    for i, step in enumerate(scenario.steps):
-                        step_start = time.time()
-                        try:
-                            action = step.action
-                            if action == "navigate":
-                                await controller.navigate(step.value or "")
-                            elif action == "click":
-                                await controller.tap(step.target or "")
-                            elif action == "fill":
-                                await controller.input_text(step.target or "", step.value or "")
-                            elif action == "screenshot":
-                                await controller.screenshot()
-                            elif action == "assert_text":
-                                source = await controller.get_page_source()
-                                if step.expected and step.expected not in (source or ""):
-                                    raise AssertionError(f"预期文本未找到: {step.expected}")
-
-                            steps_results.append(StepResult(
-                                step=len(steps_results) + 1,
-                                action=_to_action_type(action),
-                                status=StepStatus.PASSED,
-                                description=step.description or action,
-                                duration_seconds=time.time() - step_start,
-                            ))
-                        except Exception as e:
-                            steps_results.append(StepResult(
-                                step=len(steps_results) + 1,
-                                action=_to_action_type(step.action),
-                                status=StepStatus.FAILED,
-                                description=step.description or step.action,
-                                error_message=str(e),
-                                duration_seconds=time.time() - step_start,
-                            ))
-                            bugs.append(BugReport(
-                                severity=BugSeverity.MEDIUM,
-                                title=f"步骤{len(steps_results)}失败: {step.action}",
-                                description=str(e),
-                            ))
-
-            await controller.close()
+            for r in result_data.get("results", []):
+                status = StepStatus.PASSED if r.get("status") == "passed" else StepStatus.FAILED
+                sr = StepResult(
+                    step=r.get("step", 0),
+                    action=_to_action(r.get("action", "screenshot")),
+                    status=status,
+                    description=r.get("description", ""),
+                    duration_seconds=r.get("duration", 0),
+                    error_message=r.get("error", ""),
+                )
+                steps_results.append(sr)
+                if status == StepStatus.FAILED:
+                    bugs.append(BugReport(
+                        severity=BugSeverity.MEDIUM,
+                        title=f"步骤{r.get('step')}失败: {r.get('action')}",
+                        description=r.get("error", ""),
+                    ))
 
             total = len(steps_results)
-            passed = sum(1 for s in steps_results if s.status == StepStatus.PASSED)
-            failed = total - passed
-            duration = time.time() - start
+            passed = result_data.get("passed", 0)
+            failed = result_data.get("failed", 0)
 
-            from datetime import datetime, timezone, timedelta
             end_time = datetime.now(timezone.utc)
             start_time = end_time - timedelta(seconds=duration)
 
