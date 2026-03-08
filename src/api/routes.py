@@ -654,6 +654,7 @@ def create_router(
                         severity=BugSeverity.MEDIUM,
                         title=f"步骤{r.get('step')}失败: {r.get('action')}",
                         description=r.get("error", ""),
+                        step_number=r.get("step"),
                     ))
 
             total = len(steps_results)
@@ -676,6 +677,8 @@ def create_router(
             )
 
             pass_rate = passed / total * 100 if total > 0 else 0
+
+            from src.api.models import StepDetail, BugDetail
             return TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
@@ -686,6 +689,27 @@ def create_router(
                 pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                steps=[
+                    StepDetail(
+                        step=r.step,
+                        action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                        description=r.description,
+                        status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                        duration_seconds=r.duration_seconds,
+                        error_message=r.error_message,
+                        screenshot_path=r.screenshot_path,
+                    )
+                    for r in steps_results
+                ],
+                bugs=[
+                    BugDetail(
+                        severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                        title=b.title,
+                        description=b.description,
+                        step_number=b.step_number,
+                    )
+                    for b in bugs
+                ],
             )
         except HTTPException:
             raise
