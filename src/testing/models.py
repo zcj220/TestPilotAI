@@ -36,6 +36,7 @@ class ActionType(str, Enum):
     READ_TEXT = "read_text"
     TAP_MULTIPLE = "tap_multiple"
     RESET_STATE = "reset_state"
+    PAGE_QUERY = "page_query"
 
 
 class StepStatus(str, Enum):

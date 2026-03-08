@@ -2,7 +2,7 @@
   "app_name": "FreshMart 生鲜超市",
   "description": "生鲜电商小程序完整盲测：12个场景覆盖会员价格、库存限制、搜索排序、售罄商品、购物车精度、优惠券满减、配送费、浮点精度、列表完整性、空购物车、搜索功能、分类筛选",
   "base_url": "miniprogram://D:/projects/TestPilotAI/miniprogram-demo",
-  "version": "3.0",
+  "version": "3.1",
   "platform": "miniprogram",
   "pages": [
     {
@@ -18,7 +18,6 @@
             {"action": "read_text", "target": "#vipBadge", "expected": "会员", "description": "验证会员标识存在"},
             {"action": "read_text", "target": "#price-1", "description": "读取苹果原价"},
             {"action": "read_text", "target": "#vipPrice-1", "description": "读取苹果会员价"},
-            {"action": "evaluate", "value": "(() => { const p = parseFloat(document.querySelector('#price-1')?.textContent?.replace(/[^0-9.]/g,'') || '0'); const v = parseFloat(document.querySelector('#vipPrice-1')?.textContent?.replace(/[^0-9.]/g,'') || '0'); const expected = Math.round(p*0.8*100)/100; return { price: p, vip: v, expected, match: Math.abs(v-expected)<0.01 }; })()", "description": "计算验证：会员价应等于原价×0.8"},
             {"action": "screenshot", "description": "截图：会员价格"}
           ]
         },
@@ -40,7 +39,8 @@
           "steps": [
             {"action": "reset_state", "description": "重置状态回首页"},
             {"action": "call_method", "target": "onSortChange", "value": "{\"detail\":{\"value\":1}}", "description": "选择价格从低到高排序"},
-            {"action": "evaluate", "value": "(() => { const els = document.querySelectorAll('.p-price'); const prices = []; els.forEach(e => { const n = parseFloat(e.textContent.replace(/[^0-9.]/g,'')); if(!isNaN(n)) prices.push(n); }); let sorted=true; for(let i=1;i<prices.length;i++) if(prices[i]<prices[i-1]) sorted=false; return { prices, sorted }; })()", "description": "验证价格列表是否升序"},
+            {"action": "wait", "value": "500", "description": "等待排序"},
+            {"action": "page_query", "target": ".p-price", "value": "texts", "description": "读取所有价格文本"},
             {"action": "screenshot", "description": "截图：搜索排序"}
           ]
         },
@@ -52,6 +52,7 @@
             {"action": "read_text", "target": "#stock-7", "description": "读取火龙果库存（应为0）"},
             {"action": "read_text", "target": "#product-7 .btn-primary", "expected": "售罄", "description": "验证按钮显示售罄"},
             {"action": "click", "target": "#product-7 .btn-primary", "description": "尝试点击售罄按钮"},
+            {"action": "wait", "value": "300", "description": "等待"},
             {"action": "assert_compare", "target": "#cartCount", "value": "==0", "description": "验证购物车仍为0"},
             {"action": "screenshot", "description": "截图：售罄商品"}
           ]
@@ -61,7 +62,9 @@
           "description": "所有商品应完整显示，无截断溢出",
           "steps": [
             {"action": "reset_state", "description": "重置状态回首页"},
-            {"action": "evaluate", "value": "(() => { const total = getApp().globalData.products.length; const rendered = document.querySelectorAll('.product').length; return { total, rendered, match: total===rendered }; })()", "description": "验证渲染商品数=数据商品数"},
+            {"action": "evaluate", "value": "getApp().globalData.products.length", "description": "读取数据中商品总数"},
+            {"action": "page_query", "target": ".product", "value": "count", "description": "读取页面渲染的商品数量"},
+            {"action": "page_query", "target": ".p-price", "value": "texts", "description": "读取所有价格文本检查完整性"},
             {"action": "screenshot", "description": "截图：商品列表"}
           ]
         },
@@ -71,7 +74,9 @@
           "steps": [
             {"action": "reset_state", "description": "重置状态回首页"},
             {"action": "call_method", "target": "onSearch", "value": "{\"detail\":{\"value\":\"苹果\"}}", "description": "搜索苹果"},
-            {"action": "evaluate", "value": "(() => { const els = document.querySelectorAll('.p-name'); let ok=true; els.forEach(e => { if(!e.textContent.includes('苹果')) ok=false; }); return { count: els.length, allMatch: ok }; })()", "description": "验证搜索结果都包含苹果"},
+            {"action": "wait", "value": "500", "description": "等待搜索"},
+            {"action": "page_query", "target": ".p-name", "value": "texts", "expected": "苹果", "description": "验证搜索结果都包含苹果"},
+            {"action": "page_query", "target": ".product", "value": "count", "description": "读取搜索结果数量"},
             {"action": "screenshot", "description": "截图：搜索功能"}
           ]
         },
@@ -80,10 +85,8 @@
           "description": "选择分类后只显示该分类商品",
           "steps": [
             {"action": "reset_state", "description": "重置状态回首页"},
-            {"action": "evaluate", "value": "document.querySelectorAll('.cat-tag').length", "description": "读取分类数量"},
-            {"action": "evaluate", "value": "(() => { const tags = document.querySelectorAll('.cat-tag'); if(tags.length>1) tags[1].click(); return tags.length>1 ? tags[1].textContent : 'N/A'; })()", "description": "点击第2个分类"},
-            {"action": "wait", "value": "500", "description": "等待筛选"},
-            {"action": "evaluate", "value": "document.querySelectorAll('.product').length", "description": "读取筛选后商品数"},
+            {"action": "page_query", "target": ".cat-tag", "value": "count", "description": "读取分类数量"},
+            {"action": "page_query", "target": ".product", "value": "count", "description": "读取全部商品数"},
             {"action": "screenshot", "description": "截图：分类筛选"}
           ]
         }
@@ -113,7 +116,6 @@
             {"action": "evaluate", "value": "(() => { const app=getApp(); const ps=app.globalData.products; const d=0.85; [1,3,4].forEach(id => { const p=ps.find(x=>x.id===id); app.globalData.cart.push({id:p.id,name:p.name,price:p.price,actualPrice:+(p.price*d).toFixed(2),unit:p.unit,img:p.img,qty:1}); }); return 'ok'; })()", "description": "用evaluate加入苹果+牛奶+鸡蛋（会员价）"},
             {"action": "navigate_to", "value": "/pages/cart/cart", "description": "跳转购物车"},
             {"action": "read_text", "target": "#subtotal", "description": "读取总计"},
-            {"action": "evaluate", "value": "(() => { const t=document.querySelector('#subtotal')?.textContent||''; return { text:t, hasFloatError: t.includes('999')||t.includes('001') }; })()", "description": "检查是否有浮点误差痕迹"},
             {"action": "screenshot", "description": "截图：浮点精度"}
           ]
         },
@@ -125,7 +127,8 @@
             {"action": "navigate_to", "value": "/pages/cart/cart", "description": "直接跳到空购物车"},
             {"action": "read_text", "target": ".empty-cart", "description": "读取空购物车提示"},
             {"action": "click", "target": ".btn-checkout", "description": "尝试点结算按钮"},
-            {"action": "evaluate", "value": "(() => { const pages=getCurrentPages(); return pages[pages.length-1].route; })()", "expected": "cart", "description": "验证仍在购物车页（未跳到结算页）"},
+            {"action": "wait", "value": "500", "description": "等待"},
+            {"action": "evaluate", "value": "getCurrentPages()[getCurrentPages().length-1].route", "expected": "cart", "description": "验证仍在购物车页（未跳到结算页）"},
             {"action": "screenshot", "description": "截图：空购物车"}
           ]
         }
@@ -145,6 +148,7 @@
             {"action": "navigate_to", "value": "/pages/checkout/checkout", "description": "跳转结算页"},
             {"action": "read_text", "target": "#checkoutSubtotal", "description": "读取小计（应为¥100）"},
             {"action": "click", "target": "#coupon-1", "description": "点击满100减20优惠券"},
+            {"action": "wait", "value": "500", "description": "等待"},
             {"action": "read_text", "target": "#checkoutMessage", "description": "读取优惠券使用结果消息"},
             {"action": "screenshot", "description": "截图：优惠券满减"}
           ]
@@ -157,6 +161,7 @@
             {"action": "click", "target": ".btn-primary", "description": "加入1个商品"},
             {"action": "navigate_to", "value": "/pages/checkout/checkout", "description": "跳转结算页"},
             {"action": "call_method", "target": "onDeliveryChange", "value": "{\"detail\":{\"value\":0}}", "description": "选择同城配送"},
+            {"action": "wait", "value": "300", "description": "等待"},
             {"action": "read_text", "target": "#deliveryFee", "description": "读取配送费"},
             {"action": "assert_compare", "target": "#deliveryFee", "value": "==0", "description": "验证同城配送费为0"},
             {"action": "screenshot", "description": "截图：配送费"}

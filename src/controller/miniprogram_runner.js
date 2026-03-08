@@ -177,11 +177,10 @@ async function executeStep(step, stepNum) {
         break;
       }
       case 'evaluate': {
-        // 通用JS执行：蓝本里写evaluate表达式，执行器执行
-        // value里是JS代码，可以访问 getApp()、wx.xxx 等
+        // 小程序端执行：value里的JS在小程序环境运行，能访问 getApp()、wx.xxx
+        // 注意：没有document对象！用getApp().globalData等
         const code = step.value || '';
         const evalResult = await mp.evaluate(code);
-        // 如果有expected，对比返回值
         if (step.expected !== undefined && step.expected !== '') {
           const actual = JSON.stringify(evalResult);
           const expect = String(step.expected);
@@ -191,6 +190,32 @@ async function executeStep(step, stepNum) {
         }
         await sleep(parseInt(step.wait_ms) || 500);
         return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: evalResult };
+      }
+      case 'page_query': {
+        // Node端执行：用page.$和page.$$查询元素并做验证
+        // target=选择器，value=要做的操作（text/count/texts）
+        const selector = step.target || '';
+        const op = step.value || 'text';
+        let result;
+        if (op === 'count') {
+          const els = await page.$$(selector);
+          result = els.length;
+        } else if (op === 'texts') {
+          const els = await page.$$(selector);
+          const texts = [];
+          for (const el of els) { texts.push(await el.text()); }
+          result = texts;
+        } else {
+          const el = await page.$(selector);
+          result = el ? await el.text() : '';
+        }
+        if (step.expected !== undefined && step.expected !== '') {
+          const actual = JSON.stringify(result);
+          if (!actual.includes(String(step.expected))) {
+            throw new Error(`查询断言失败: "${selector}"的${op}="${actual}"不包含"${step.expected}"`);
+          }
+        }
+        return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: result };
       }
       case 'call_method': {
         // 调用页面方法：target=方法名，value=JSON参数
@@ -202,10 +227,14 @@ async function executeStep(step, stepNum) {
         break;
       }
       case 'read_text': {
-        // 读取元素文本，存入结果data字段
-        const el = await page.$(step.target);
-        const text = el ? await el.text() : '';
-        // 如果有expected，做断言
+        // 读取元素文本（带重试），存入结果data字段
+        let text = '';
+        for (let r = 0; r < 3; r++) {
+          const el = await page.$(step.target);
+          text = el ? await el.text() : '';
+          if (text) break;
+          if (r < 2) await sleep(1000);
+        }
         if (step.expected !== undefined && step.expected !== '') {
           if (!text.includes(step.expected)) {
             throw new Error(`文本断言失败: "${step.target}"的文本"${text}"不包含"${step.expected}"`);
