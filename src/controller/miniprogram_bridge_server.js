@@ -1,21 +1,36 @@
 /**
- * 微信小程序自动化桥接服务器（v8.1 - 长连接模式）
+ * 微信小程序自动化桥接服务器（v9.0 - 自包含模式）
  *
- * 启动 HTTP 服务器，保持与微信开发者工具的 WebSocket 连接。
- * Python 通过 HTTP 请求发送命令，避免每次操作都重新连接。
+ * 参照 run_blind_test.js 成功经验，启动时自己执行：
+ *   cli close → cli open → cli auto --auto-port 9420 → automator.connect()
+ * 然后启动 HTTP 服务器供 Python 调用。
  *
- * 用法：node miniprogram_bridge_server.js <wsPort> [httpPort]
- *   wsPort:   微信开发者工具的 WebSocket 端口（如 60427）
- *   httpPort: HTTP 服务器端口（默认 9421）
+ * 用法：node miniprogram_bridge_server.js <projectPath> [wsPort] [httpPort]
+ *   projectPath: 小程序项目绝对路径
+ *   wsPort:      自动化WebSocket端口（默认9420）
+ *   httpPort:    HTTP服务器端口（默认9421）
  *
  * 依赖：npm install miniprogram-automator
  */
 
 const http = require('http');
 const path = require('path');
+const { execSync } = require('child_process');
 
-const WS_PORT = parseInt(process.argv[2] || '9420');
-const HTTP_PORT = parseInt(process.argv[3] || '9421');
+const PROJECT_PATH = process.argv[2] || '';
+const WS_PORT = parseInt(process.argv[3] || '9420');
+const HTTP_PORT = parseInt(process.argv[4] || '9421');
+
+// 自动检测CLI路径
+const CLI_CANDIDATES = [
+  'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat',
+  'C:\\Program Files\\Tencent\\微信web开发者工具\\cli.bat',
+];
+let CLI_PATH = '';
+const fs = require('fs');
+for (const c of CLI_CANDIDATES) {
+  if (fs.existsSync(c)) { CLI_PATH = c; break; }
+}
 
 let automator, miniProgram, currentPage;
 let connected = false;
@@ -224,13 +239,67 @@ const server = http.createServer(async (req, res) => {
   });
 });
 
+// ═══ 参照 run_blind_test.js 的启动流程 ═══
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function runCli(cmd) {
+  try {
+    const r = execSync(`"${CLI_PATH}" ${cmd}`, { timeout: 15000, encoding: 'utf8', stdio: 'pipe' });
+    console.log(`[CLI] ${cmd.split(' ')[0]} 完成`);
+    return r;
+  } catch (e) {
+    console.log(`[CLI] ${cmd.split(' ')[0]} 失败（可忽略）: ${(e.message || '').substring(0, 80)}`);
+    return '';
+  }
+}
+
+async function initAndConnect() {
+  if (!CLI_PATH) {
+    console.error('[ERR] 未找到微信开发者工具CLI');
+    return;
+  }
+  if (!PROJECT_PATH) {
+    console.log('[WARN] 未指定项目路径，跳过自动启动，等待手动connect');
+    return;
+  }
+
+  console.log(`[INIT] 项目: ${PROJECT_PATH}`);
+  console.log(`[INIT] CLI: ${CLI_PATH}`);
+  console.log(`[INIT] 端口: ${WS_PORT}`);
+
+  // 跟 run_blind_test.js 一模一样的流程
+  console.log('[1/4] cli close...');
+  runCli(`close --project "${PROJECT_PATH}"`);
+  await sleep(3000);
+
+  console.log('[2/4] cli open...');
+  runCli(`open --project "${PROJECT_PATH}"`);
+  await sleep(5000);
+
+  console.log('[3/4] cli auto --auto-port ' + WS_PORT + '...');
+  runCli(`auto --project "${PROJECT_PATH}" --auto-port ${WS_PORT}`);
+  await sleep(3000);
+
+  // 跟 run_blind_test.js 一样：重试连接
+  console.log('[4/4] 连接automator...');
+  for (let i = 0; i < 5; i++) {
+    const ok = await ensureConnected();
+    if (ok) {
+      console.log(`[OK] 连接成功（第${i + 1}次）`);
+      return;
+    }
+    console.log(`[RETRY] 第${i + 1}次失败，等3秒...`);
+    await sleep(3000);
+  }
+  console.error('[FAIL] 5次连接均失败，等待手动connect');
+}
+
 server.listen(HTTP_PORT, '127.0.0.1', () => {
   console.log('========================================');
-  console.log('  小程序自动化桥接服务器 v8.3');
+  console.log('  小程序自动化桥接服务器 v9.0');
   console.log(`  HTTP 端口: ${HTTP_PORT}`);
   console.log(`  WebSocket 端口: ${WS_PORT}`);
   console.log('========================================');
-  console.log('[READY] HTTP服务器已启动，等待connect命令...');
-  // 不在启动时自动连接！由Python端通过POST connect命令主动触发
-  // 这样HTTP服务器能立即响应Python的健康检查
+  // 启动后自动执行 close→open→auto→connect
+  initAndConnect().catch(e => console.error('[ERR] 初始化失败:', e.message));
 });
