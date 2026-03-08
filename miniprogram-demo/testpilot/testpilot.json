@@ -121,14 +121,13 @@
         },
         {
           "name": "场景10：空购物车结算验证",
-          "description": "购物车为空时不应允许结算",
+          "description": "购物车为空时不应显示结算按钮，应显示空购物车提示",
           "steps": [
             {"action": "reset_state", "description": "重置状态回首页"},
             {"action": "navigate_to", "value": "/pages/cart/cart", "description": "直接跳到空购物车"},
-            {"action": "read_text", "target": ".empty-cart", "description": "读取空购物车提示"},
-            {"action": "click", "target": ".btn-checkout", "description": "尝试点结算按钮"},
-            {"action": "wait", "value": "500", "description": "等待"},
-            {"action": "evaluate", "value": "getCurrentPages()[getCurrentPages().length-1].route", "expected": "cart", "description": "验证仍在购物车页（未跳到结算页）"},
+            {"action": "read_text", "target": ".empty-text", "expected": "空", "description": "验证显示空购物车提示"},
+            {"action": "page_query", "target": ".btn-checkout", "value": "count", "expected": "0", "description": "验证结算按钮不存在（空购物车不应有结算入口）"},
+            {"action": "read_text", "target": ".btn-back", "expected": "去购物", "description": "验证显示去购物按钮"},
             {"action": "screenshot", "description": "截图：空购物车"}
           ]
         }
