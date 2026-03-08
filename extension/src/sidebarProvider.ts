@@ -784,8 +784,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     <button class="btn-secondary hidden" id="btnCheckEngine">检查连接</button>
     <!-- 设备状态提示（仅Android/iOS项目显示） -->
     <div id="deviceStatusRow" class="hidden" style="background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
-      <div id="deviceStatusLine" style="display:flex;align-items:center;gap:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span id="deviceStatusIcon">📱</span> <span id="deviceStatusText" style="color:var(--muted)">检测中...</span></div>
-      <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 0;margin-top:4px;width:100%">检测设备</button>
+      <div style="display:flex;align-items:flex-start;gap:4px;margin-bottom:4px">
+        <span id="deviceStatusIcon" style="flex-shrink:0;line-height:1.4">📱</span>
+        <span id="deviceStatusText" style="color:var(--muted);word-break:break-word;line-height:1.4">检测中...</span>
+      </div>
+      <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 6px;width:100%">检测设备</button>
     </div>
     <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
     <button id="btnStopEngine" class="hidden" style="background:#ef4444;margin-top:6px">⏹ 断开引擎</button>
