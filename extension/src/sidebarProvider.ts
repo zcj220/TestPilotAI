@@ -781,6 +781,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       </select>
       <button id="btnRefreshProjects" class="btn-secondary" style="width:28px;min-width:28px;margin:0;padding:3px;font-size:13px" title="刷新项目列表">🔄</button>
     </div>
+    <button class="btn-secondary" id="btnCheckEngine">检查连接</button>
     <!-- 设备状态提示（仅Android/iOS项目显示） -->
     <div id="deviceStatusRow" class="hidden" style="background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
       <div style="display:flex;align-items:center;gap:6px">
