@@ -123,12 +123,14 @@ class AndroidController(BaseController):
             raise RuntimeError(f"Appium请求失败: {e.code} {error_body[:200]}")
         except urllib.error.URLError as e:
             raise RuntimeError(f"无法连接Appium Server ({self._config.appium_url}): {e}")
+        except (TimeoutError, OSError) as e:
+            raise RuntimeError(f"Appium请求超时: {e}")
 
-    def _session_request(self, method: str, path: str, body: Optional[dict] = None) -> dict:
+    def _session_request(self, method: str, path: str, body: Optional[dict] = None, timeout: int = 0) -> dict:
         """发送带 session ID 的请求。"""
         if not self._session_id:
             raise RuntimeError("Appium session 未创建，请先调用 launch()")
-        return self._request(method, f"/session/{self._session_id}{path}", body)
+        return self._request(method, f"/session/{self._session_id}{path}", body, timeout=timeout)
 
     # ── BaseController 实现 ──────────────────────
 
@@ -182,6 +184,20 @@ class AndroidController(BaseController):
         logger.info("Appium Session 创建成功 | ID={} | 设备={}",
                      self._session_id[:8], self._device.name)
 
+        # 关键：将 waitForIdleTimeout 设为极短值
+        # Flutter 的动画循环导致设备永远不"空闲"，UiAutomator2 的
+        # waitForIdle 会卡死。设为 0 后 accessibility_id 策略不再 hang。
+        try:
+            await loop.run_in_executor(
+                None, lambda: self._session_request(
+                    "POST", "/appium/settings",
+                    {"settings": {"waitForIdleTimeout": 0, "waitForSelectorTimeout": 0}},
+                )
+            )
+            logger.info("UiAutomator2 waitForIdle 已禁用（Flutter兼容）")
+        except Exception as e:
+            logger.warning("设置waitForIdleTimeout失败（非致命）: {}", e)
+
         # 启动厂商弹窗自动dismiss
         if self._auto_dismiss:
             registry = VendorDialogRegistry()
@@ -193,6 +209,22 @@ class AndroidController(BaseController):
             self._dialog_dismisser.start()
             logger.info("厂商弹窗自动dismiss已启动 | 制造商={} | 厂商={}",
                         manufacturer, vendor.value if vendor else "generic")
+
+        # 用adb确保APP在前台（Appium noReset模式下APP可能不在前台）
+        if self._config.app_package and self._config.app_activity:
+            component = f"{self._config.app_package}/{self._config.app_activity}"
+            try:
+                loop2 = asyncio.get_event_loop()
+                await loop2.run_in_executor(
+                    None, lambda: subprocess.run(
+                        ["adb", "shell", "am", "start", "-n", component],
+                        capture_output=True, timeout=10,
+                    )
+                )
+                logger.info("APP已通过adb拉到前台 | {}", component)
+                await asyncio.sleep(3)  # 等待Flutter渲染
+            except Exception as e:
+                logger.warning("adb启动APP失败（非致命）: {}", e)
 
         # 启动 logcat 后台收集
         try:
@@ -252,8 +284,11 @@ class AndroidController(BaseController):
                 None, lambda: self._session_request("POST", "/url", {"url": url_or_activity})
             )
         else:
-            # 启动指定Activity
-            logger.info("[步骤{}] 启动Activity: {}", step, url_or_activity)
+            # 重启 app 并重建 Appium Session
+            # 原因：Flutter app 被 terminate 后，UiAutomator2 Server 内部线程
+            #       会死锁（所有HTTP请求hang住），只有销毁并重建 Session
+            #       才能获得全新的 UiAutomator2 Server 实例
+            logger.info("[步骤{}] 启动Activity（重建Session）: {}", step, url_or_activity)
             parts = url_or_activity.split("/")
             if len(parts) == 2:
                 pkg, activity = parts[0], parts[1]
@@ -261,20 +296,112 @@ class AndroidController(BaseController):
                 pkg = self._config.app_package
                 activity = url_or_activity
 
+            component = f"{pkg}/{activity}"
             loop = asyncio.get_event_loop()
-            await loop.run_in_executor(
-                None, lambda: self._session_request("POST", "/appium/device/start_activity", {
-                    "appPackage": pkg,
-                    "appActivity": activity,
-                })
+            await self._rebuild_session_and_launch(loop, pkg, component)
+
+    async def _rebuild_session_and_launch(
+        self, loop: asyncio.AbstractEventLoop, pkg: str, component: str
+    ) -> None:
+        """销毁旧 Session 并创建全新 Session，然后启动 app。
+
+        解决 Flutter app 重启后 UiAutomator2 Server 死锁的问题。
+        """
+        # 1. adb force-stop 杀掉 app
+        await loop.run_in_executor(
+            None, lambda: subprocess.run(
+                ["adb", "shell", "am", "force-stop", pkg],
+                capture_output=True, timeout=10,
             )
+        )
+
+        # 2. 尝试删除旧 Session（短超时，失败也继续）
+        old_sid = self._session_id
+        if old_sid:
+            self._session_id = None
+            try:
+                await loop.run_in_executor(
+                    None, lambda: self._request(
+                        "DELETE", f"/session/{old_sid}", timeout=3)
+                )
+                logger.debug("旧Session已删除: {}", old_sid[:8])
+            except Exception as e:
+                logger.warning("删除旧Session超时（用adb清理）: {}", e)
+
+        # 3. 用 adb 强杀设备上的 UiAutomator2 Server 进程
+        #    DELETE /session 可能超时（旧Server死锁），导致旧Server还在运行
+        #    新Session会复用死锁的Server，所以必须手动杀掉
+        def _kill_uia2():
+            subprocess.run(
+                ["adb", "shell", "am", "force-stop",
+                 "io.appium.uiautomator2.server"],
+                capture_output=True, timeout=5,
+            )
+            subprocess.run(
+                ["adb", "shell", "am", "force-stop",
+                 "io.appium.uiautomator2.server.test"],
+                capture_output=True, timeout=5,
+            )
+
+        await loop.run_in_executor(None, _kill_uia2)
+        logger.info("UiAutomator2 Server 旧进程已清理")
+        await asyncio.sleep(1)  # 等待进程完全终止
+
+        # 4. 创建全新 Session（全新 UiAutomator2 Server 实例）
+        capabilities = {
+            "platformName": self._config.platform_name,
+            "appium:automationName": self._config.automation_name,
+            "appium:noReset": self._config.no_reset,
+            "appium:newCommandTimeout": 300,
+            "appium:autoGrantPermissions": True,
+        }
+        if self._config.device_name:
+            capabilities["appium:deviceName"] = self._config.device_name
+        if self._config.app_package:
+            capabilities["appium:appPackage"] = self._config.app_package
+        if self._config.app_activity:
+            capabilities["appium:appActivity"] = self._config.app_activity
+
+        body = {"capabilities": {"alwaysMatch": capabilities}}
+        resp = await loop.run_in_executor(
+            None, lambda: self._request("POST", "/session", body)
+        )
+        self._session_id = resp.get("value", {}).get("sessionId")
+        if not self._session_id:
+            raise RuntimeError(f"Session重建失败: {resp}")
+        logger.info("Session重建成功 | ID={}", self._session_id[:8])
+
+        # 5. 设置 waitForIdleTimeout=0（Flutter 动画循环兼容）
+        try:
+            await loop.run_in_executor(
+                None, lambda: self._session_request(
+                    "POST", "/appium/settings",
+                    {"settings": {
+                        "waitForIdleTimeout": 0,
+                        "waitForSelectorTimeout": 0,
+                    }},
+                )
+            )
+        except Exception as e:
+            logger.warning("设置waitForIdleTimeout失败: {}", e)
+
+        # 6. 确保 APP 在前台
+        await loop.run_in_executor(
+            None, lambda: subprocess.run(
+                ["adb", "shell", "am", "start", "-n", component],
+                capture_output=True, timeout=10,
+            )
+        )
+
+        # 7. 等待 Flutter 引擎重新初始化 + 渲染
+        await asyncio.sleep(3)
 
     async def tap(self, selector: str) -> None:
         """点击元素。"""
         step = self._next_step()
         logger.info("[步骤{}] 点击: {}", step, selector)
 
-        element_id = await self._find_element(selector)
+        element_id = await self._find_element_with_wait(selector, timeout_s=15)
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
             None, lambda: self._session_request("POST", f"/element/{element_id}/click")
@@ -286,7 +413,7 @@ class AndroidController(BaseController):
         display = text[:15] + "..." if len(text) > 15 else text
         logger.info("[步骤{}] 输入: {} -> '{}'", step, selector, display)
 
-        element_id = await self._find_element(selector)
+        element_id = await self._find_element_with_wait(selector, timeout_s=15)
         # 先清空
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
@@ -299,16 +426,21 @@ class AndroidController(BaseController):
         )
         # 输入完毕后收起键盘，避免软键盘遮挡下一个元素
         await self.hide_keyboard()
+        # 等待键盘收起动画完成，否则下一个元素可能还被遮挡
+        await asyncio.sleep(0.5)
 
     async def hide_keyboard(self) -> None:
-        """收起软键盘（忽略失败，键盘本来就没弹出也不报错）。"""
+        """收起软键盘（用 adb ESCAPE 键，比 Appium API 更可靠）。"""
         loop = asyncio.get_event_loop()
         try:
             await loop.run_in_executor(
-                None, lambda: self._session_request("POST", "/appium/device/hide_keyboard")
+                None, lambda: subprocess.run(
+                    ["adb", "shell", "input", "keyevent", "111"],
+                    capture_output=True, timeout=5,
+                )
             )
         except Exception:
-            pass  # 键盘未显示时 Appium 会报错，直接忽略
+            pass
 
     async def screenshot(self, name: str = "") -> Path:
         """截取手机屏幕。
@@ -634,7 +766,7 @@ class AndroidController(BaseController):
             try:
                 await self._find_element(selector)
                 return
-            except RuntimeError:
+            except Exception:
                 await asyncio.sleep(0.5)
         raise RuntimeError(f"等待元素超时: {selector}")
 
@@ -733,6 +865,28 @@ class AndroidController(BaseController):
 
     # ── 内部方法 ─────────────────────────────────
 
+    async def _find_element_with_wait(self, selector: str, timeout_s: float = 10) -> str:
+        """带重试的元素查找，等待元素出现后返回element ID。
+
+        Flutter等框架渲染或键盘收起后UI树可能需要几秒才就绪，
+        此方法每0.5秒轮询一次直到找到或超时。
+        """
+        import time as _time
+        start = _time.time()
+        last_err: Exception | None = None
+        while True:
+            try:
+                return await self._find_element(selector)
+            except RuntimeError as e:
+                err_str = str(e)
+                # UiAutomator2崩溃则直接抛出，不重试
+                if "instrumentation process is not running" in err_str or "500" in err_str[:20]:
+                    raise
+                last_err = e
+                if _time.time() - start >= timeout_s:
+                    raise
+                await asyncio.sleep(0.5)
+
     async def _find_element(self, selector: str) -> str:
         """查找元素，返回 element ID。
 
@@ -750,7 +904,11 @@ class AndroidController(BaseController):
         elif selector.startswith("id:"):
             strategy, value = "id", selector[3:]
         elif selector.startswith("accessibility_id:"):
-            strategy, value = "accessibility id", selector[17:]
+            # 转为 UiSelector.description() — 避免 accessibility id 策略内部的
+            # waitForIdle() 调用，在 Flutter 等持续动画的 app 上会卡死
+            desc_value = selector[17:]
+            strategy = "-android uiautomator"
+            value = f'new UiSelector().description("{desc_value}")'
         elif selector.startswith("class:"):
             strategy, value = "class name", selector[6:]
         elif selector.startswith("uia:"):
@@ -770,7 +928,7 @@ class AndroidController(BaseController):
             None, lambda: self._session_request("POST", "/element", {
                 "using": strategy,
                 "value": value,
-            })
+            }, timeout=5)
         )
 
         element = resp.get("value", {})

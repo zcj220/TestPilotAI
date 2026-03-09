@@ -306,13 +306,24 @@ class DialogDismisser:
 
     async def _loop(self) -> None:
         """周期性检查并dismiss弹窗的主循环。"""
+        consecutive_errors = 0
         while self._running:
             try:
                 await self._check_and_dismiss()
+                consecutive_errors = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug("弹窗检测出错(忽略): {}", e)
+                err_str = str(e)
+                if "instrumentation process is not running" in err_str or "500" in err_str[:10]:
+                    consecutive_errors += 1
+                    if consecutive_errors >= 3:
+                        logger.warning("UiAutomator2已崩溃，弹窗dismiss自动停止")
+                        self._running = False
+                        break
+                else:
+                    logger.debug("弹窗检测出错(忽略): {}", e)
+                    consecutive_errors = 0
             await asyncio.sleep(self._check_interval)
 
     async def _check_and_dismiss(self) -> None:
@@ -358,9 +369,12 @@ class DialogDismisser:
                 await asyncio.sleep(0.5)
                 return  # 每轮只处理一个，避免误操作
 
-            except RuntimeError:
-                # 元素未找到 = 该弹窗没出现，继续检查下一个
-                continue
+            except RuntimeError as e:
+                # 区分"元素未找到"和"UiAutomator2崩溃"
+                err_str = str(e)
+                if "instrumentation process is not running" in err_str or "500" in err_str[:20]:
+                    raise  # 崩溃错误向上传播，让_loop()的计数器生效
+                continue  # 正常的元素未找到，继续检查下一个
 
     async def dismiss_once(self) -> Optional[str]:
         """手动执行一次弹窗检测+dismiss。

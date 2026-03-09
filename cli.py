@@ -567,14 +567,14 @@ def _print_report(report: dict, duration: float) -> None:
     failed = report.get("failed_steps", 0)
     bugs = report.get("bug_count", 0)
 
-    # 状态图标
-    icon = "✅" if pass_rate >= 1.0 else "⚠️" if pass_rate >= 0.8 else "❌"
+    # 状态图标（pass_rate 已是百分比，如 66.7）
+    icon = "✅" if pass_rate >= 100.0 else "⚠️" if pass_rate >= 80.0 else "❌"
 
     print("─" * 50)
     print(f"{icon} 测试完成")
     print(f"─" * 50)
     print(f"  测试名称: {report.get('test_name', '未知')}")
-    print(f"  通过率:   {pass_rate * 100:.0f}% ({passed}/{total})")
+    print(f"  通过率:   {pass_rate:.0f}% ({passed}/{total})")
     print(f"  失败步骤: {failed}")
     print(f"  发现Bug:  {bugs}")
     print(f"  耗时:     {duration:.1f}s")
@@ -584,16 +584,22 @@ def _print_report(report: dict, duration: float) -> None:
 
     print(f"─" * 50)
 
-    # 显示Bug列表
-    if bugs > 0 and report.get("report_markdown"):
+    # 显示步骤详情和Bug详情
+    if report.get("report_markdown"):
         lines = report["report_markdown"].split("\n")
-        in_bug_section = False
+        in_section = False
         for line in lines:
-            if "Bug" in line and "#" in line:
-                in_bug_section = True
-            elif in_bug_section and line.startswith("#"):
+            # 从"## 步骤详情"或"## 发现的Bug"开始打印
+            if line.startswith("## "):
+                in_section = True
+                print(f"\n  {line.strip()}")
+            elif line.startswith("# ") or line.startswith("- **"):
+                # 跳过一级标题和报告摘要行（已在上面打印）
+                continue
+            elif line.startswith("---"):
+                # 结尾分隔线后停止
                 break
-            elif in_bug_section and line.strip():
+            elif in_section and line.strip():
                 print(f"  {line.strip()}")
 
     print()

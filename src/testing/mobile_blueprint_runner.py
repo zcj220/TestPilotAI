@@ -80,6 +80,12 @@ class MobileBlueprintRunner:
                     blueprint.total_scenarios,
                     blueprint.total_steps)
 
+        # 测试开始前停止弹窗dismisser
+        # 避免dismisser与测试步骤抢占UiAutomator2（一次只能处理一个请求）
+        if hasattr(self._ctrl, '_dialog_dismisser') and self._ctrl._dialog_dismisser:
+            self._ctrl._dialog_dismisser.stop()
+            self._ctrl._dialog_dismisser = None
+
         for page_idx, page in enumerate(blueprint.pages):
             if page.url:
                 logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page.url)
@@ -100,6 +106,9 @@ class MobileBlueprintRunner:
                 for step_def in scenario.steps:
                     step_num += 1
                     desc = step_def.description or step_def.action
+
+                    # 同步控制器的步骤编号，避免日志中显示两套不同的步骤号
+                    self._ctrl._step_counter = step_num - 1
 
                     if self._on_step:
                         await self._on_step(step_num, "start", desc)
@@ -129,6 +138,10 @@ class MobileBlueprintRunner:
         report.error_steps = sum(1 for r in all_results if r.status == StepStatus.ERROR)
         report.end_time = datetime.now(timezone.utc)  # duration_seconds 是通过 end_time 计算的属性
         report.report_markdown = self._generate_markdown(blueprint, report, all_results, all_bugs)
+
+        # 测试结束后立即停止弹窗dismisser，避免无限刷错误日志
+        if hasattr(self._ctrl, '_dialog_dismisser') and self._ctrl._dialog_dismisser:
+            self._ctrl._dialog_dismisser.stop()
 
         logger.info("手机蓝本测试完成 | 通过={}/{} | Bug={}",
                     report.passed_steps, report.total_steps, len(all_bugs))
@@ -283,32 +296,60 @@ class MobileBlueprintRunner:
         """生成 Markdown 格式报告（与 Web 端格式一致）。"""
         pass_rate = (report.passed_steps / report.total_steps * 100) if report.total_steps else 0
         lines = [
-            f"# 手机蓝本测试报告",
-            f"",
-            f"- **应用**: {blueprint.app_name}",
-            f"- **设备**: {self._ctrl.device_info.name}",
-            f"- **通过率**: {pass_rate:.0f}%（{report.passed_steps}/{report.total_steps}）",
-            f"- **Bug数**: {len(bugs)}",
-            f"- **耗时**: {report.duration_seconds:.1f}s",
-            f"",
+            f"# 手机蓝本测试报告 - {blueprint.app_name}",
+            "",
+            f"- **测试模式**：蓝本模式（精确选择器）",
+            f"- **设备**：{self._ctrl.device_info.name}",
+            f"- **总步骤**：{report.total_steps}",
+            f"- **通过**：{report.passed_steps} | **失败**：{report.failed_steps} | **错误**：{report.error_steps}",
+            f"- **通过率**：{pass_rate:.0f}%",
+            f"- **耗时**：{report.duration_seconds:.1f}s",
+            "",
+            "## 步骤详情",
+            "| # | 操作 | 说明 | 结果 | 耗时 |",
+            "|---|------|------|------|------|",
         ]
 
+        status_emoji = {
+            StepStatus.PASSED: "✅",
+            StepStatus.FAILED: "❌",
+            StepStatus.ERROR: "⚠️",
+            StepStatus.SKIPPED: "⏭️",
+        }
+
+        for r in results:
+            emoji = status_emoji.get(r.status, "❓")
+            err = f" ({r.error_message[:60]}...)" if r.error_message else ""
+            lines.append(
+                f"| {r.step} | {r.action.value} | {r.description[:30]} | "
+                f"{emoji} {r.status.value}{err} | {r.duration_seconds:.1f}s |"
+            )
+
         if bugs:
-            lines.append(f"## ⚠️ 发现 {len(bugs)} 个Bug")
-            lines.append("")
+            lines.extend([
+                "",
+                "## 发现的Bug",
+                "| 严重度 | 标题 | 说明 |",
+                "|--------|------|------|",
+            ])
+            for bug in bugs:
+                lines.append(
+                    f"| {bug.severity.value} | {bug.title} | "
+                    f"{bug.description[:80]} |"
+                )
+            lines.extend(["", "### Bug详情", ""])
             for i, bug in enumerate(bugs, 1):
-                lines.append(f"### Bug {i}: {bug.title}")
-                lines.append(f"- **严重程度**: {bug.severity.value}")
-                lines.append(f"- **位置**: {bug.location}")
-                lines.append(f"- **描述**: {bug.description[:300]}")
+                lines.append(f"**Bug {i}: {bug.title}**")
+                lines.append(f"- 严重程度: {bug.severity.value}")
+                lines.append(f"- 位置: {bug.location}")
+                lines.append(f"- 描述: {bug.description}")
+                lines.append(f"- 复现步骤: {bug.reproduction}")
                 lines.append("")
 
-        lines.append("## 步骤详情")
-        lines.append("")
-        for r in results:
-            icon = "✅" if r.status == StepStatus.PASSED else ("❌" if r.status == StepStatus.FAILED else "⚠️")
-            lines.append(f"{icon} 步骤{r.step}: {r.description} ({r.duration_seconds:.2f}s)")
-            if r.error_message:
-                lines.append(f"   > {r.error_message[:120]}")
+        lines.extend([
+            "",
+            "---",
+            f"*报告由 TestPilot AI 蓝本模式生成*",
+        ])
 
         return "\n".join(lines)

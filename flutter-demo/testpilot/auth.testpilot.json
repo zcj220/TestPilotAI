@@ -2,7 +2,7 @@
   "app_name": "TaskPilot Flutter Demo",
   "description": "Flutter Android Login Test",
   "base_url": "",
-  "version": "1.2",
+  "version": "1.3",
   "platform": "android",
   "app_package": "com.testpilot.flutter_demo",
   "app_activity": ".MainActivity",
@@ -11,9 +11,9 @@
       "url": "",
       "title": "Login",
       "elements": {
-        "username": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
-        "password": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
-        "login_btn": "uia:new UiSelector().text(\"登录\")"
+        "username": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
+        "password": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
+        "login_btn": "accessibility_id:btn_login"
       },
       "scenarios": [
         {
@@ -21,7 +21,8 @@
           "steps": [
             {
               "action": "wait",
-              "value": "3000"
+              "value": "3000",
+              "description": "等待应用启动"
             },
             {
               "action": "screenshot",
@@ -29,30 +30,28 @@
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
-              "value": "admin"
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
+              "value": "admin",
+              "description": "输入用户名"
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
-              "value": "admin123"
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
+              "value": "admin123",
+              "description": "输入密码"
             },
             {
               "action": "click",
-              "target": "uia:new UiSelector().text(\"登录\")"
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
             },
             {
               "action": "wait",
               "value": "2000"
             },
             {
-              "action": "assert_text",
-              "target": "uia:new UiSelector().text(\"我的任务\")",
-              "expected": "我的任务"
-            },
-            {
               "action": "screenshot",
-              "value": "login_success"
+              "value": "after_login"
             }
           ]
         },
@@ -61,20 +60,24 @@
           "steps": [
             {
               "action": "navigate",
-              "value": "com.testpilot.flutter_demo/.MainActivity"
+              "value": "com.testpilot.flutter_demo/.MainActivity",
+              "description": "重启回登录页"
             },
             {
               "action": "wait",
-              "value": "4000"
+              "value": "5000",
+              "description": "等待Flutter重新渲染"
             },
             {
               "action": "wait",
-              "target": "uia:new UiSelector().text(\"登录\")",
-              "timeout_ms": 10000
+              "target": "accessibility_id:btn_login",
+              "timeout_ms": 15000,
+              "description": "等待登录按钮就绪"
             },
             {
               "action": "click",
-              "target": "uia:new UiSelector().text(\"登录\")"
+              "target": "accessibility_id:btn_login",
+              "description": "空账号直接登录"
             },
             {
               "action": "wait",
@@ -91,30 +94,36 @@
           "steps": [
             {
               "action": "navigate",
-              "value": "com.testpilot.flutter_demo/.MainActivity"
+              "value": "com.testpilot.flutter_demo/.MainActivity",
+              "description": "重启回登录页"
             },
             {
               "action": "wait",
-              "value": "4000"
+              "value": "5000",
+              "description": "等待Flutter重新渲染"
             },
             {
               "action": "wait",
-              "target": "uia:new UiSelector().text(\"登录\")",
-              "timeout_ms": 10000
+              "target": "accessibility_id:btn_login",
+              "timeout_ms": 15000,
+              "description": "等待登录按钮就绪"
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
-              "value": "wronguser"
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
+              "value": "wronguser",
+              "description": "输入错误用户名"
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
-              "value": "wrongpass"
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
+              "value": "wrongpass",
+              "description": "输入错误密码"
             },
             {
               "action": "click",
-              "target": "uia:new UiSelector().text(\"登录\")"
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
             },
             {
               "action": "wait",

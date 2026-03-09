@@ -817,88 +817,90 @@ ${commonRules}`;
     const { exec } = require("child_process") as typeof import("child_process");
     const run = (cmd: string): Promise<string> =>
       new Promise((resolve) => {
-        exec(cmd, { timeout: 8000 }, (_err, stdout) => resolve(stdout || ""));
+        exec(cmd, { timeout: 10000 }, (_err, stdout) => resolve(stdout || ""));
       });
     const http = require("http") as typeof import("http");
     const httpCheck = (url: string): Promise<boolean> =>
       new Promise((resolve) => {
-        const req = http.get(url, (res) => resolve(res.statusCode === 200));
+        const req = http.get(url, (res: import("http").IncomingMessage) => resolve(res.statusCode === 200));
         req.on("error", () => resolve(false));
         req.setTimeout(3000, () => { req.destroy(); resolve(false); });
       });
+    const fail = (message: string) => {
+      this._postMessage({ command: "connectDeviceResult", data: { ok: false, message } });
+    };
     try {
-      // 1. 检查手机是否安装 uiautomator2 server
-      const pkgList = await run("adb shell pm list packages");
+      // 1. 检查 adb 是否可用
+      const adbVersion = await run("adb version");
+      if (!adbVersion.includes("Android Debug Bridge")) {
+        fail("未检测到 ADB，请安装 Android SDK Platform-Tools 并添加到 PATH");
+        return;
+      }
+      // 2. 检查设备是否连接
+      const devicesOutput = await run("adb devices");
+      const deviceLines = devicesOutput.split("\n").filter((l) => l.includes("\tdevice"));
+      if (deviceLines.length === 0) {
+        fail("未检测到 Android 设备。请：\n1. USB连接手机\n2. 开启USB调试\n3. 手机弹窗点击'允许调试'");
+        return;
+      }
+      const serial = deviceLines[0].split("\t")[0];
+      const model = (await run(`adb -s ${serial} shell getprop ro.product.model`)).trim() || serial;
+      // 3. 检查手机是否安装 uiautomator2 server（Appium 自动化组件）
+      const pkgList = await run(`adb -s ${serial} shell pm list packages`);
       const hasUia2 = pkgList.includes("io.appium.uiautomator2.server");
       if (!hasUia2) {
-        this._postMessage({
-          command: "connectDeviceResult",
-          data: {
-            ok: false,
-            message: "手机未安装 Appium 组件，首次运行测试时会自动安装。也可先运行: appium driver install uiautomator2",
-          },
-        });
+        fail(`设备 ${model} 未安装 Appium 自动化组件（uiautomator2），首次测试时会自动安装。\n也可手动运行：appium driver install uiautomator2`);
         return;
       }
-      // 2. 检查 Appium server 是否运行
+      // 4. 检查 Appium server 是否运行
       const appiumOk = await httpCheck("http://127.0.0.1:4723/status");
       if (!appiumOk) {
-        this._postMessage({
-          command: "connectDeviceResult",
-          data: { ok: false, message: 'Appium 未运行，请先点击"启动引擎"按钮' },
-        });
+        fail(`设备 ${model} 就绪，但 Appium 未运行。\n请先在终端运行：appium\n或点击"启动引擎"按钮`);
         return;
       }
-      // 3. 全部就绪
-      const devices = await run("adb devices");
-      const deviceId = devices.split("\n")
-        .find((l) => l.includes("\tdevice"))?.split("\t")[0] || "已连接";
+      // 5. 检查引擎
+      const engineOk = await httpCheck("http://127.0.0.1:8900/health");
+      const engineNote = engineOk ? "引擎就绪" : "引擎未运行（请点击启动引擎）";
+      // 6. 全部就绪
       this._postMessage({
         command: "connectDeviceResult",
-        data: { ok: true, message: `握手成功 | 设备: ${deviceId} | Appium: 就绪` },
+        data: { ok: engineOk, message: `握手${engineOk ? "成功" : "部分完成"} | 设备: ${model} | Appium: 就绪 | ${engineNote}` },
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      this._postMessage({ command: "connectDeviceResult", data: { ok: false, message } });
+      fail(`握手异常: ${message}`);
     }
   }
 
   private async _handleCheckDeviceStatus(msg: { platform?: string }): Promise<void> {
     const platform = (msg.platform || "web").toLowerCase();
+    if (platform !== "android" && platform !== "ios") { return; }
+    const { exec } = require("child_process") as typeof import("child_process");
+    const run = (cmd: string): Promise<string> =>
+      new Promise((resolve) => {
+        exec(cmd, { timeout: 8000 }, (_err, stdout) => resolve(stdout || ""));
+      });
     try {
-      if (platform === "android" || platform === "ios") {
-        const devices = await this._client.listMobileDevices();
-        if ((devices.count || 0) === 0) {
-          this._postMessage({
-            command: "deviceStatusResult",
-            data: {
-              connected: false,
-              message: "未检测到设备，请连接手机并开启USB调试",
-              deviceName: "",
-            },
-          });
-          return;
-        }
-        const first = devices.devices?.[0] || {};
-        const deviceName = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "未知设备");
+      const output = await run("adb devices");
+      const lines = output.split("\n").filter((l) => l.includes("\tdevice"));
+      if (lines.length === 0) {
         this._postMessage({
           command: "deviceStatusResult",
-          data: {
-            connected: true,
-            message: `设备已连接：${deviceName}`,
-            deviceName,
-          },
+          data: { connected: false, message: "未检测到设备，请连接手机并开启USB调试", deviceName: "" },
         });
+        return;
       }
+      const serial = lines[0].split("\t")[0];
+      const model = (await run(`adb -s ${serial} shell getprop ro.product.model`)).trim() || serial;
+      this._postMessage({
+        command: "deviceStatusResult",
+        data: { connected: true, message: `设备已连接：${model}`, deviceName: model },
+      });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       this._postMessage({
         command: "deviceStatusResult",
-        data: {
-          connected: false,
-          message: `检测失败: ${message}`,
-          deviceName: "",
-        },
+        data: { connected: false, message: `检测失败: ${message}`, deviceName: "" },
       });
     }
   }
@@ -1271,6 +1273,7 @@ ${commonRules}`;
       } else if (platform === "android") {
         deviceRow.classList.remove("hidden");
         document.getElementById("btnDetectDevice").style.display = "";
+        document.getElementById("btnHandshake").classList.remove("hidden");
         checkDeviceStatus();
       } else {
         deviceRow.classList.add("hidden");
