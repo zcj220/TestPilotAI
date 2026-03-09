@@ -85,6 +85,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "checkDeviceStatus":
           await this._handleCheckDeviceStatus(msg);
           break;
+        case "connectDevice":
+          await this._handleConnectDevice(msg);
+          break;
       }
     });
 
@@ -810,6 +813,56 @@ ${commonRules}`;
     }
   }
 
+  private async _handleConnectDevice(_msg: { platform?: string }): Promise<void> {
+    const { exec } = require("child_process") as typeof import("child_process");
+    const run = (cmd: string): Promise<string> =>
+      new Promise((resolve) => {
+        exec(cmd, { timeout: 8000 }, (_err, stdout) => resolve(stdout || ""));
+      });
+    const http = require("http") as typeof import("http");
+    const httpCheck = (url: string): Promise<boolean> =>
+      new Promise((resolve) => {
+        const req = http.get(url, (res) => resolve(res.statusCode === 200));
+        req.on("error", () => resolve(false));
+        req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+      });
+    try {
+      // 1. 检查手机是否安装 uiautomator2 server
+      const pkgList = await run("adb shell pm list packages");
+      const hasUia2 = pkgList.includes("io.appium.uiautomator2.server");
+      if (!hasUia2) {
+        this._postMessage({
+          command: "connectDeviceResult",
+          data: {
+            ok: false,
+            message: "手机未安装 Appium 组件，首次运行测试时会自动安装。也可先运行: appium driver install uiautomator2",
+          },
+        });
+        return;
+      }
+      // 2. 检查 Appium server 是否运行
+      const appiumOk = await httpCheck("http://127.0.0.1:4723/status");
+      if (!appiumOk) {
+        this._postMessage({
+          command: "connectDeviceResult",
+          data: { ok: false, message: 'Appium 未运行，请先点击"启动引擎"按钮' },
+        });
+        return;
+      }
+      // 3. 全部就绪
+      const devices = await run("adb devices");
+      const deviceId = devices.split("\n")
+        .find((l) => l.includes("\tdevice"))?.split("\t")[0] || "已连接";
+      this._postMessage({
+        command: "connectDeviceResult",
+        data: { ok: true, message: `握手成功 | 设备: ${deviceId} | Appium: 就绪` },
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._postMessage({ command: "connectDeviceResult", data: { ok: false, message } });
+    }
+  }
+
   private async _handleCheckDeviceStatus(msg: { platform?: string }): Promise<void> {
     const platform = (msg.platform || "web").toLowerCase();
     try {
@@ -1005,7 +1058,14 @@ ${commonRules}`;
         <span id="deviceStatusIcon" style="flex-shrink:0;line-height:1.4">📱</span>
         <span id="deviceStatusText" style="color:var(--muted);word-break:break-word;line-height:1.4">检测中...</span>
       </div>
-      <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 6px;width:100%">检测设备</button>
+      <div style="display:flex;gap:4px;margin-top:2px">
+        <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 6px;flex:1">检测设备</button>
+        <button id="btnHandshake" class="btn-secondary hidden" style="font-size:10px;padding:3px 6px;flex:1">🤝 握手</button>
+      </div>
+      <div id="handshakeStatusRow" class="hidden" style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px">
+        <span id="handshakeIcon">⏳</span>
+        <span id="handshakeText" style="color:var(--muted);word-break:break-word">未握手</span>
+      </div>
     </div>
     <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
     <button id="btnStopEngine" class="hidden" style="background:#ef4444;margin-top:6px">⏹ 断开引擎</button>
@@ -1232,6 +1292,21 @@ ${commonRules}`;
       checkDeviceStatus();
     });
 
+    // 握手按钮
+    document.getElementById("btnHandshake").addEventListener("click", () => {
+      const btn = document.getElementById("btnHandshake");
+      const row = document.getElementById("handshakeStatusRow");
+      const icon = document.getElementById("handshakeIcon");
+      const text = document.getElementById("handshakeText");
+      btn.disabled = true;
+      btn.textContent = "⏳ 握手中...";
+      row.classList.remove("hidden");
+      icon.textContent = "⏳";
+      text.textContent = "正在检测 Appium 环境...";
+      text.style.color = "var(--muted)";
+      vscode.postMessage({ command: "connectDevice", platform: getCurrentPlatform() });
+    });
+
     // 刷新项目按钮
     document.getElementById("btnRefreshProjects").addEventListener("click", () => {
       vscode.postMessage({ command: "scanBlueprints" });
@@ -1430,22 +1505,45 @@ ${commonRules}`;
         case "blueprintSelected": onBlueprintSelected(msg.data); break;
         case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
         case "deviceStatusResult": onDeviceStatusResult(msg.data); break;
+        case "connectDeviceResult": onConnectDeviceResult(msg.data); break;
       }
     });
 
     function onDeviceStatusResult(data) {
       const statusText = document.getElementById("deviceStatusText");
       const statusIcon = document.getElementById("deviceStatusIcon");
+      const btnHandshake = document.getElementById("btnHandshake");
       if (!data) return;
-      
       if (data.connected) {
         statusText.textContent = data.message || "设备已连接";
         statusText.style.color = "var(--success,#22c55e)";
         statusIcon.textContent = "✅";
+        btnHandshake.classList.remove("hidden");
       } else {
         statusText.textContent = data.message || "未检测到设备";
         statusText.style.color = "var(--error,#ef4444)";
         statusIcon.textContent = "❌";
+        btnHandshake.classList.add("hidden");
+        document.getElementById("handshakeStatusRow").classList.add("hidden");
+      }
+    }
+
+    function onConnectDeviceResult(data) {
+      const row = document.getElementById("handshakeStatusRow");
+      const icon = document.getElementById("handshakeIcon");
+      const text = document.getElementById("handshakeText");
+      const btn = document.getElementById("btnHandshake");
+      row.classList.remove("hidden");
+      btn.disabled = false;
+      btn.textContent = "🤝 握手";
+      if (data.ok) {
+        icon.textContent = "✅";
+        text.textContent = data.message || "握手成功";
+        text.style.color = "var(--success,#22c55e)";
+      } else {
+        icon.textContent = "❌";
+        text.textContent = data.message || "握手失败";
+        text.style.color = "var(--error,#ef4444)";
       }
     }
 

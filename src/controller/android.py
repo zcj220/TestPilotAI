@@ -297,6 +297,18 @@ class AndroidController(BaseController):
                 "text": text,
             })
         )
+        # 输入完毕后收起键盘，避免软键盘遮挡下一个元素
+        await self.hide_keyboard()
+
+    async def hide_keyboard(self) -> None:
+        """收起软键盘（忽略失败，键盘本来就没弹出也不报错）。"""
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                None, lambda: self._session_request("POST", "/appium/device/hide_keyboard")
+            )
+        except Exception:
+            pass  # 键盘未显示时 Appium 会报错，直接忽略
 
     async def screenshot(self, name: str = "") -> Path:
         """截取手机屏幕。
@@ -741,6 +753,8 @@ class AndroidController(BaseController):
             strategy, value = "accessibility id", selector[17:]
         elif selector.startswith("class:"):
             strategy, value = "class name", selector[6:]
+        elif selector.startswith("uia:"):
+            strategy, value = "-android uiautomator", selector[4:]
         elif selector.startswith("css:"):
             strategy, value = "css selector", selector[4:]
         elif selector.startswith(("#", ".")) or ("[" in selector and "]" in selector and not selector.startswith("//")):
@@ -750,6 +764,7 @@ class AndroidController(BaseController):
             # 默认当xpath处理
             strategy, value = "xpath", selector
 
+        logger.debug("_find_element: strategy={!r} value={!r}", strategy, value[:80])
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
             None, lambda: self._session_request("POST", "/element", {

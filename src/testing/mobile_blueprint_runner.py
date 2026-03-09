@@ -82,16 +82,17 @@ class MobileBlueprintRunner:
 
         for page_idx, page in enumerate(blueprint.pages):
             if page.url:
-                page_url = page.url
-                if not page_url.startswith("http"):
-                    page_url = blueprint.base_url.rstrip("/") + "/" + page_url.lstrip("/")
-                logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page_url)
+                logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page.url)
                 try:
-                    await self._ctrl.navigate(page_url)
-                    # 切换到 WebView 上下文（等待最多 15 秒）
-                    await self._ctrl.switch_to_webview(timeout_s=15)
+                    if page.url.startswith("http"):
+                        # H5 混合模式：导航到 URL，切换 WebView 上下文
+                        await self._ctrl.navigate(page.url)
+                        await self._ctrl.switch_to_webview(timeout_s=15)
+                    else:
+                        # 原生模式：直接启动 Activity，不切 WebView
+                        await self._ctrl.navigate(page.url)
                 except Exception as nav_err:
-                    logger.error("手机页面导航失败: {} | {}", page_url, nav_err)
+                    logger.error("手机页面导航失败: {} | {}", page.url, nav_err)
 
             for scenario in page.scenarios:
                 logger.info("── 场景: {} ──", scenario.name)
@@ -161,10 +162,20 @@ class MobileBlueprintRunner:
 
             if step_def.action == "navigate":
                 url = value or page.url or blueprint.base_url
-                if not url.startswith("http"):
-                    url = blueprint.base_url.rstrip("/") + "/" + url.lstrip("/")
-                await self._ctrl.navigate(url)
-                await self._ctrl.switch_to_webview(timeout_s=15)
+                if url and url.startswith("http"):
+                    await self._ctrl.navigate(url)
+                    try:
+                        await self._ctrl.switch_to_webview(timeout_s=15)
+                    except Exception:
+                        pass
+                elif url and ("/" in url or url.startswith(".")):
+                    await self._ctrl.navigate(url)
+                else:
+                    # 重启应用到初始 Activity
+                    activity = blueprint.app_activity or ".MainActivity"
+                    pkg = blueprint.app_package
+                    if pkg:
+                        await self._ctrl.navigate(f"{pkg}/{activity}")
 
             elif step_def.action == "click":
                 await self._ctrl.tap(target)
@@ -173,8 +184,13 @@ class MobileBlueprintRunner:
                 await self._ctrl.input_text(target, value)
 
             elif step_def.action == "wait":
-                timeout_ms = step_def.timeout_ms or 5000
-                await self._ctrl.wait_for_element(target, timeout_ms=timeout_ms)
+                # 如果有 target 则等待元素，否则直接 sleep
+                if target:
+                    timeout_ms = step_def.timeout_ms or 5000
+                    await self._ctrl.wait_for_element(target, timeout_ms=timeout_ms)
+                else:
+                    ms = int(value) if value and value.isdigit() else (step_def.timeout_ms or 1000)
+                    await asyncio.sleep(ms / 1000)
 
             elif step_def.action == "scroll":
                 h = self._ctrl._device.screen_height or 800

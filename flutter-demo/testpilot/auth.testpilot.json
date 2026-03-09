@@ -1,0 +1,132 @@
+{
+  "app_name": "TaskPilot Flutter Demo",
+  "description": "Flutter Android Login Test",
+  "base_url": "",
+  "version": "1.2",
+  "platform": "android",
+  "app_package": "com.testpilot.flutter_demo",
+  "app_activity": ".MainActivity",
+  "pages": [
+    {
+      "url": "",
+      "title": "Login",
+      "elements": {
+        "username": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
+        "password": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
+        "login_btn": "uia:new UiSelector().text(\"登录\")"
+      },
+      "scenarios": [
+        {
+          "name": "正常账号登录成功",
+          "steps": [
+            {
+              "action": "wait",
+              "value": "3000"
+            },
+            {
+              "action": "screenshot",
+              "value": "login_init"
+            },
+            {
+              "action": "fill",
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
+              "value": "admin"
+            },
+            {
+              "action": "fill",
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
+              "value": "admin123"
+            },
+            {
+              "action": "click",
+              "target": "uia:new UiSelector().text(\"登录\")"
+            },
+            {
+              "action": "wait",
+              "value": "2000"
+            },
+            {
+              "action": "assert_text",
+              "target": "uia:new UiSelector().text(\"我的任务\")",
+              "expected": "我的任务"
+            },
+            {
+              "action": "screenshot",
+              "value": "login_success"
+            }
+          ]
+        },
+        {
+          "name": "空账号应被拒绝",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.flutter_demo/.MainActivity"
+            },
+            {
+              "action": "wait",
+              "value": "4000"
+            },
+            {
+              "action": "wait",
+              "target": "uia:new UiSelector().text(\"登录\")",
+              "timeout_ms": 10000
+            },
+            {
+              "action": "click",
+              "target": "uia:new UiSelector().text(\"登录\")"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "screenshot",
+              "value": "empty_login"
+            }
+          ]
+        },
+        {
+          "name": "错误账号显示提示",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.flutter_demo/.MainActivity"
+            },
+            {
+              "action": "wait",
+              "value": "4000"
+            },
+            {
+              "action": "wait",
+              "target": "uia:new UiSelector().text(\"登录\")",
+              "timeout_ms": 10000
+            },
+            {
+              "action": "fill",
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)",
+              "value": "wronguser"
+            },
+            {
+              "action": "fill",
+              "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)",
+              "value": "wrongpass"
+            },
+            {
+              "action": "click",
+              "target": "uia:new UiSelector().text(\"登录\")"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "screenshot",
+              "value": "wrong_cred"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

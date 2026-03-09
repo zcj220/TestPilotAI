@@ -75,17 +75,38 @@ def cmd_serve(args: argparse.Namespace) -> int:
     try:
         sock.settimeout(1)
         result = sock.connect_ex(("127.0.0.1", port))
-        if result == 0:
-            print(f"⚠️  端口 {port} 已被占用")
-            print(f"         可能引擎已在运行，或请换一个端口: --port {port + 1}")
-            if not args.force:
-                print(f"         使用 --force 强制启动")
-                return 2
-            print(f"         --force 模式，继续启动...")
-        else:
-            print(f"✅ 端口 {port} 可用")
+        port_in_use = result == 0
     finally:
         sock.close()
+
+    if port_in_use:
+        # 自动清理旧进程（无需 --force，用户不需要记命令）
+        killed = False
+        try:
+            import psutil
+            for proc in psutil.process_iter(["pid", "name"]):
+                try:
+                    for conn in proc.net_connections(kind="inet"):
+                        if conn.laddr.port == port and conn.status == "LISTEN":
+                            print(f"♻️  端口 {port} 被占用，自动终止旧进程 PID={proc.pid} ({proc.name()})")
+                            proc.terminate()
+                            proc.wait(timeout=5)
+                            killed = True
+                            break
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+        except ImportError:
+            pass
+        if killed:
+            import time as _time
+            _time.sleep(1)
+            print(f"  [1/4] 检查端口... ✅ 旧进程已清理，端口 {port} 已释放")
+        else:
+            print(f"  [1/4] 检查端口... ⚠️  端口 {port} 被占用（无法自动清理，请手动关闭）")
+            if not args.force:
+                return 2
+    else:
+        print(f"  [1/4] 检查端口... ✅ 端口 {port} 可用")
 
     # 2. 检查 Playwright 浏览器
     print("  [2/4] 检查浏览器...", end=" ")
@@ -466,6 +487,75 @@ def cmd_mobile(args: argparse.Namespace) -> int:
             print(f"❌ 无法连接引擎")
             return 2
 
+    elif sub == "run":
+        blueprint_path = Path(args.blueprint)
+        if not blueprint_path.exists():
+            print(f"❌ 蓝本文件不存在: {blueprint_path}")
+            return 2
+
+        bp_data = json.loads(blueprint_path.read_text(encoding="utf-8"))
+        app_package = bp_data.get("app_package", "")
+        app_activity = bp_data.get("app_activity", "")
+        if not app_package:
+            print("❌ 蓝本中缺少 app_package 字段")
+            return 2
+
+        print(f"📱 正在连接设备... (包名: {app_package})")
+        create_payload = {
+            "device_name": getattr(args, "device", ""),
+            "app_package": app_package,
+            "app_activity": app_activity,
+            "app_path": getattr(args, "apk", ""),
+        }
+        try:
+            req_data = json.dumps(create_payload).encode()
+            req = urllib.request.Request(
+                f"{base}/mobile/session/create",
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                data = json.loads(resp.read().decode())
+                session_id = data.get("session_id")
+                device_name = data.get("device", {}).get("name", "未知")
+                print(f"✅ 设备已连接: {device_name}")
+                print(f"   会话ID: {session_id}")
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.fp else str(e)
+            print(f"❌ 连接设备失败: {body}")
+            return 1
+        except urllib.error.URLError:
+            print(f"❌ 无法连接引擎，请先运行: python cli.py serve")
+            return 2
+
+        print(f"\n🧪 蓝本测试开始: {bp_data.get('app_name', blueprint_path.name)}")
+        run_payload = {
+            "blueprint_path": str(blueprint_path.resolve()),
+            "mobile_session_id": session_id,
+        }
+        start_time = time.time()
+        try:
+            req_data = json.dumps(run_payload).encode()
+            req = urllib.request.Request(
+                f"{base}/test/mobile-blueprint",
+                data=req_data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                report = json.loads(resp.read().decode())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode() if e.fp else str(e)
+            print(f"❌ 测试执行失败: {body}")
+            return 1
+        except urllib.error.URLError:
+            print(f"❌ 无法连接引擎")
+            return 2
+
+        _print_report(report, time.time() - start_time)
+        return 0
+
     return 0
 
 
@@ -680,6 +770,11 @@ def main() -> int:
     p_mobile_screenshot.add_argument("--session", required=True, help="会话ID")
 
     mobile_sub.add_parser("sessions", help="列出活跃的手机测试会话")
+
+    p_mobile_run = mobile_sub.add_parser("run", help="在手机上运行蓝本测试")
+    p_mobile_run.add_argument("-b", "--blueprint", required=True, help="蓝本文件路径")
+    p_mobile_run.add_argument("--device", default="", help="设备序列号（可选，默认自动检测）")
+    p_mobile_run.add_argument("--apk", default="", help="APK路径（可选，用于重新安装）")
 
     args = parser.parse_args()
 

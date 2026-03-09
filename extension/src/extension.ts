@@ -319,7 +319,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // ── 一键启动引擎（v10.0）──
   context.subscriptions.push(
-    vscode.commands.registerCommand("testpilot-ai.launchEngine", () => {
+    vscode.commands.registerCommand("testpilot-ai.launchEngine", async () => {
       // 查找项目根目录（优先用工作区，否则用插件设置）
       const folders = vscode.workspace.workspaceFolders;
       let projectRoot = "";
@@ -348,10 +348,35 @@ export function activate(context: vscode.ExtensionContext): void {
       }
 
       if (!projectRoot) {
-        vscode.window.showErrorMessage(
-          "找不到 TestPilot AI 项目目录（需要包含 cli.py）。请在设置中配置 testpilotAI.projectRoot",
+        // 弹出目录选择框让用户手动指定
+        const selected = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          title: "选择 TestPilot AI 项目根目录（包含 cli.py 的文件夹）",
+        });
+        if (!selected || selected.length === 0) {
+          vscode.window.showErrorMessage(
+            "⚠️ 未选择目录，引擎启动取消。也可在 设置 → testpilotAI.projectRoot 中填入项目路径。",
+          );
+          return;
+        }
+        projectRoot = selected[0].fsPath;
+        // 验证选中的目录包含 cli.py
+        const fs = require("fs");
+        if (!fs.existsSync(require("path").join(projectRoot, "cli.py"))) {
+          vscode.window.showErrorMessage(
+            `❌ 所选目录不含 cli.py，请选择正确的 TestPilot AI 项目根目录。\n当前选择：${projectRoot}`,
+          );
+          return;
+        }
+        // 保存到设置，下次直接用
+        await vscode.workspace.getConfiguration("testpilotAI").update(
+          "projectRoot",
+          projectRoot,
+          vscode.ConfigurationTarget.Global,
         );
-        return;
+        outputChannel.appendLine(`[TestPilot AI] 已保存项目路径: ${projectRoot}`);
       }
 
       // 若旧终端存在，先关闭（避免复用失效终端）
@@ -394,6 +419,79 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
+  // ── 一键连接手机设备（v11.0）──
+  context.subscriptions.push(
+    vscode.commands.registerCommand("testpilot-ai.connectDevice", async () => {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "📱 连接手机设备中...",
+          cancellable: false,
+        },
+        async (progress) => {
+          const http = require("http") as typeof import("http");
+
+          // 工具：HTTP GET 检查
+          const httpCheck = (url: string): Promise<boolean> =>
+            new Promise((resolve) => {
+              const req = http.get(url, (res) => resolve(res.statusCode === 200));
+              req.on("error", () => resolve(false));
+              req.setTimeout(3000, () => { req.destroy(); resolve(false); });
+            });
+
+          // 1. 检查 adb 设备
+          progress.report({ message: "检查 adb 设备..." });
+          const { exec, spawn } = require("child_process") as typeof import("child_process");
+          const adbOut = await new Promise<string>((resolve) => {
+            exec("adb devices", (err, stdout) => resolve(err ? "" : stdout));
+          });
+          const deviceLines = adbOut.split("\n")
+            .filter((l) => l.trim() && !l.startsWith("List") && l.includes("\tdevice"));
+          if (deviceLines.length === 0) {
+            vscode.window.showErrorMessage("❌ 未检测到 Android 设备，请用数据线连接手机并点击「允许 USB 调试」");
+            return;
+          }
+          const deviceId = deviceLines[0].split("\t")[0];
+
+          // 2. 检查 / 启动 Appium
+          progress.report({ message: "检查 Appium (4723)..." });
+          let appiumOk = await httpCheck("http://127.0.0.1:4723/status");
+          if (!appiumOk) {
+            progress.report({ message: "Appium 未运行，正在启动..." });
+            spawn("appium", ["--port", "4723"], { detached: true, stdio: "ignore" }).unref();
+            for (let i = 0; i < 12; i++) {
+              await new Promise((r) => setTimeout(r, 1000));
+              if (await httpCheck("http://127.0.0.1:4723/status")) { appiumOk = true; break; }
+            }
+            if (!appiumOk) {
+              vscode.window.showErrorMessage("❌ Appium 启动超时，请手动执行: appium --port 4723");
+              return;
+            }
+          }
+
+          // 3. 检查引擎
+          progress.report({ message: "检查 TestPilot 引擎 (8900)..." });
+          const engineOk = await httpCheck("http://127.0.0.1:8900/api/v1/health");
+          if (!engineOk) {
+            const action = await vscode.window.showWarningMessage(
+              "⚠️ TestPilot 引擎未运行，需要先启动引擎",
+              "启动引擎",
+            );
+            if (action === "启动引擎") {
+              vscode.commands.executeCommand("testpilot-ai.launchEngine");
+            }
+            return;
+          }
+
+          vscode.window.showInformationMessage(
+            `✅ 手机已就绪！设备: ${deviceId} | Appium: ✔ | 引擎: ✔`,
+          );
+          outputChannel.appendLine(`[TestPilot AI] 手机连接成功: ${deviceId}`);
+        },
+      );
+    }),
+  );
+
   // ── 英文别名命令（v9.1）── 每个中文命令都有一个英文版 ──
 
   const commandAliases: [string, string][] = [
@@ -407,6 +505,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ["testpilot-ai.checkEngine.en", "testpilot-ai.checkEngine"],
     ["testpilot-ai.launchEngine.en", "testpilot-ai.launchEngine"],
     ["testpilot-ai.stopEngine.en", "testpilot-ai.stopEngine"],
+    ["testpilot-ai.connectDevice.en", "testpilot-ai.connectDevice"],
   ];
 
   for (const [alias, target] of commandAliases) {

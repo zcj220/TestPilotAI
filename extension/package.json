@@ -132,6 +132,16 @@
         "command": "testpilot-ai.launchEngine.en",
         "title": "TestPilot AI: Launch Engine",
         "icon": "$(rocket)"
+      },
+      {
+        "command": "testpilot-ai.connectDevice",
+        "title": "TestPilot AI: 连接手机设备",
+        "icon": "$(device-mobile)"
+      },
+      {
+        "command": "testpilot-ai.connectDevice.en",
+        "title": "TestPilot AI: Connect Mobile Device",
+        "icon": "$(device-mobile)"
       }
     ],
     "menus": {
@@ -196,6 +206,12 @@
         },
         {
           "command": "testpilot-ai.launchEngine.en"
+        },
+        {
+          "command": "testpilot-ai.connectDevice"
+        },
+        {
+          "command": "testpilot-ai.connectDevice.en"
         }
       ]
     },
