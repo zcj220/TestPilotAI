@@ -94,7 +94,7 @@ class RunBlueprintRequest(BaseModel):
 class RunMobileBlueprintRequest(BaseModel):
     """手机蓝本模式测试请求体。"""
     blueprint_path: str = Field(..., description="testpilot.json 蓝本文件路径")
-    mobile_session_id: str = Field(..., description="已创建的移动端 Session ID")
+    mobile_session_id: str = Field(default="", description="已创建的移动端 Session ID（留空则自动创建）")
     base_url: str = Field(default="", description="基础URL（覆盖蓝本中的base_url）")
 
 
@@ -247,4 +247,8 @@ class TestReportResponse(BaseModel):
     estimated_cost: Optional[float] = Field(
         default=None,
         description="本次测试估算API成本（元）（v0.7）",
+    )
+    stopped: bool = Field(
+        default=False,
+        description="测试是否被用户手动停止（v10.6）",
     )

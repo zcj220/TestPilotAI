@@ -54,6 +54,7 @@ export interface TestReportResponse {
   bugs: BugDetail[];
   repair_summary: string | null;
   fixed_bug_count: number | null;
+  stopped?: boolean;
 }
 
 /** WebSocket 消息类型 */

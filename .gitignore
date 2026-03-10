@@ -59,3 +59,14 @@ desktop/dist/
 
 # Tauri (Rust桌面应用)
 desktop/src-tauri/target/
+
+# 调试临时文件
+diag*.py
+diag*.txt
+_diag*.py
+_dump*.py
+dump*.xml
+ui_dump*.xml
+ui_tree_debug*.xml
+flutter_*_source.xml
+test_sid.txt

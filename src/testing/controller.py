@@ -224,11 +224,22 @@ class TestController:
         if self._step_delay_seconds > 0 and not self._cancelled:
             await asyncio.sleep(self._step_delay_seconds)
 
+    @property
+    def was_stopped(self) -> bool:
+        """测试是否因用户停止而结束（供批量测试判断是否中断后续蓝本）。"""
+        return self._state == TestState.STOPPED
+
     def on_test_complete(self) -> None:
-        """测试完成时调用。"""
+        """测试完成时调用。
+
+        注意：用户停止时保留 STOPPED 状态和 _cancelled 标志，
+        供批量测试的外层循环检查 was_stopped 后决定是否中断。
+        外层循环在确认中断后应调用 reset() 清理状态。
+        """
         if self._state != TestState.STOPPED:
             self._state = TestState.IDLE
-        self._cancelled = False
+            self._cancelled = False
+        # STOPPED 状态下保留 _cancelled=True，让批量调用者能检测到
         self._resume_event.set()
         logger.info("测试控制器 | 测试完成 | 最终状态={}", self._state.value)
 

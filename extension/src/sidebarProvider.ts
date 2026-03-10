@@ -205,9 +205,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       this._postMessage({ command: "testStarted" });
 
-      // 依次执行每个蓝本，汇总结果
+      // 依次执行每个蓝本，汇总结果（用户停止时中断后续蓝本）
       const results: TestReportResponse[] = [];
+      let userStopped = false;
       for (const bp of msg.blueprint_paths) {
+        if (userStopped) { break; }
         try {
           const platform = (msg.platform || "web").toLowerCase();
           let report: TestReportResponse;
@@ -237,6 +239,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           }
 
           results.push(report);
+
+          // 检查是否被用户停止，停止则中断后续蓝本
+          if (report.stopped) {
+            userStopped = true;
+          }
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
           results.push({
@@ -262,7 +269,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const passRate = totalSteps > 0 ? (passedSteps / totalSteps * 100) : 0;
 
       let md = `# 批量蓝本测试汇总\n\n`;
-      md += `- 蓝本数: ${results.length}\n`;
+      if (userStopped) {
+        md += `> ⚠️ 用户手动停止，已执行 ${results.length}/${msg.blueprint_paths.length} 个蓝本\n\n`;
+      }
+      md += `- 蓝本数: ${results.length}${userStopped ? `/${msg.blueprint_paths.length}` : ""}\n`;
       md += `- 总步骤: ${totalSteps}（通过 ${passedSteps} / 失败 ${failedSteps}）\n`;
       md += `- 总Bug数: ${totalBugs}\n`;
       md += `- 总通过率: ${passRate.toFixed(0)}%\n`;
@@ -724,6 +734,7 @@ ${commonRules}`;
     const platform = (msg.platform || "web").toLowerCase();
     try {
       if (platform === "android" || platform === "ios") {
+        // 只检查设备是否连接，Session 由引擎在蓝本测试时自动创建
         const devices = await this._client.listMobileDevices();
         if ((devices.count || 0) === 0) {
           this._postMessage({
@@ -737,31 +748,14 @@ ${commonRules}`;
           return;
         }
 
-        const sessions = await this._client.listMobileSessions();
-        if ((sessions.count || 0) === 0) {
-          const first = devices.devices?.[0] || {};
-          const deviceName = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "");
-          const created = await this._client.createMobileSession({ device_name: deviceName });
-          this._postMessage({
-            command: "platformPrecheckResult",
-            data: {
-              ok: true,
-              platform,
-              message: `设备已连接，已创建会话 ${created.session_id}，可以开始测试。`,
-              mobile_session_id: created.session_id,
-            },
-          });
-          return;
-        }
-
-        const sid = String((sessions.sessions?.[0] as Record<string, unknown>)?.session_id || "");
+        const first = devices.devices?.[0] || {};
+        const model = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "设备");
         this._postMessage({
           command: "platformPrecheckResult",
           data: {
             ok: true,
             platform,
-            message: `检测到已连接设备和活跃会话 ${sid}，可以开始测试。`,
-            mobile_session_id: sid,
+            message: `设备 ${model} 已连接，Appium Session 将自动创建。`,
           },
         });
         return;
@@ -814,7 +808,7 @@ ${commonRules}`;
   }
 
   private async _handleConnectDevice(_msg: { platform?: string }): Promise<void> {
-    const { exec } = require("child_process") as typeof import("child_process");
+    const { exec, spawn } = require("child_process") as typeof import("child_process");
     const run = (cmd: string): Promise<string> =>
       new Promise((resolve) => {
         exec(cmd, { timeout: 10000 }, (_err, stdout) => resolve(stdout || ""));
@@ -852,11 +846,29 @@ ${commonRules}`;
         fail(`设备 ${model} 未安装 Appium 自动化组件（uiautomator2），首次测试时会自动安装。\n也可手动运行：appium driver install uiautomator2`);
         return;
       }
-      // 4. 检查 Appium server 是否运行
-      const appiumOk = await httpCheck("http://127.0.0.1:4723/status");
+      // 4. 检查 Appium server 是否运行，未运行则自动启动
+      let appiumOk = await httpCheck("http://127.0.0.1:4723/status");
       if (!appiumOk) {
-        fail(`设备 ${model} 就绪，但 Appium 未运行。\n请先在终端运行：appium\n或点击"启动引擎"按钮`);
-        return;
+        // 自动启动 Appium
+        this._postMessage({
+          command: "connectDeviceResult",
+          data: { ok: false, message: `设备 ${model} 就绪，Appium 未运行，正在自动启动...` },
+        });
+        try {
+          spawn("appium", ["--port", "4723"], { detached: true, stdio: "ignore", shell: true, windowsHide: true }).unref();
+        } catch (spawnErr: unknown) {
+          fail(`Appium 启动失败: ${spawnErr instanceof Error ? spawnErr.message : String(spawnErr)}\n请手动运行：appium --port 4723`);
+          return;
+        }
+        // 等待 Appium 启动（最多12秒）
+        for (let i = 0; i < 12; i++) {
+          await new Promise<void>((r) => setTimeout(r, 1000));
+          if (await httpCheck("http://127.0.0.1:4723/status")) { appiumOk = true; break; }
+        }
+        if (!appiumOk) {
+          fail(`设备 ${model} 就绪，但 Appium 启动超时（12秒）。\n请手动运行：appium --port 4723`);
+          return;
+        }
       }
       // 5. 检查引擎
       const engineOk = await httpCheck("http://127.0.0.1:8900/health");
@@ -1062,11 +1074,6 @@ ${commonRules}`;
       </div>
       <div style="display:flex;gap:4px;margin-top:2px">
         <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 6px;flex:1">检测设备</button>
-        <button id="btnHandshake" class="btn-secondary hidden" style="font-size:10px;padding:3px 6px;flex:1">🤝 握手</button>
-      </div>
-      <div id="handshakeStatusRow" class="hidden" style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px">
-        <span id="handshakeIcon">⏳</span>
-        <span id="handshakeText" style="color:var(--muted);word-break:break-word">未握手</span>
       </div>
     </div>
     <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
@@ -1273,7 +1280,6 @@ ${commonRules}`;
       } else if (platform === "android") {
         deviceRow.classList.remove("hidden");
         document.getElementById("btnDetectDevice").style.display = "";
-        document.getElementById("btnHandshake").classList.remove("hidden");
         checkDeviceStatus();
       } else {
         deviceRow.classList.add("hidden");
@@ -1293,21 +1299,6 @@ ${commonRules}`;
     // 检测设备按钮
     document.getElementById("btnDetectDevice").addEventListener("click", () => {
       checkDeviceStatus();
-    });
-
-    // 握手按钮
-    document.getElementById("btnHandshake").addEventListener("click", () => {
-      const btn = document.getElementById("btnHandshake");
-      const row = document.getElementById("handshakeStatusRow");
-      const icon = document.getElementById("handshakeIcon");
-      const text = document.getElementById("handshakeText");
-      btn.disabled = true;
-      btn.textContent = "⏳ 握手中...";
-      row.classList.remove("hidden");
-      icon.textContent = "⏳";
-      text.textContent = "正在检测 Appium 环境...";
-      text.style.color = "var(--muted)";
-      vscode.postMessage({ command: "connectDevice", platform: getCurrentPlatform() });
     });
 
     // 刷新项目按钮
@@ -1440,7 +1431,6 @@ ${commonRules}`;
       addLog("正在断开引擎...", "info");
     });
 
-    let currentMobileSessionId = "";
     let pendingBlueprintRun = null;
 
     // 蓝本测试（支持多选批量 + 平台路由 + 前置检查）
@@ -1508,45 +1498,21 @@ ${commonRules}`;
         case "blueprintSelected": onBlueprintSelected(msg.data); break;
         case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
         case "deviceStatusResult": onDeviceStatusResult(msg.data); break;
-        case "connectDeviceResult": onConnectDeviceResult(msg.data); break;
       }
     });
 
     function onDeviceStatusResult(data) {
       const statusText = document.getElementById("deviceStatusText");
       const statusIcon = document.getElementById("deviceStatusIcon");
-      const btnHandshake = document.getElementById("btnHandshake");
       if (!data) return;
       if (data.connected) {
-        statusText.textContent = data.message || "设备已连接";
+        statusText.textContent = (data.message || "设备已连接") + "（运行蓝本时自动连接）";
         statusText.style.color = "var(--success,#22c55e)";
         statusIcon.textContent = "✅";
-        btnHandshake.classList.remove("hidden");
       } else {
         statusText.textContent = data.message || "未检测到设备";
         statusText.style.color = "var(--error,#ef4444)";
         statusIcon.textContent = "❌";
-        btnHandshake.classList.add("hidden");
-        document.getElementById("handshakeStatusRow").classList.add("hidden");
-      }
-    }
-
-    function onConnectDeviceResult(data) {
-      const row = document.getElementById("handshakeStatusRow");
-      const icon = document.getElementById("handshakeIcon");
-      const text = document.getElementById("handshakeText");
-      const btn = document.getElementById("btnHandshake");
-      row.classList.remove("hidden");
-      btn.disabled = false;
-      btn.textContent = "🤝 握手";
-      if (data.ok) {
-        icon.textContent = "✅";
-        text.textContent = data.message || "握手成功";
-        text.style.color = "var(--success,#22c55e)";
-      } else {
-        icon.textContent = "❌";
-        text.textContent = data.message || "握手失败";
-        text.style.color = "var(--error,#ef4444)";
       }
     }
 
@@ -1558,10 +1524,6 @@ ${commonRules}`;
         addLog(data.message || "平台检查未通过", "error");
         pendingBlueprintRun = null;
         return;
-      }
-
-      if (data.mobile_session_id) {
-        currentMobileSessionId = data.mobile_session_id;
       }
 
       addLog(data.message || "平台检查通过", "success");
@@ -1577,7 +1539,6 @@ ${commonRules}`;
           blueprint_paths: run.paths,
           base_url: run.baseUrl,
           platform: run.platform,
-          mobile_session_id: currentMobileSessionId || undefined,
         });
       } else {
         vscode.postMessage({
@@ -1585,7 +1546,6 @@ ${commonRules}`;
           blueprint_path: run.paths[0],
           base_url: run.baseUrl,
           platform: run.platform,
-          mobile_session_id: currentMobileSessionId || undefined,
         });
       }
     }
@@ -1826,18 +1786,9 @@ ${commonRules}`;
       stepList.innerHTML = "";
       stepSection.classList.add("hidden");
       logArea.innerHTML = "";
-      addLog("测试任务已启动...", "info");
-      // 持续跳动提示，让用户知道系统在运行
-      let dots = 0;
-      const phases = ["正在连接模拟器...", "正在执行测试步骤...", "仍在测试中，请耐心等待..."];
-      let phase = 0;
+      addLog("测试任务已启动，步骤进度将实时显示...", "info");
       if (testingTimer) clearInterval(testingTimer);
-      testingTimer = setInterval(() => {
-        dots = (dots + 1) % 4;
-        const dotStr = ".".repeat(dots + 1);
-        addLog("⏳ " + phases[phase] + dotStr, "info");
-        if (dots === 3) phase = Math.min(phase + 1, phases.length - 1);
-      }, 5000);
+      testingTimer = null;
     }
 
     function onTestResult(report) {

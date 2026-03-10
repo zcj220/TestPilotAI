@@ -458,7 +458,7 @@ export function activate(context: vscode.ExtensionContext): void {
           let appiumOk = await httpCheck("http://127.0.0.1:4723/status");
           if (!appiumOk) {
             progress.report({ message: "Appium 未运行，正在启动..." });
-            spawn("appium", ["--port", "4723"], { detached: true, stdio: "ignore" }).unref();
+            spawn("appium", ["--port", "4723"], { detached: true, stdio: "ignore", shell: true, windowsHide: true }).unref();
             for (let i = 0; i < 12; i++) {
               await new Promise((r) => setTimeout(r, 1000));
               if (await httpCheck("http://127.0.0.1:4723/status")) { appiumOk = true; break; }

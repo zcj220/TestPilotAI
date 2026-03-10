@@ -91,6 +91,8 @@ class AndroidController(BaseController):
         self._logcat_proc: Optional[subprocess.Popen] = None
         self._logcat_buffer: list[str] = []
         self._logcat_lock = threading.Lock()
+        # 外部取消信号（由 MobileBlueprintRunner 设置）
+        self._is_cancelled_fn: object = None
 
     @property
     def platform(self) -> Platform:
@@ -119,7 +121,11 @@ class AndroidController(BaseController):
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             error_body = e.read().decode() if e.fp else ""
-            logger.error("Appium请求失败: {} {} | {} | {}", method, path, e.code, error_body[:200])
+            # 404=元素不存在（正常），用DEBUG；500=U2崩溃，用WARNING
+            if e.code == 404:
+                logger.debug("Appium元素未找到: {} {} | {}", method, path, error_body[:120])
+            else:
+                logger.warning("Appium请求异常: {} {} | {} | {}", method, path, e.code, error_body[:200])
             raise RuntimeError(f"Appium请求失败: {e.code} {error_body[:200]}")
         except urllib.error.URLError as e:
             raise RuntimeError(f"无法连接Appium Server ({self._config.appium_url}): {e}")
@@ -219,7 +225,11 @@ class AndroidController(BaseController):
         caps = resp.get("value", {}).get("capabilities", {})
         self._device.name = caps.get("deviceName", self._device.name)
         self._device.os_version = caps.get("platformVersion", "")
-        self._device.screen_width = caps.get("deviceScreenSize", "0x0").split("x")[0] if isinstance(caps.get("deviceScreenSize"), str) else 0
+        screen_size = caps.get("deviceScreenSize", "0x0")
+        if isinstance(screen_size, str) and "x" in screen_size:
+            parts = screen_size.split("x")
+            self._device.screen_width = int(parts[0])
+            self._device.screen_height = int(parts[1])
         self._device.is_connected = True
 
         logger.info("Appium Session 创建成功 | ID={} | 设备={}",
@@ -444,6 +454,83 @@ class AndroidController(BaseController):
 
         element_id = await self._find_element_with_wait(selector, timeout_s=15)
         await self._safe_session_call("POST", f"/element/{element_id}/click")
+
+    async def tap_xy(self, x: int, y: int) -> None:
+        """通过坐标点击屏幕（视觉降级时使用，走adb不走Appium，100%可靠）。"""
+        logger.info("坐标点击: ({}, {})", x, y)
+        device_serial = self._device.extra.get("serial", "") or self._config.device_name
+        cmd = ["adb"]
+        if device_serial:
+            cmd.extend(["-s", device_serial])
+        cmd.extend(["shell", "input", "tap", str(x), str(y)])
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, lambda: subprocess.run(cmd, capture_output=True, timeout=5)
+        )
+        await asyncio.sleep(0.3)
+
+    async def input_text_xy(self, x: int, y: int, text: str) -> None:
+        """通过坐标点击输入框后输入文本。
+
+        策略：adb tap → 等键盘弹出 → 清空旧内容 → adb input text。
+        已验证：只要键盘弹出（focused=true），adb input text 对 Flutter/原生都有效。
+        不使用 Appium findElement（在 Flutter 上会超时卡死）。
+        """
+        display = text[:15] + "..." if len(text) > 15 else text
+        logger.info("坐标输入: ({}, {}) -> '{}'", x, y, display)
+        device_serial = self._device.extra.get("serial", "") or self._config.device_name
+        adb_base = ["adb"]
+        if device_serial:
+            adb_base.extend(["-s", device_serial])
+        loop = asyncio.get_event_loop()
+
+        async def _adb(args: list[str], timeout: int = 5) -> None:
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + args, capture_output=True, timeout=timeout,
+                )
+            )
+
+        # 1. adb tap 点击输入框获焦点
+        await self.tap_xy(x, y)
+        await asyncio.sleep(1.0)
+
+        # 2. 再tap一次确保焦点（Flutter有时首次tap只选中widget不弹键盘）
+        await self.tap_xy(x, y)
+        await asyncio.sleep(0.8)
+
+        # 3. 清空旧内容：先移到末尾，再Shift+Home全选，再删除
+        await _adb(["shell", "input", "keyevent", "KEYCODE_MOVE_END"])
+        await asyncio.sleep(0.1)
+        # 用多次DEL逐个删除（每次一条命令，每条最多删5个避免超时）
+        for _ in range(3):
+            await _adb(["shell", "input", "keyevent",
+                        "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL",
+                        "KEYCODE_DEL", "KEYCODE_DEL"])
+        await asyncio.sleep(0.2)
+
+        # 4. adb input text 输入
+        await _adb(["shell", "input", "text", text], timeout=10)
+        logger.info("坐标输入完成(adb): ({}, {}) -> '{}'", x, y, display)
+
+        # 5. 隐藏键盘（检查状态，安全关闭）
+        await asyncio.sleep(0.3)
+        try:
+            kb_result = await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "dumpsys", "input_method"],
+                    capture_output=True, timeout=5,
+                )
+            )
+            if "mInputShown=true" in kb_result.stdout.decode(errors="ignore"):
+                await _adb(["shell", "input", "keyevent", "KEYCODE_BACK"])
+                await asyncio.sleep(0.8)
+                logger.debug("键盘已关闭")
+            else:
+                logger.debug("键盘未打开，跳过关闭")
+        except Exception:
+            pass
+        await asyncio.sleep(0.3)
 
     async def input_text(self, selector: str, text: str) -> None:
         """输入文本。"""
@@ -708,11 +795,90 @@ class AndroidController(BaseController):
         resp = await self._safe_session_call("GET", "/source")
         return resp.get("value", "")
 
+    async def dump_ui_tree(self) -> str:
+        """获取UI树XML。优先走Appium /source（U2已在运行），失败走adb uiautomator dump。
+
+        注意：adb uiautomator dump 和 UiAutomator2 Server 冲突（都需要UiAutomation实例），
+        所以当Appium Session活跃时，adb dump会返回空。必须优先用Appium。
+
+        Returns:
+            UI树XML字符串，失败返回空字符串
+        """
+        # 方式A：通过Appium /source（U2已经在运行，不会冲突）
+        if self._session_id:
+            try:
+                loop = asyncio.get_event_loop()
+                resp = await loop.run_in_executor(
+                    None, lambda: self._session_request("GET", "/source")
+                )
+                xml_str = resp.get("value", "")
+                if xml_str and "<hierarchy" in xml_str:
+                    logger.debug("UI树获取成功(Appium) | 大小={}字节", len(xml_str))
+                    return xml_str
+            except Exception as e:
+                logger.debug("Appium /source失败: {}", str(e)[:60])
+
+        # 方式B：adb uiautomator dump（Appium未连接时使用）
+        device_serial = self._device.extra.get("serial", "") or self._config.device_name
+        adb_base = ["adb"]
+        if device_serial:
+            adb_base.extend(["-s", device_serial])
+        loop = asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "uiautomator", "dump", "/sdcard/tp_ui_dump.xml"],
+                    capture_output=True, timeout=10,
+                )
+            )
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "cat", "/sdcard/tp_ui_dump.xml"],
+                    capture_output=True, timeout=5,
+                )
+            )
+            xml_str = result.stdout.decode(errors="ignore")
+            if xml_str and "<hierarchy" in xml_str:
+                logger.debug("UI树dump成功(adb) | 大小={}字节", len(xml_str))
+                return xml_str
+            logger.debug("UI树dump为空或格式异常")
+            return ""
+        except Exception as e:
+            logger.debug("UI树dump失败: {}", str(e)[:80])
+            return ""
+
     async def get_text(self, selector: str) -> str:
         """获取元素文本。"""
         element_id = await self._find_element_with_wait(selector, timeout_s=5)
         resp = await self._safe_session_call("GET", f"/element/{element_id}/text")
         return resp.get("value", "")
+
+    async def swipe_screen(self, direction: str = "down") -> None:
+        """通过adb滑动屏幕（不走Appium，100%可靠）。
+
+        direction: "down"=下滑看更多, "up"=上滑回顶
+        """
+        w = int(self._device.screen_width or 1080)
+        h = int(self._device.screen_height or 2400)
+        cx = w // 2
+        if direction == "down":
+            sy, ey = int(h * 0.7), int(h * 0.3)  # 从下往上滑 = 页面向下滚动
+        elif direction == "up":
+            sy, ey = int(h * 0.3), int(h * 0.7)  # 从上往下滑 = 页面向上滚动
+        else:
+            sy, ey = int(h * 0.7), int(h * 0.3)
+
+        logger.info("adb滑动: {} | ({},{}) -> ({},{})", direction, cx, sy, cx, ey)
+        device_serial = self._device.extra.get("serial", "") or self._config.device_name
+        cmd = ["adb"]
+        if device_serial:
+            cmd.extend(["-s", device_serial])
+        cmd.extend(["shell", "input", "swipe", str(cx), str(sy), str(cx), str(ey), "300"])
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, lambda: subprocess.run(cmd, capture_output=True, timeout=10)
+        )
+        await asyncio.sleep(0.5)
 
     async def swipe(
         self,
@@ -910,9 +1076,9 @@ class AndroidController(BaseController):
         此方法在不终止被测 app 的前提下重建 Appium Session，
         让 Appium 重新启动一个全新的 U2 Server 实例。
 
-        关键：不传 appPackage/appActivity，避免 Appium 通过 am start 重启
-        Activity，否则 Flutter 引擎会重新初始化导致 setState 产生的
-        临时 UI 状态（如错误提示）丢失。
+        如果 config 中有 appPackage，则传给新 Session 以保证 Appium 能正确
+        instrument 该 APP（读取 Flutter 的 @hint 等属性）。同时设置
+        dontStopAppOnReset + noReset 避免重启 Activity。
         """
         logger.warning("UiAutomator2 Server 进程已死亡，正在重建Session...")
         loop = asyncio.get_event_loop()
@@ -931,17 +1097,23 @@ class AndroidController(BaseController):
         await loop.run_in_executor(None, _kill_uia2)
         await asyncio.sleep(1)
 
-        # 3. 创建新 Session — 不带 appPackage/appActivity
-        #    Appium 只重启 U2 Server 并连接当前屏幕上的 app，不触发 am start
+        # 3. 创建新 Session
+        #    传 appPackage 让 Appium 绑定到被测 APP（XPath 才能看到 @hint 等属性）
+        #    dontStopAppOnReset=true 避免 Appium 重启 Activity（保留当前页面状态）
         caps = {
             "platformName": self._config.platform_name,
             "appium:automationName": self._config.automation_name,
             "appium:noReset": True,
+            "appium:dontStopAppOnReset": True,
             "appium:newCommandTimeout": 300,
             "appium:autoGrantPermissions": True,
         }
         if self._config.device_name:
             caps["appium:deviceName"] = self._config.device_name
+        if self._config.app_package:
+            caps["appium:appPackage"] = self._config.app_package
+        if self._config.app_activity:
+            caps["appium:appActivity"] = self._config.app_activity
 
         resp = await loop.run_in_executor(
             None, lambda: self._request(
@@ -970,37 +1142,60 @@ class AndroidController(BaseController):
 
     # ── 内部方法 ─────────────────────────────────
 
-    async def _find_element_with_wait(self, selector: str, timeout_s: float = 10) -> str:
+    async def _find_element_with_wait(self, selector: str, timeout_s: float = 15) -> str:
         """带重试的元素查找，等待元素出现后返回element ID。
 
-        Flutter等框架渲染或键盘收起后UI树可能需要几秒才就绪，
-        此方法每0.5秒轮询一次直到找到或超时。
-        如果检测到 UiAutomator2 Server 无响应（进程死亡或hang），自动重建 Session。
+        Flutter等框架渲染或键盘收起后UI树可能需要较长时间才就绪，
+        此方法每1秒轮询一次直到找到或超时。
+
+        策略：
+        - 404（元素不存在）：正常等待重试，不触发U2恢复
+        - 500 + instrumentation not running：U2真崩了，恢复后继续
+        - 请求超时（timed out）：U2可能hang了，恢复后继续
+        - 恢复U2后不重置计时器，总时间始终15秒封顶
+        - 最多恢复U2 Session 1次，避免在元素确实不存在时反复恢复浪费时间
         """
         import time as _time
         start = _time.time()
         last_err: Exception | None = None
-        u2_recovered = False
+        u2_recover_count = 0
+        max_u2_recovers = 1  # 最多恢复1次（防止元素不存在时反复恢复空转）
         while True:
+            # 检查是否被用户取消
+            if self._is_cancelled_fn and callable(self._is_cancelled_fn) and self._is_cancelled_fn():
+                raise RuntimeError("测试已被用户取消")
+
+            # 超时检查（放在循环开头，确保总时间封顶）
+            if _time.time() - start >= timeout_s:
+                raise last_err or RuntimeError(f"元素查找超时({timeout_s}s): {selector}")
+
             try:
                 return await self._find_element(selector)
             except RuntimeError as e:
                 err_str = str(e)
-                # UiAutomator2崩溃则直接抛出，不重试
-                if "instrumentation process is not running" in err_str or "500" in err_str[:20]:
-                    raise
                 last_err = e
-                # 超时 = U2 无响应（可能被 Flutter 杀死或 hang）
-                # 无论进程是否存活都尝试恢复一次
-                if not u2_recovered and "超时" in err_str:
-                    logger.warning("U2疑似无响应({}), 尝试自动恢复...", err_str[:40])
-                    await self._recover_u2_session()
-                    u2_recovered = True
-                    start = _time.time()  # 恢复后重置计时
+
+                # 区分错误类型：
+                # - 500 + "instrumentation not running" = U2 真崩了
+                # - "timed out" / "socket hang up" = U2 无响应（可能hang了）
+                # - 404 "no such element" = 元素不存在（正常等待即可）
+                is_u2_crash = ("instrumentation process is not running" in err_str
+                               or ("500" in err_str[:20] and "socket hang up" in err_str))
+                is_u2_timeout = "超时" in err_str or "timed out" in err_str.lower()
+
+                if (is_u2_crash or is_u2_timeout) and u2_recover_count < max_u2_recovers:
+                    u2_recover_count += 1
+                    logger.warning("U2异常({}/{}次恢复): {}", u2_recover_count, max_u2_recovers, err_str[:80])
+                    try:
+                        await self._recover_u2_session()
+                    except Exception as recover_err:
+                        logger.error("U2 Session恢复失败: {}", recover_err)
+                        raise last_err from recover_err
+                    # 注意：不重置start，总时间仍然封顶在timeout_s
+                    await asyncio.sleep(2)
                     continue
-                if _time.time() - start >= timeout_s:
-                    raise
-                await asyncio.sleep(0.5)
+
+                await asyncio.sleep(1)  # 重试间隔1秒（减少对U2的压力）
 
     async def _find_element(self, selector: str) -> str:
         """查找元素，返回 element ID。

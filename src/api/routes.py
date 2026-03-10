@@ -395,7 +395,8 @@ def create_router(
                     await ws_manager.send_step_done(step, status, desc)
 
             runner = MobileBlueprintRunner(
-                android_ctrl, ai_client, on_step=_on_step_m
+                android_ctrl, ai_client, on_step=_on_step_m,
+                test_controller=test_controller,
             )
 
             try:
@@ -406,6 +407,9 @@ def create_router(
                     len(report.bugs),
                 )
                 from src.api.models import StepDetail, BugDetail
+                stopped = test_controller.was_stopped
+                if stopped:
+                    test_controller.reset()
                 return TestReportResponse(
                     test_name=report.test_name,
                     url=report.url,
@@ -416,6 +420,7 @@ def create_router(
                     pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
                     duration_seconds=report.duration_seconds,
                     report_markdown=report.report_markdown,
+                    stopped=stopped,
                     steps=[
                         StepDetail(
                             step=r.step,
@@ -499,6 +504,9 @@ def create_router(
                     logger.warning("蓝本测试记忆提取失败: {}", mem_err)
 
             from src.api.models import StepDetail, BugDetail
+            stopped = test_controller.was_stopped
+            if stopped:
+                test_controller.reset()
             return TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
@@ -509,6 +517,7 @@ def create_router(
                 pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                stopped=stopped,
                 steps=[
                     StepDetail(
                         step=r.step,
@@ -540,20 +549,17 @@ def create_router(
 
     @router.post("/test/mobile-blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_mobile_blueprint_test(req: RunMobileBlueprintRequest) -> TestReportResponse:
-        """手机蓝本测试：在真实 Android 设备上按蓝本执行。"""
+        """手机蓝本测试：在真实 Android 设备上按蓝本执行。
+
+        如果 mobile_session_id 为空，自动检测设备并创建 Appium Session。
+        蓝本中的 app_package/app_activity 会在 runner.run() 中用于重建
+        带 appPackage 的完整 Session，确保 Appium 正确 instrument 被测 APP。
+        """
         from src.testing.blueprint import BlueprintParser
         from src.testing.mobile_blueprint_runner import MobileBlueprintRunner
+        from src.controller.android import AndroidController, MobileConfig
 
-        # 检查 session
-        if req.mobile_session_id not in _mobile_sessions:
-            raise HTTPException(
-                status_code=404,
-                detail=f"移动端 Session '{req.mobile_session_id}' 不存在，"
-                       "请先调用 /api/v1/mobile/session/create",
-            )
-        android_ctrl = _mobile_sessions[req.mobile_session_id]
-
-        # 解析蓝本
+        # 解析蓝本（先解析，需要读取 app_package 等信息）
         try:
             blueprint = BlueprintParser.parse_file(req.blueprint_path)
         except FileNotFoundError as e:
@@ -563,6 +569,39 @@ def create_router(
         if req.base_url:
             blueprint.base_url = req.base_url
 
+        # 获取或自动创建 Session
+        auto_created_session = False
+        if req.mobile_session_id and req.mobile_session_id in _mobile_sessions:
+            android_ctrl = _mobile_sessions[req.mobile_session_id]
+        else:
+            # 自动创建：检测设备 → 创建 Appium Session
+            logger.info("未指定有效 Session，自动创建 Appium Session...")
+            await ws_manager.send_log("正在连接手机设备...")
+            config = MobileConfig(
+                device_name="",  # 自动检测
+                app_package=blueprint.app_package or "",
+                app_activity=blueprint.app_activity or "",
+            )
+            android_ctrl = AndroidController(config)
+            try:
+                await android_ctrl.launch()
+                auto_created_session = True
+                session_id = f"mobile_auto_{len(_mobile_sessions) + 1}"
+                _mobile_sessions[session_id] = android_ctrl
+                logger.info("自动创建 Session 成功 | ID={}", session_id)
+
+                # 蓝本权限批量授予
+                if blueprint.permissions and blueprint.app_package:
+                    await android_ctrl.grant_permissions(
+                        blueprint.app_package, blueprint.permissions
+                    )
+            except Exception as e:
+                logger.error("自动创建 Appium Session 失败: {}", e)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"自动创建 Appium Session 失败: {e}。请确保手机已连接且 Appium 已启动。",
+                )
+
         async def _on_step(step: int, status: str, desc: str) -> None:
             if status == "start":
                 await ws_manager.send_step_start(step, desc)
@@ -570,7 +609,8 @@ def create_router(
                 await ws_manager.send_step_done(step, status, desc)
 
         runner = MobileBlueprintRunner(
-            android_ctrl, ai_client, on_step=_on_step
+            android_ctrl, ai_client, on_step=_on_step,
+            test_controller=test_controller,
         )
 
         try:
@@ -580,6 +620,10 @@ def create_router(
                 report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
                 len(report.bugs),
             )
+            from src.api.models import StepDetail, BugDetail
+            stopped = test_controller.was_stopped
+            if stopped:
+                test_controller.reset()
             return TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
@@ -590,6 +634,31 @@ def create_router(
                 pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                stopped=stopped,
+                steps=[
+                    StepDetail(
+                        step=r.step,
+                        action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                        description=r.description,
+                        status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                        duration_seconds=r.duration_seconds,
+                        error_message=r.error_message,
+                        screenshot_path=r.screenshot_path,
+                    )
+                    for r in report.step_results
+                ],
+                bugs=[
+                    BugDetail(
+                        severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                        title=b.title,
+                        description=b.description,
+                        category=b.category,
+                        location=b.location,
+                        step_number=b.step_number,
+                        screenshot_path=b.screenshot_path,
+                    )
+                    for b in report.bugs
+                ],
             )
         except Exception as e:
             logger.error("手机蓝本测试执行失败: {}", e)
