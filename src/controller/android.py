@@ -132,6 +132,27 @@ class AndroidController(BaseController):
             raise RuntimeError("Appium session 未创建，请先调用 launch()")
         return self._request(method, f"/session/{self._session_id}{path}", body, timeout=timeout)
 
+    async def _safe_session_call(
+        self, method: str, path: str, body: Optional[dict] = None, timeout: int = 0,
+    ) -> dict:
+        """带 U2 死亡自动恢复的 _session_request（async 版）。
+
+        如果请求超时（U2 无响应），自动重建 Session 后重试一次。
+        """
+        loop = asyncio.get_event_loop()
+        try:
+            return await loop.run_in_executor(
+                None, lambda: self._session_request(method, path, body, timeout=timeout)
+            )
+        except RuntimeError as e:
+            if "超时" not in str(e):
+                raise
+            logger.warning("U2疑似无响应({}), 尝试自动恢复...", str(e)[:40])
+            await self._recover_u2_session()
+            return await loop.run_in_executor(
+                None, lambda: self._session_request(method, path, body, timeout=timeout)
+            )
+
     # ── BaseController 实现 ──────────────────────
 
     async def launch(self) -> None:
@@ -161,6 +182,26 @@ class AndroidController(BaseController):
 
         # 自动保持亮屏（测试前设置，测试后恢复）
         await self._keep_screen_awake()
+
+        # 先杀掉可能残留的 APP 和 U2 进程
+        # Flutter app 如果已在运行且有活跃动画，XPath 策略会因 waitForIdle 卡死
+        loop = asyncio.get_event_loop()
+        if self._config.app_package:
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    ["adb", "shell", "am", "force-stop", self._config.app_package],
+                    capture_output=True, timeout=5,
+                )
+            )
+        for u2_pkg in ("io.appium.uiautomator2.server",
+                        "io.appium.uiautomator2.server.test"):
+            await loop.run_in_executor(
+                None, lambda pkg=u2_pkg: subprocess.run(
+                    ["adb", "shell", "am", "force-stop", pkg],
+                    capture_output=True, timeout=5,
+                )
+            )
+        await asyncio.sleep(1)
 
         logger.info("正在创建Appium Session | 设备={}", self._config.device_name or "auto")
 
@@ -402,10 +443,7 @@ class AndroidController(BaseController):
         logger.info("[步骤{}] 点击: {}", step, selector)
 
         element_id = await self._find_element_with_wait(selector, timeout_s=15)
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, lambda: self._session_request("POST", f"/element/{element_id}/click")
-        )
+        await self._safe_session_call("POST", f"/element/{element_id}/click")
 
     async def input_text(self, selector: str, text: str) -> None:
         """输入文本。"""
@@ -414,16 +452,10 @@ class AndroidController(BaseController):
         logger.info("[步骤{}] 输入: {} -> '{}'", step, selector, display)
 
         element_id = await self._find_element_with_wait(selector, timeout_s=15)
-        # 先清空
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, lambda: self._session_request("POST", f"/element/{element_id}/clear")
-        )
-        await loop.run_in_executor(
-            None, lambda: self._session_request("POST", f"/element/{element_id}/value", {
-                "text": text,
-            })
-        )
+        await self._safe_session_call("POST", f"/element/{element_id}/clear")
+        await self._safe_session_call("POST", f"/element/{element_id}/value", {
+            "text": text,
+        })
         # 输入完毕后收起键盘，避免软键盘遮挡下一个元素
         await self.hide_keyboard()
         # 等待键盘收起动画完成，否则下一个元素可能还被遮挡
@@ -673,19 +705,13 @@ class AndroidController(BaseController):
 
     async def get_page_source(self) -> str:
         """获取 UI 层级 XML。"""
-        loop = asyncio.get_event_loop()
-        resp = await loop.run_in_executor(
-            None, lambda: self._session_request("GET", "/source")
-        )
+        resp = await self._safe_session_call("GET", "/source")
         return resp.get("value", "")
 
     async def get_text(self, selector: str) -> str:
         """获取元素文本。"""
-        element_id = await self._find_element(selector)
-        loop = asyncio.get_event_loop()
-        resp = await loop.run_in_executor(
-            None, lambda: self._session_request("GET", f"/element/{element_id}/text")
-        )
+        element_id = await self._find_element_with_wait(selector, timeout_s=5)
+        resp = await self._safe_session_call("GET", f"/element/{element_id}/text")
         return resp.get("value", "")
 
     async def swipe(
@@ -863,6 +889,85 @@ class AndroidController(BaseController):
         except Exception as e:
             logger.warning("恢复屏幕设置时出错: {}", e)
 
+    # ── U2 存活检测与自动恢复 ────────────────────
+
+    def _is_u2_process_alive(self) -> bool:
+        """同步检测设备上 UiAutomator2 Server 进程是否存活。"""
+        try:
+            r = subprocess.run(
+                ["adb", "shell", "ps", "-A"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return "uiautomator" in r.stdout
+        except Exception:
+            return False
+
+    async def _recover_u2_session(self) -> None:
+        """U2 Server 被 Flutter 杀死后，重建 Session（不杀 app、不重启 Activity）。
+
+        Flutter 的 setState/pushReplacementNamed 等操作会导致
+        UiAutomator2 Server 进程被系统杀死（SIGKILL）。
+        此方法在不终止被测 app 的前提下重建 Appium Session，
+        让 Appium 重新启动一个全新的 U2 Server 实例。
+
+        关键：不传 appPackage/appActivity，避免 Appium 通过 am start 重启
+        Activity，否则 Flutter 引擎会重新初始化导致 setState 产生的
+        临时 UI 状态（如错误提示）丢失。
+        """
+        logger.warning("UiAutomator2 Server 进程已死亡，正在重建Session...")
+        loop = asyncio.get_event_loop()
+
+        # 1. 丢弃旧 session（不等DELETE响应，U2已死必然超时）
+        self._session_id = None
+
+        # 2. 清理残留的 U2 进程
+        def _kill_uia2():
+            for pkg in ("io.appium.uiautomator2.server",
+                        "io.appium.uiautomator2.server.test"):
+                subprocess.run(
+                    ["adb", "shell", "am", "force-stop", pkg],
+                    capture_output=True, timeout=5,
+                )
+        await loop.run_in_executor(None, _kill_uia2)
+        await asyncio.sleep(1)
+
+        # 3. 创建新 Session — 不带 appPackage/appActivity
+        #    Appium 只重启 U2 Server 并连接当前屏幕上的 app，不触发 am start
+        caps = {
+            "platformName": self._config.platform_name,
+            "appium:automationName": self._config.automation_name,
+            "appium:noReset": True,
+            "appium:newCommandTimeout": 300,
+            "appium:autoGrantPermissions": True,
+        }
+        if self._config.device_name:
+            caps["appium:deviceName"] = self._config.device_name
+
+        resp = await loop.run_in_executor(
+            None, lambda: self._request(
+                "POST", "/session",
+                {"capabilities": {"alwaysMatch": caps}},
+            )
+        )
+        self._session_id = resp.get("value", {}).get("sessionId")
+        if not self._session_id:
+            raise RuntimeError(f"U2恢复失败: Session重建失败: {resp}")
+
+        # 4. 重新设置 waitForIdleTimeout=0（Flutter 兼容）
+        try:
+            await loop.run_in_executor(
+                None, lambda: self._session_request(
+                    "POST", "/appium/settings",
+                    {"settings": {"waitForIdleTimeout": 0,
+                                  "waitForSelectorTimeout": 0}},
+                )
+            )
+        except Exception:
+            pass
+
+        await asyncio.sleep(2)
+        logger.info("U2 Session 自动恢复成功 | ID={}", self._session_id[:8])
+
     # ── 内部方法 ─────────────────────────────────
 
     async def _find_element_with_wait(self, selector: str, timeout_s: float = 10) -> str:
@@ -870,10 +975,12 @@ class AndroidController(BaseController):
 
         Flutter等框架渲染或键盘收起后UI树可能需要几秒才就绪，
         此方法每0.5秒轮询一次直到找到或超时。
+        如果检测到 UiAutomator2 Server 无响应（进程死亡或hang），自动重建 Session。
         """
         import time as _time
         start = _time.time()
         last_err: Exception | None = None
+        u2_recovered = False
         while True:
             try:
                 return await self._find_element(selector)
@@ -883,6 +990,14 @@ class AndroidController(BaseController):
                 if "instrumentation process is not running" in err_str or "500" in err_str[:20]:
                     raise
                 last_err = e
+                # 超时 = U2 无响应（可能被 Flutter 杀死或 hang）
+                # 无论进程是否存活都尝试恢复一次
+                if not u2_recovered and "超时" in err_str:
+                    logger.warning("U2疑似无响应({}), 尝试自动恢复...", err_str[:40])
+                    await self._recover_u2_session()
+                    u2_recovered = True
+                    start = _time.time()  # 恢复后重置计时
+                    continue
                 if _time.time() - start >= timeout_s:
                     raise
                 await asyncio.sleep(0.5)
@@ -904,11 +1019,13 @@ class AndroidController(BaseController):
         elif selector.startswith("id:"):
             strategy, value = "id", selector[3:]
         elif selector.startswith("accessibility_id:"):
-            # 转为 UiSelector.description() — 避免 accessibility id 策略内部的
+            # 转为 UiSelector.descriptionStartsWith() — 避免 accessibility id 策略内部的
             # waitForIdle() 调用，在 Flutter 等持续动画的 app 上会卡死
+            # 用 StartsWith 而非精确匹配：Flutter Semantics label + child 文本
+            # 会合并为 "label\n子文本"（如 "txt_error\n用户名或密码错误"）
             desc_value = selector[17:]
             strategy = "-android uiautomator"
-            value = f'new UiSelector().description("{desc_value}")'
+            value = f'new UiSelector().descriptionStartsWith("{desc_value}")'
         elif selector.startswith("class:"):
             strategy, value = "class name", selector[6:]
         elif selector.startswith("uia:"):

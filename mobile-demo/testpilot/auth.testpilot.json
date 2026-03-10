@@ -3,7 +3,7 @@
   "description": "登录注册模块：正常登录、异常校验、游客模式、注册流程、认证安全审计",
   "base_url": "http://localhost:8900/preview/mobile-demo/",
   "version": "2.0",
-  "platform": "android",
+  "platform": "web",
   "pages": [
     {
       "url": "/",

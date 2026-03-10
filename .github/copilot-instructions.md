@@ -151,8 +151,94 @@ shop-demo/
 - **场景间重置**：引擎会自动用 `wx.reLaunch` 回首页，蓝本无需关心
 - **截图**：每个关键场景末尾加 `screenshot` 步骤留证
 
-## Android蓝本编写规范
+## Android/Flutter 蓝本编写规范
 
-1. **`platform` 字段必须设为 `"android"`**
-2. **引擎会自动检测设备连接**：未连接会提示用户
-3. **Windows下不支持iOS**（需macOS环境）
+### 基本字段
+
+1. **`platform` 字段必须设为 `"android"`**（Flutter 应用也是 `"android"`，不是 `"flutter"`）
+2. **必须包含 `app_package` 和 `app_activity`**：如 `"com.testpilot.flutter_demo"` / `".MainActivity"`
+3. **`base_url` 留空**：原生应用不需要 URL
+4. **页面 `url` 留空**：原生应用没有 HTTP URL，页面区分靠 `title`
+5. **引擎会自动检测设备连接**：未连接会提示用户
+6. **Windows下不支持iOS**（需macOS环境）
+
+### Flutter Semantics → Android 无障碍属性映射（核心规则）
+
+Flutter 的 `Semantics` 组件在 Android 端映射为无障碍属性。**选择器必须基于这些映射规则**：
+
+| Flutter Semantics 用法 | Android 无障碍属性 | 蓝本选择器格式 |
+|---|---|---|
+| `Semantics(label: 'xxx', button: true)` | `content-desc="xxx"` | `accessibility_id:xxx` |
+| `Semantics(label: 'xxx', textField: true)` 包裹 TextField | `hint="xxx"` | `//android.widget.EditText[@hint='xxx']` |
+| `Semantics(label: 'xxx')` 普通标签（无 button/textField） + child 有文本 | `content-desc="xxx\n子文本"` | `accessibility_id:xxx`（部分匹配） |
+| `IconButton(tooltip: 'xxx')` | `content-desc="xxx"` | `accessibility_id:xxx` |
+| `TextField(decoration: InputDecoration(hintText: 'xxx'))` | `hint="xxx"` | `//android.widget.EditText[@hint='xxx']` |
+
+### 选择器优先级（从高到低）
+
+1. **`accessibility_id:xxx`** — 用于 `button:true` 的按钮、普通 label 元素、tooltip 的 IconButton
+2. **`//android.widget.EditText[@hint='xxx']`** — 用于文本输入框（textField 标记或 hintText）
+3. **`//ClassName[@attribute='value']`** — 用于其他精确 XPath 定位
+
+### 绝对禁止的选择器
+
+- ❌ `UiSelector().className("xxx").instance(N)` — 依赖元素出现顺序，极其脆弱
+- ❌ `//xxx[@index='N']` — 同上，索引会因 UI 变化而错位
+- ❌ `div:nth-child(N)` — 这是 Web CSS 选择器，不适用于原生 Android
+- ❌ 不带任何属性约束的纯 ClassName 选择器
+
+### Android 蓝本模板
+
+```json
+{
+  "app_name": "你的应用名",
+  "description": "50-200字功能描述",
+  "base_url": "",
+  "version": "1.0",
+  "platform": "android",
+  "app_package": "com.example.app",
+  "app_activity": ".MainActivity",
+  "pages": [
+    {
+      "url": "",
+      "title": "页面标题",
+      "elements": {
+        "用户名输入框": "//android.widget.EditText[@hint='tf_username']",
+        "登录按钮": "accessibility_id:btn_login",
+        "错误提示": "accessibility_id:txt_error"
+      },
+      "scenarios": [
+        {
+          "name": "场景名",
+          "steps": [
+            {"action": "wait", "value": "3000", "description": "等待应用启动"},
+            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_username']", "value": "admin"},
+            {"action": "click", "target": "accessibility_id:btn_login"},
+            {"action": "wait", "value": "1000"},
+            {"action": "assert_text", "target": "accessibility_id:txt_result", "expected": "预期文本"},
+            {"action": "screenshot", "value": "场景截图名"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### Android/Flutter 蓝本注意事项
+
+- **场景间重置**：用 `navigate` + Activity 路径重启应用（如 `com.testpilot.flutter_demo/.MainActivity`），引擎会 force-stop → 重建 Session → 重启 app
+- **Flutter 动画等待**：Flutter 页面跳转后需要 `wait` 2-3秒（setState/pushReplacementNamed 会导致 U2 短暂不响应）
+- **等待元素就绪**：跳转后用 `{"action": "wait", "target": "accessibility_id:xxx", "timeout_ms": 15000}` 等待关键元素出现
+- **每个操作必须验证**：`click` 后必须有 `assert_text` 或 `screenshot`
+- **Bug 标记**：已知 Bug 的断言加 `description: "【预期失败-Bug-N】原因说明"`
+- **Semantics 优先级**：`Semantics(label: 'tf_user', textField: true)` 包裹 `TextField(hintText: '请输入')` 时，hint 是 `tf_user`（Semantics label 覆盖 hintText）
+
+### wait 动作两种格式
+
+| 格式 | 用法 | 说明 |
+|------|------|------|
+| 简单等待 | `{"action": "wait", "value": "3000"}` | 固定等待毫秒数 |
+| 等待元素 | `{"action": "wait", "target": "accessibility_id:xxx", "timeout_ms": 15000}` | 轮询等元素出现 |
+
+> Flutter 每次 `navigate` 重启后的标准流程：先 `wait 3000`，再 `wait target` 等关键元素就绪。

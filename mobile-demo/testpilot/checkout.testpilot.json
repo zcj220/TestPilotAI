@@ -3,7 +3,7 @@
   "description": "结算模块：完整下单流程、表单校验、配送费审计、优惠券审计、组合验证",
   "base_url": "http://localhost:8900/preview/mobile-demo/",
   "version": "2.0",
-  "platform": "android",
+  "platform": "web",
   "pages": [
     {
       "url": "/checkout",

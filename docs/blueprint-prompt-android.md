@@ -104,26 +104,31 @@ assert_text / assert_visible / hover / scroll
 
 Flutter App 与普通 Android 原生 App 的元素树结构完全不同，**必须单独处理**。
 
-### 关键差异：Flutter TextField 无法用 accessibility_id 定位
+### Flutter Semantics → Android 无障碍属性映射（核心）
 
-Flutter 的 `Semantics(label: 'xxx')` **不会**在 UIAutomator2 中创建 `content-desc='xxx'`。  
-用 `adb uiautomator dump` 查看 UI 树，所有 EditText 的 `content-desc` 均为空字符串。
+| Flutter 代码 | Android 属性 | 蓝本选择器 |
+|---|---|---|
+| `Semantics(label: 'xxx', button: true)` | `content-desc="xxx"` | `accessibility_id:xxx` |
+| `Semantics(label: 'xxx', textField: true)` 包裹 TextField | `hint="xxx"` | `//android.widget.EditText[@hint='xxx']` |
+| `Semantics(label: 'xxx')` + child `Text(yyy)` | `content-desc="xxx\nyyy"` | `accessibility_id:xxx`（部分匹配） |
+| `IconButton(tooltip: 'xxx')` | `content-desc="xxx"` | `accessibility_id:xxx` |
+| `TextField(hintText: 'xxx')`（无 Semantics 包裹） | `hint="xxx"` | `//android.widget.EditText[@hint='xxx']` |
 
-| 控件类型 | 能否用 accessibility_id | 解决方案 |
-|---------|------------------------|---------|
-| Button（Semantics label已设置）| ✅ 可以 | `accessibility_id:btn_login` |
-| Text/Title | ✅ 可以 | `accessibility_id:txt_title` |
-| **TextField/TextFormField** | ❌ 不行 | **必须用 `uia:` UiSelector** |
+> ⚠️ **Semantics label 覆盖 hintText**：当 `Semantics(label: 'tf_user', textField: true)` 包裹 `TextField(hintText: '请输入用户名')` 时，Android 端的 `hint="tf_user"`（不是 `请输入用户名`）。
 
-### Flutter TextField 正确选择器
+### 选择器优先级（从高到低）
 
-```json
-{"action": "fill", "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(0)", "value": "admin"}
-{"action": "fill", "target": "uia:new UiSelector().className(\"android.widget.EditText\").instance(1)", "value": "password"}
-```
+| 优先级 | 格式 | 适用场景 |
+|--------|------|---------|
+| 1 | `accessibility_id:xxx` | Button（`button: true`）、Text 标签、IconButton tooltip |
+| 2 | `//android.widget.EditText[@hint='xxx']` | TextField（`textField: true` 或 hintText） |
+| 3 | `//ClassName[@attribute='value']` | 其他精确 XPath 定位 |
 
-- `instance(0)` = 页面第1个输入框，`instance(1)` = 第2个，以此类推
-- **不要用 XPath index**，Flutter 的节点树层级复杂，XPath 极不稳定
+### ❌ 绝对禁止的选择器
+
+- `UiSelector().className("xxx").instance(N)` — 依赖元素出现顺序，极其脆弱
+- `//xxx[@index='N']` — 同上，索引会因 UI 变化而错位
+- 不带任何属性约束的纯 ClassName 选择器
 
 ### Flutter 原生 App 蓝本必填字段
 
@@ -162,13 +167,22 @@ Flutter 的 `Semantics(label: 'xxx')` **不会**在 UIAutomator2 中创建 `cont
 {"action": "navigate", "value": "com.testpilot.flutter_demo/.MainActivity", "description": "重启 App 回初始页"}
 ```
 
-`navigate` 值格式为 `包名/Activity路径`，引擎会自动调用 `start_activity` 重启应用。
+`navigate` 值格式为 `包名/.Activity路径`，引擎会 force-stop → 重建 Session → 重启 app。
+
+### wait 动作两种格式
+
+| 格式 | 用法 | 说明 |
+|------|------|------|
+| 简单等待 | `{"action": "wait", "value": "3000"}` | 固定等待 3 秒 |
+| 等待元素 | `{"action": "wait", "target": "accessibility_id:xxx", "timeout_ms": 15000}` | 等元素出现，最多 15 秒 |
+
+> Flutter 每次 `navigate` 重启后的标准流程：先 `wait 3000`，再 `wait target` 等关键元素就绪。
 
 ### Flutter 等待时间建议
 
 | 操作 | 建议等待 |
 |------|---------|
 | App 首次冷启动 | `wait 3000`（3秒） |
-| 场景间 navigate 重启 | `wait 2500` |
+| 场景间 navigate 重启 | `wait 3000` + `wait target`（等关键元素） |
 | 点击登录等待跳转 | `wait 2000` |
 | 普通按钮操作后 | `wait 1000` |

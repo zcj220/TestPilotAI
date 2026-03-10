@@ -3,7 +3,7 @@
   "description": "移动端H5水果商城深度测试：覆盖登录注册、商品浏览分类搜索、购物车增删改、结算配送、订单查看、个人中心，含安全审计和逻辑漏洞挖掘",
   "base_url": "http://localhost:8900/preview/mobile-demo/",
   "version": "2.0",
-  "platform": "android",
+  "platform": "web",
   "pages": [
     {
       "url": "/",

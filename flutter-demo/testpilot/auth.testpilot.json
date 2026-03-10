@@ -1,28 +1,29 @@
 {
   "app_name": "TaskPilot Flutter Demo",
-  "description": "Flutter Android Login Test",
+  "description": "Flutter登录模块测试：正确账号登录、空账号登录（Bug-1：应拒绝但放行）、错误密码提示。密码明文可见（Bug-2：无obscureText）",
   "base_url": "",
-  "version": "1.3",
+  "version": "2.0",
   "platform": "android",
   "app_package": "com.testpilot.flutter_demo",
   "app_activity": ".MainActivity",
   "pages": [
     {
       "url": "",
-      "title": "Login",
+      "title": "登录页",
       "elements": {
-        "username": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
-        "password": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
-        "login_btn": "accessibility_id:btn_login"
+        "username": "//android.widget.EditText[@hint='tf_username']",
+        "password": "//android.widget.EditText[@hint='tf_password']",
+        "login_btn": "accessibility_id:btn_login",
+        "error_text": "accessibility_id:txt_error"
       },
       "scenarios": [
         {
-          "name": "正常账号登录成功",
+          "name": "正确账号登录成功",
           "steps": [
             {
               "action": "wait",
               "value": "3000",
-              "description": "等待应用启动"
+              "description": "等待Flutter应用启动渲染"
             },
             {
               "action": "screenshot",
@@ -30,33 +31,40 @@
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
+              "target": "//android.widget.EditText[@hint='tf_username']",
               "value": "admin",
               "description": "输入用户名"
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
+              "target": "//android.widget.EditText[@hint='tf_password']",
               "value": "admin123",
               "description": "输入密码"
             },
             {
               "action": "click",
               "target": "accessibility_id:btn_login",
-              "description": "点击登录"
+              "description": "点击登录按钮"
             },
             {
               "action": "wait",
-              "value": "2000"
+              "value": "2000",
+              "description": "等待页面跳转和U2恢复"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务",
+              "description": "验证已跳转到任务列表页"
             },
             {
               "action": "screenshot",
-              "value": "after_login"
+              "value": "login_success"
             }
           ]
         },
         {
-          "name": "空账号应被拒绝",
+          "name": "空账号应被拒绝（Bug-1：实际会放行）",
           "steps": [
             {
               "action": "navigate",
@@ -65,7 +73,7 @@
             },
             {
               "action": "wait",
-              "value": "5000",
+              "value": "3000",
               "description": "等待Flutter重新渲染"
             },
             {
@@ -77,20 +85,26 @@
             {
               "action": "click",
               "target": "accessibility_id:btn_login",
-              "description": "空账号直接登录"
+              "description": "不填任何内容直接点击登录"
             },
             {
               "action": "wait",
-              "value": "1000"
+              "value": "1500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_error",
+              "expected": "请输入用户名",
+              "description": "【预期失败-Bug-1】空账号应显示错误提示，但实际直接跳转到任务页"
             },
             {
               "action": "screenshot",
-              "value": "empty_login"
+              "value": "empty_login_bug1"
             }
           ]
         },
         {
-          "name": "错误账号显示提示",
+          "name": "错误密码显示错误提示",
           "steps": [
             {
               "action": "navigate",
@@ -99,7 +113,7 @@
             },
             {
               "action": "wait",
-              "value": "5000",
+              "value": "3000",
               "description": "等待Flutter重新渲染"
             },
             {
@@ -110,13 +124,13 @@
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(0)",
+              "target": "//android.widget.EditText[@hint='tf_username']",
               "value": "wronguser",
               "description": "输入错误用户名"
             },
             {
               "action": "fill",
-              "target": "uia:new UiSelector().className(\"android.widget.EditText\").clickable(true).instance(1)",
+              "target": "//android.widget.EditText[@hint='tf_password']",
               "value": "wrongpass",
               "description": "输入错误密码"
             },
@@ -130,8 +144,14 @@
               "value": "1000"
             },
             {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_error",
+              "expected": "用户名或密码错误",
+              "description": "验证显示错误提示文本"
+            },
+            {
               "action": "screenshot",
-              "value": "wrong_cred"
+              "value": "wrong_cred_error"
             }
           ]
         }

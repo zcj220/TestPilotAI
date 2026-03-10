@@ -373,6 +373,83 @@ def create_router(
         if req.base_url:
             blueprint.base_url = req.base_url
 
+        # Android/iOS 蓝本 → 自动创建 session 并路由到 MobileBlueprintRunner
+        if blueprint.platform in ("android", "ios"):
+            from src.controller.android import AndroidController, MobileConfig
+            from src.testing.mobile_blueprint_runner import MobileBlueprintRunner
+
+            config = MobileConfig(
+                app_package=blueprint.app_package or "",
+                app_activity=blueprint.app_activity or "",
+            )
+            android_ctrl = AndroidController(config)
+            try:
+                await android_ctrl.launch()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"连接Android设备失败: {e}")
+
+            async def _on_step_m(step: int, status: str, desc: str) -> None:
+                if status == "start":
+                    await ws_manager.send_step_start(step, desc)
+                else:
+                    await ws_manager.send_step_done(step, status, desc)
+
+            runner = MobileBlueprintRunner(
+                android_ctrl, ai_client, on_step=_on_step_m
+            )
+
+            try:
+                await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+                report = await runner.run(blueprint)
+                await ws_manager.send_test_done(
+                    report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                    len(report.bugs),
+                )
+                from src.api.models import StepDetail, BugDetail
+                return TestReportResponse(
+                    test_name=report.test_name,
+                    url=report.url,
+                    total_steps=report.total_steps,
+                    passed_steps=report.passed_steps,
+                    failed_steps=report.failed_steps,
+                    bug_count=len(report.bugs),
+                    pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                    duration_seconds=report.duration_seconds,
+                    report_markdown=report.report_markdown,
+                    steps=[
+                        StepDetail(
+                            step=r.step,
+                            action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                            description=r.description,
+                            status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                            duration_seconds=r.duration_seconds,
+                            error_message=r.error_message,
+                            screenshot_path=r.screenshot_path,
+                        )
+                        for r in report.step_results
+                    ],
+                    bugs=[
+                        BugDetail(
+                            severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                            title=b.title,
+                            description=b.description,
+                            category=b.category,
+                            location=b.location,
+                            step_number=b.step_number,
+                            screenshot_path=b.screenshot_path,
+                        )
+                        for b in report.bugs
+                    ],
+                )
+            except Exception as e:
+                logger.error("手机蓝本测试执行失败: {}", e)
+                raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
+            finally:
+                try:
+                    await android_ctrl.close()
+                except Exception:
+                    pass
+
         # v10.1：自动推断 preview URL
         # 如果蓝本在引擎工作区内（含 testpilot.json 的目录），
         # 且 base_url 指向的外部端口不可达，自动切换到 /preview/{dir}/

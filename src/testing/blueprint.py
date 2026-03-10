@@ -135,8 +135,10 @@ class BlueprintParser:
         if not blueprint.pages:
             issues.append("缺少 pages（至少需要一个页面）")
 
+        is_native_app = blueprint.platform in ("android", "ios", "flutter")
+
         for i, page in enumerate(blueprint.pages):
-            if not page.url:
+            if not page.url and not is_native_app:
                 issues.append(f"页面{i+1}缺少 url")
             if not page.scenarios:
                 issues.append(f"页面{i+1}（{page.url}）没有测试场景")
@@ -157,7 +159,11 @@ class BlueprintParser:
                             f"页面{i+1}场景'{scenario.name}'步骤{k+1}："
                             f"未知操作类型'{step.action}'"
                         )
-                    if step.action in ("click", "fill", "select", "wait", "assert_text", "assert_visible") and not step.target:
+                    needs_target = step.action in ("click", "fill", "select", "assert_text", "assert_visible")
+                    # wait 有两种用法: wait+target=等元素, wait+value=延时
+                    if step.action == "wait" and not step.target and not step.value:
+                        needs_target = True
+                    if needs_target and not step.target:
                         issues.append(
                             f"页面{i+1}场景'{scenario.name}'步骤{k+1}："
                             f"操作'{step.action}'需要 target 选择器"
