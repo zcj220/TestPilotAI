@@ -416,16 +416,46 @@ def generate_blueprint_template(
     }
 
     result = json.dumps(template, ensure_ascii=False, indent=2)
-    return (
-        f"以下是 testpilot.json 蓝本模板，请根据实际代码补充完善：\n\n"
-        f"```json\n{result}\n```\n\n"
-        f"**补充要点：**\n"
-        f"1. elements 中填写实际的CSS选择器（#id, .class等）\n"
-        f"2. 每个 scenario 代表一个测试场景（如添加、删除、编辑）\n"
-        f"3. expected 写清楚操作后应该看到什么\n"
-        f"4. 支持的 action: navigate, click, fill, select, wait, screenshot, assert_text, assert_visible\n"
-        f"5. 保存为 testpilot.json 后调用 run_blueprint_test 执行测试"
+    is_mobile = "android" in pages_description.lower() or "flutter" in pages_description.lower()
+    core_philosophy = (
+        "**⚠️ 蓝本核心原则（必须遵守）**\n"
+        "1. **绝对正向验证**：假设一切功能正确，写\"正确时应该怎样\"的断言。Bug由引擎自动发现（实际≠预期），不是你预知的\n"
+        "2. **代码是唯一真相**：用户描述帮理解方向（可能是愿景还没实现），代码里实现了什么就测什么\n"
+        "3. **穷举每种输入变体**：搜索测大写/小写/混合/部分匹配/空搜索；登录测正确/错误/空；数值用精确值断言\n"
+        "4. **操作→断言配对**：每个操作后必须跟断言验证结果，没有断言的操作等于没测\n"
+        "5. **❌ 禁止预知Bug**：不要看到代码有Bug就针对性写用例确认，按正常逻辑写断言即可\n\n"
     )
+    if is_mobile:
+        tips = (
+            f"{core_philosophy}"
+            f"**移动端蓝本补充要点：**\n"
+            f"1. 加 app_package 和 app_activity 字段\n"
+            f"2. platform 设为 \"android\"\n"
+            f"3. target 用 accessibility_id:xxx 格式（Android contentDescription / Flutter Semantics label）\n"
+            f"4. 也可用 xpath://android.widget.Button[@text='按钮文字']\n"
+            f"5. fill 的 value 必须用纯ASCII字符，禁止中文（中文输入法会吞字符）\n"
+            f"6. APP启动后加 wait 2000，页面跳转后加 wait 1500-2000\n"
+            f"7. assert_text 必须有 expected 字段，写\"正确时应该显示什么\"\n"
+            f"8. 支持的 action: navigate, click, fill, wait, screenshot, assert_text, scroll"
+        )
+    else:
+        tips = (
+            f"{core_philosophy}"
+            f"**补充要点：**\n"
+            f"1. elements 中填写实际的CSS选择器（#id, .class等）\n"
+            f"2. 每个 scenario 代表一个测试场景（如添加、删除、编辑）\n"
+            f"3. expected 写\"功能正确时应该看到什么\"，不要预知Bug\n"
+            f"4. 支持的 action: navigate, click, fill, select, wait, screenshot, assert_text, assert_visible\n"
+            f"5. 保存为 testpilot.json 后调用 run_blueprint_test 执行测试"
+        )
+    changelog_tip = (
+        "\n\n**📋 蓝本备忘录（必须同时创建）**\n"
+        "首次生成蓝本时，同时创建 `testpilot/CHANGELOG.md`，记录：\n"
+        "- 当前可测功能清单（[x]已实现 [ ]未实现）\n"
+        "- 变更记录（日期+增删改了什么功能+对应蓝本变化）\n"
+        "AI接手项目时先读此文件，了解当前测试范围，避免对未实现功能写用例。"
+    )
+    return f"以下是 testpilot.json 蓝本模板，请根据实际代码补充完善：\n\n```json\n{result}\n```\n\n{tips}{changelog_tip}"
 
 
 @mcp.tool()

@@ -457,6 +457,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async _handleCopyBlueprintPrompt(platform: string): Promise<void> {
     const commonRules = `══════ 测试设计黄金规则（必须严格遵守） ══════
 
+【核心哲学：绝对正向验证（最最重要！这是蓝本的灵魂）】
+- 蓝本 = 假设一切功能完全正确的测试路线图
+- 你不知道哪里有Bug，你认为所有功能都是对的，写出"正确时应该是什么样"的断言
+- 当测试引擎跑蓝本发现"实际≠预期"时，那就是Bug——由引擎自动发现，不是你预知的
+- ❌ 绝对禁止：看到代码有Bug就针对性写用例确认（这是作弊，不是测试）
+- ✅ 正确做法：按功能正常逻辑写断言，Bug自然会暴露出来
+
+【核心哲学：穷举每条路径（蓝本的完整性）】
+- 信息来源分三层，但代码是唯一真相：
+  1. 用户描述 → 帮你理解项目方向和整体意图（但用户可能描述的是愿景，很多功能还没实现）
+  2. 你的理解 → 结合用户描述形成对功能的整体认知（但不要凭空假设功能存在）
+  3. 代码穷举 → 这是唯一依据！代码里实现了什么就测什么，没实现的不测
+- 流程：先听用户描述理解方向 → 再通读代码确认哪些功能已实现 → 对已实现的功能穷举测试路径
+- 穷举 = 每条路径的每种合理输入变体都要试：
+  搜索 → 精确匹配、部分匹配、大写、小写、混合大小写、空搜索（共6次）
+  登录 → 正确账号、错误密码、空账号、空密码（共4次）
+  数值输入 → 正常值、边界值、零、负数
+  列表操作 → 添加、删除、编辑、排序（代码有的都试）
+- 对每个功能，主动思考："这个功能有哪些合理的输入变体？" 然后每种都写测试
+- 原则：宁可多测不可漏测，每个场景都以assert结尾
+
 【规则1：功能全覆盖】
 - 先通读全部源代码，列出所有功能点（每个按钮、每个表单、每个Tab、每个弹窗、每个下拉框）
 - 每个功能点必须至少有一个测试场景，不能遗漏任何可操作的UI元素
@@ -467,6 +488,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - 错误示范：click登录按钮 → 结束（没验证是否登录成功）
 - 正确示范：click登录按钮 → assert_text验证"欢迎回来"或验证用户名显示正确
 - 原则：没有断言的操作等于没测
+- 断言的expected必须写"正确时应该显示什么"，不要写"错误时会显示什么"
 
 【规则3：业务流程端到端串联】
 - 除了单点功能测试，必须有完整业务流程场景：
@@ -540,7 +562,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - 删除功能 → 删除对应场景
 - 禁止每次都从零生成全新蓝本覆盖旧文件
 
-重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本，无需用户提醒！`;
+【规则14：蓝本备忘录（testpilot/CHANGELOG.md）】
+- 首次生成蓝本时，必须同时创建 testpilot/CHANGELOG.md
+- 格式如下：
+  # 蓝本备忘录
+  ## 当前可测功能
+  - [x] 登录（用户名+密码）
+  - [x] 笔记列表（增删查）
+  - [x] 搜索（关键词匹配）
+  - [ ] 注册（未实现）
+  ## 变更记录
+  ### 2026-03-11
+  - 初始蓝本：覆盖登录、笔记CRUD、搜索、异常输入
+  ### 2026-03-15
+  - 新增：标签功能（代码已实现）→ 新增场景3条
+  - 修改：搜索支持标签过滤 → 更新搜索场景
+- 每次修改代码后更新蓝本时，同步更新CHANGELOG.md
+- AI接手项目时，先读CHANGELOG.md了解当前测试范围，避免对未实现功能写用例
+
+重要提醒：以后修改代码时，主动审视并更新对应模块的蓝本和CHANGELOG.md，无需用户提醒！`;
 
     let prompt = "";
     if (platform === "miniprogram") {
@@ -606,38 +646,50 @@ reset_state / navigate_to / click / fill / call_method / evaluate / read_text / 
 
 ${commonRules}`;
     } else if (platform === "android") {
-      prompt = `请帮我为当前【Android】项目生成测试蓝本文件 testpilot/testpilot.json。
+      const androidRules = `
+【蓝本格式】
+{ "app_name": "应用名称", "description": "功能说明", "base_url": "", "version": "1.0",
+  "platform": "android", "app_package": "com.example.myapp", "app_activity": ".MainActivity",
+  "pages": [{ "url": "", "title": "页面标题", "scenarios": [{ "name": "场景名", "steps": [
+    {"action": "wait", "value": "2000", "description": "等待加载"},
+    {"action": "fill", "target": "accessibility_id:et_username", "value": "admin", "description": "输入用户名"},
+    {"action": "click", "target": "accessibility_id:btn_login", "description": "点击登录"},
+    {"action": "assert_text", "target": "accessibility_id:tv_result", "expected": "预期文本", "description": "验证结果"}
+  ]}]}]}
 
-蓝本格式：
-{
-  "app_name": "应用名称",
-  "description": "功能说明",
-  "base_url": "http://被测网页URL（手机浏览器测试）",
-  "version": "1.0",
-  "platform": "android",
-  "pages": [
-    {
-      "url": "/",
-      "title": "页面标题",
-      "elements": { "元素描述": "#CSS选择器" },
-      "scenarios": [
-        {
-          "name": "场景名",
-          "steps": [
-            {"action": "navigate", "value": "http://被测URL"},
-            {"action": "click", "target": "#btn"},
-            {"action": "assert_text", "target": "#result", "expected": "预期文本"}
-          ]
-        }
-      ]
-    }
-  ]
-}
+【必填字段】app_package（包名）、app_activity（启动Activity）、platform="android"
 
-注意：Android测试通过手机浏览器执行，选择器与Web相同（CSS选择器）。
-如果是原生App测试，target改用 resource-id 格式（如 com.app:id/btnLogin）。
+【选择器规范（极重要！禁止CSS选择器！）】
+- 优先用 accessibility_id:xxx（Android的contentDescription / Flutter的Semantics label）
+- 其次用 xpath://android.widget.Button[@text='登录']
+- Flutter: 检查 Semantics(label:'xxx') 或 Key('xxx')
+- 原生Android: 检查 android:contentDescription="xxx"
+- 必须先阅读源代码确认选择器存在！
 
-支持的 action：navigate / click / fill / select / wait / screenshot / assert_text / assert_visible / hover / scroll
+【支持的action】navigate(value=包名/Activity) / click / fill / wait / screenshot / assert_text(必须有expected) / scroll(value=up/down)
+
+【测试数据规范（必须遵守！）】
+- fill的value必须用纯ASCII字符（英文+数字+符号），禁止中文！原因：中文输入法会吞字符
+- 示例：admin、admin123、wrong_pass、test@email.com
+
+【节奏控制（必须遵守！）】
+- APP启动后 wait 2000；页面跳转后 wait 1500-2000；navigate后 wait 1500
+- 对话框操作后 wait 500；fill操作自带等待不需额外加
+- 输入速度已在引擎层面放慢，蓝本不需要额外控制
+
+【场景设计（正向验证原则）】
+- 第1个场景必须是正常流程（如正确登录），确保进入主页面
+- 异常场景放后面，每个用navigate回到起始页
+- assert_text的expected写"功能正确时应该显示的值"，不要预知Bug
+- 搜索功能必须分别测试：原文搜索、小写搜索、大写搜索、部分匹配，每个都断言能找到结果
+  例：数据里有"Hello World" → 搜"Hello"断言找到 + 搜"hello"断言找到 + 搜"HELLO"断言找到
+- 数值计算必须用具体值断言：添加30字的笔记 → 断言总字数=30，不要写"大约"
+- 截图：每页第1个场景末尾加1张screenshot，其余不加`;
+
+      prompt = `请帮我为当前【Android原生/Flutter】项目生成测试蓝本文件 testpilot/testpilot.json。
+
+⚠️ 移动端蓝本与Web蓝本完全不同！严格遵守以下规则：
+${androidRules}
 
 ${commonRules}`;
     } else if (platform === "desktop") {

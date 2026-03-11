@@ -131,6 +131,24 @@ class MobileBlueprintRunner:
             self._ctrl._dialog_dismisser.stop()
             self._ctrl._dialog_dismisser = None
 
+        # 提前切换输入法（必须在键盘未弹出时执行，避免ime set产生残留字符）
+        try:
+            import subprocess as _sp
+            _loop = asyncio.get_event_loop()
+            _serial = self._ctrl._device.extra.get("serial", "") or self._ctrl._config.device_name
+            _adb_base = ["adb"]
+            if _serial:
+                _adb_base.extend(["-s", _serial])
+
+            async def _adb_run(args, timeout=5):
+                await _loop.run_in_executor(
+                    None, lambda: _sp.run(_adb_base + args, capture_output=True, timeout=timeout))
+
+            await self._ctrl._ensure_latin_ime(_adb_base, _loop, _adb_run)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.debug("提前切换输入法失败（非致命）: {}", str(e)[:60])
+
         # 将取消信号注入AndroidController，使 _find_element_with_wait 能及时中断
         if self._test_controller:
             self._ctrl._is_cancelled_fn = lambda: self._test_controller.is_cancelled
@@ -668,7 +686,7 @@ class MobileBlueprintRunner:
             # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
             recoverable = ("no such element" in err or "元素查找超时" in err
                            or "session" in err.lower() or "超时" in err
-                           or "instrumentation" in err)
+                           or "instrumentation" in err or "invalid selector" in err)
             if not recoverable:
                 raise
 
@@ -722,10 +740,24 @@ class MobileBlueprintRunner:
                     break
 
         if matched is not None:
-            # 返回content-desc或text（取非空的那个）
             cd = matched.get("content-desc", "")
             txt = matched.get("text", "")
-            return cd or txt or ""
+            # accessibility_id匹配时，content-desc是定位用的ID（如tv_note_count），
+            # 真正的显示文本在text属性，或在content-desc的\n之后
+            # Flutter Semantics: content-desc = "label\n实际文本"
+            if selector.startswith("accessibility_id:"):
+                aid = selector[len("accessibility_id:"):]
+                # 如果content-desc包含\n，提取\n后面的实际文本
+                if "\n" in cd:
+                    actual = cd.split("\n", 1)[1].strip()
+                    return actual or txt or ""
+                # 如果content-desc就是定位ID本身，返回text属性
+                if cd == aid or cd.startswith(aid + "\n"):
+                    return txt or ""
+                # 否则content-desc本身就是文本
+                return cd or txt or ""
+            # 非accessibility_id选择器，保持原逻辑
+            return txt or cd or ""
 
         return None
 
@@ -753,7 +785,7 @@ class MobileBlueprintRunner:
             # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
             recoverable = ("no such element" in err or "元素查找超时" in err
                            or "session" in err.lower() or "超时" in err
-                           or "instrumentation" in err)
+                           or "instrumentation" in err or "invalid selector" in err)
             if not recoverable:
                 raise
 

@@ -86,6 +86,7 @@ class AndroidController(BaseController):
         self._u2_dead = False  # U2被杀后置True，避免反复等/source超时
         self._original_ime: Optional[str] = None  # 输入法备份，测试结束后恢复
         self._ime_switched = False  # 是否已切换过输入法
+        self._use_adb_keyboard = False  # 是否使用ADB Keyboard（broadcast输入）
         self._original_screen_off_timeout: Optional[str] = None
         self._original_stay_on: Optional[str] = None
         self._auto_dismiss = auto_dismiss_dialogs
@@ -655,9 +656,11 @@ class AndroidController(BaseController):
         await self.tap_xy(x, y)
         await asyncio.sleep(1.0)
 
-        # 3. 清空旧内容
-        # 先用多次退格清理（简单可靠，不依赖组合键）
-        # 10次退格足够清空常见输入（用户名、密码一般不超过10字符）
+        # 2.5 重新检查输入法（Android密码框可能自动切回中文输入法）
+        await self._ensure_latin_ime(adb_base, loop, _adb)
+        await asyncio.sleep(0.3)
+
+        # 3. 清空旧内容（10次退格，简单可靠）
         await _adb(["shell", "input", "keyevent",
                      "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL"])
         await asyncio.sleep(0.3)
@@ -665,36 +668,35 @@ class AndroidController(BaseController):
                      "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL"])
         await asyncio.sleep(0.5)
 
-        # 4. 确保输入法不干扰
-        await self._ensure_latin_ime(adb_base, loop, _adb)
-        await asyncio.sleep(0.5)
-
-        # 5. 输入文本：逐段输入，每段间隔充足
+        # 4. 输入文本（统一用 adb input text，ADB Keyboard broadcast在密码框不生效）
         chunk_size = 4
         for i in range(0, len(text), chunk_size):
             chunk = text[i:i + chunk_size]
             await _adb(["shell", "input", "text", chunk], timeout=10)
-            await asyncio.sleep(0.3)  # 每段之间等0.3秒
+            await asyncio.sleep(0.3)
         logger.info("坐标输入完成(adb): ({}, {}) -> '{}'", x, y, display)
 
-        # 6. 隐藏键盘
-        await asyncio.sleep(0.5)
+        # 5. 强制隐藏键盘（无条件执行 + 等待动画完成）
+        # 根因：键盘没关掉时，下一步点击坐标会打到键盘按键上（Y/S键Bug的根因）
+        await asyncio.sleep(0.3)
+        await _adb(["shell", "input", "keyevent", "KEYCODE_BACK"])
+        await asyncio.sleep(1.2)  # 等键盘收起动画完全结束（0.8秒不够）
+        # 验证键盘确实关闭，没关的话再发一次
         try:
-            kb_result = await loop.run_in_executor(
+            kb_check = await loop.run_in_executor(
                 None, lambda: subprocess.run(
                     adb_base + ["shell", "dumpsys", "input_method"],
-                    capture_output=True, timeout=5,
+                    capture_output=True, timeout=3,
                 )
             )
-            if "mInputShown=true" in kb_result.stdout.decode(errors="ignore"):
+            stdout = kb_check.stdout.decode(errors="ignore")
+            if "mInputShown=true" in stdout:
                 await _adb(["shell", "input", "keyevent", "KEYCODE_BACK"])
-                await asyncio.sleep(0.8)
-                logger.debug("键盘已关闭")
-            else:
-                logger.debug("键盘未打开，跳过关闭")
+                await asyncio.sleep(1.0)
+                logger.debug("键盘仍未关闭，再发一次BACK")
         except Exception:
             pass
-        await asyncio.sleep(0.3)
+        logger.debug("键盘已强制关闭")
 
     async def input_text(self, selector: str, text: str) -> None:
         """输入文本。"""
@@ -728,14 +730,13 @@ class AndroidController(BaseController):
     async def _ensure_latin_ime(self, adb_base: list[str], loop, _adb) -> None:
         """确保输入法不会干扰 adb input text（中文输入法会吞数字键）。
 
-        策略：首次调用时检测当前输入法，如果不是 Latin 类就切换。
+        策略：首次调用时检测当前输入法，如果不是安全的就切换。
+        优先级：ADB Keyboard > Latin/AOSP > 当前输入法（不得已）
         整个测试期间只切一次，测试结束时 close() 会恢复原输入法。
         """
-        if self._ime_switched:
-            return  # 已经切过了
+        # 不再跳过——每次都检查（Android密码框可能自动切回中文输入法）
 
         try:
-            # 获取当前输入法
             result = await loop.run_in_executor(
                 None, lambda: subprocess.run(
                     adb_base + ["shell", "settings", "get", "secure", "default_input_method"],
@@ -744,35 +745,47 @@ class AndroidController(BaseController):
             )
             current_ime = result.stdout.decode(errors="ignore").strip()
 
-            # 常见的不会干扰的输入法（Latin/AOSP/Google英文键盘）
-            safe_imes = ["latin", "aosp", "leanback", "tv.ime"]
-            is_safe = any(s in current_ime.lower() for s in safe_imes)
+            safe_keywords = ["adbkeyboard", "adbime", "latin", "aosp", "leanback", "tv.ime"]
+            is_safe = any(s in current_ime.lower() for s in safe_keywords)
 
             if not is_safe and current_ime:
                 self._original_ime = current_ime
-                # 获取设备上可用的 Latin 键盘
                 list_result = await loop.run_in_executor(
                     None, lambda: subprocess.run(
                         adb_base + ["shell", "ime", "list", "-s"],
                         capture_output=True, timeout=3,
                     )
                 )
-                all_imes = list_result.stdout.decode(errors="ignore").strip().split("\n")
-                # 优先找 Latin 键盘
-                latin_ime = None
+                all_imes = [x.strip() for x in list_result.stdout.decode(errors="ignore").strip().split("\n") if x.strip()]
+
+                # 优先找 ADB Keyboard（专为自动化设计，零干扰）
+                target_ime = None
                 for ime in all_imes:
-                    ime = ime.strip()
-                    if any(s in ime.lower() for s in safe_imes):
-                        latin_ime = ime
+                    if "adbkeyboard" in ime.lower() or "adbime" in ime.lower():
+                        target_ime = ime
                         break
-                if latin_ime:
-                    await _adb(["shell", "ime", "set", latin_ime], timeout=3)
+                # 其次找 Latin/AOSP 键盘
+                if not target_ime:
+                    for ime in all_imes:
+                        if any(s in ime.lower() for s in ["latin", "aosp", "leanback"]):
+                            target_ime = ime
+                            break
+
+                if target_ime:
+                    # 先 enable 再 set（有些设备需要先启用）
+                    await _adb(["shell", "ime", "enable", target_ime], timeout=3)
+                    await asyncio.sleep(0.2)
+                    await _adb(["shell", "ime", "set", target_ime], timeout=3)
                     self._ime_switched = True
-                    logger.info("输入法切换: {} → {} (避免中文输入法干扰)", current_ime.split("/")[-1], latin_ime.split("/")[-1])
+                    self._use_adb_keyboard = "adbkeyboard" in target_ime.lower() or "adbime" in target_ime.lower()
+                    logger.info("输入法切换: {} → {} (避免中文输入法干扰)",
+                                current_ime.split("/")[-1], target_ime.split("/")[-1])
                 else:
-                    logger.debug("未找到Latin键盘，保持当前输入法: {}", current_ime)
+                    logger.warning("未找到安全输入法！当前: {} | 可能影响输入准确性", current_ime)
+                    self._ime_switched = True
             else:
-                self._ime_switched = True  # 当前已是安全输入法，标记无需再检测
+                self._ime_switched = True
+                self._use_adb_keyboard = "adbkeyboard" in current_ime.lower() or "adbime" in current_ime.lower()
         except Exception as e:
             logger.debug("输入法检测失败: {}", str(e)[:60])
 
@@ -1467,7 +1480,10 @@ class AndroidController(BaseController):
         - 以 # 或 . 开头，或包含 CSS 属性选择器 → css selector (WebView 上下文)
         - 其他 → xpath
         """
-        if selector.startswith("//"):
+        if selector.startswith("xpath:"):
+            # 蓝本可能写 xpath://... 或 xpath:...
+            strategy, value = "xpath", selector[6:]
+        elif selector.startswith("//"):
             strategy, value = "xpath", selector
         elif selector.startswith("id:"):
             strategy, value = "id", selector[3:]
