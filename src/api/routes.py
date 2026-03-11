@@ -373,7 +373,7 @@ def create_router(
         if req.base_url:
             blueprint.base_url = req.base_url
 
-        # Android/iOS 蓝本 → 自动创建 session 并路由到 MobileBlueprintRunner
+        # Android/iOS 蓝本 → 握手检测 + 自动创建 session 并路由到 MobileBlueprintRunner
         if blueprint.platform in ("android", "ios"):
             from src.controller.android import AndroidController, MobileConfig
             from src.testing.mobile_blueprint_runner import MobileBlueprintRunner
@@ -383,10 +383,19 @@ def create_router(
                 app_activity=blueprint.app_activity or "",
             )
             android_ctrl = AndroidController(config)
+
+            # 握手：设备检测 → 自动启动 Appium → 创建 Session
+            device_check = await android_ctrl.check_device()
+            if not device_check["ok"]:
+                raise HTTPException(status_code=400, detail=f"设备连接失败: {device_check['message']}")
+            appium_result = await android_ctrl.ensure_appium_server(timeout=30)
+            if not appium_result["ok"]:
+                raise HTTPException(status_code=500, detail=f"Appium启动失败: {appium_result['message']}")
+
             try:
                 await android_ctrl.launch()
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"连接Android设备失败: {e}")
+                raise HTTPException(status_code=500, detail=f"Appium Session创建失败: {e}")
 
             async def _on_step_m(step: int, status: str, desc: str) -> None:
                 if status == "start":
@@ -574,21 +583,45 @@ def create_router(
         if req.mobile_session_id and req.mobile_session_id in _mobile_sessions:
             android_ctrl = _mobile_sessions[req.mobile_session_id]
         else:
-            # 自动创建：检测设备 → 创建 Appium Session
-            logger.info("未指定有效 Session，自动创建 Appium Session...")
-            await ws_manager.send_log("正在连接手机设备...")
+            # ── 握手检测：在 launch 之前先确认环境就绪 ──
             config = MobileConfig(
                 device_name="",  # 自动检测
                 app_package=blueprint.app_package or "",
                 app_activity=blueprint.app_activity or "",
             )
             android_ctrl = AndroidController(config)
+
+            # 第1步：检测设备连接
+            device_check = await android_ctrl.check_device()
+            if not device_check["ok"]:
+                await ws_manager.send_log(f"❌ {device_check['message']}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"设备连接失败: {device_check['message']}",
+                )
+            await ws_manager.send_log(f"✅ {device_check['message']}")
+
+            # 第2步：确保 Appium Server 运行（未启动则自动启动）
+            await ws_manager.send_log("🔄 正在检测 Appium Server...")
+            appium_result = await android_ctrl.ensure_appium_server(timeout=30)
+            if not appium_result["ok"]:
+                await ws_manager.send_log(f"❌ {appium_result['message']}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Appium启动失败: {appium_result['message']}",
+                )
+            await ws_manager.send_log(f"✅ {appium_result['message']}")
+
+            # 第3步：创建 Appium Session
+            logger.info("握手成功，创建 Appium Session...")
+            await ws_manager.send_log("🔄 正在创建 Appium Session...")
             try:
                 await android_ctrl.launch()
                 auto_created_session = True
                 session_id = f"mobile_auto_{len(_mobile_sessions) + 1}"
                 _mobile_sessions[session_id] = android_ctrl
                 logger.info("自动创建 Session 成功 | ID={}", session_id)
+                await ws_manager.send_log("✅ Appium Session 创建成功")
 
                 # 蓝本权限批量授予
                 if blueprint.permissions and blueprint.app_package:
@@ -599,7 +632,7 @@ def create_router(
                 logger.error("自动创建 Appium Session 失败: {}", e)
                 raise HTTPException(
                     status_code=500,
-                    detail=f"自动创建 Appium Session 失败: {e}。请确保手机已连接且 Appium 已启动。",
+                    detail=f"Appium Session 创建失败: {e}。设备和Appium均已就绪，但Session创建出错。",
                 )
 
         async def _on_step(step: int, status: str, desc: str) -> None:
@@ -1552,6 +1585,55 @@ def create_router(
                 return {"running": True, "data": data}
         except (urllib.error.URLError, Exception):
             return {"running": False, "message": "Appium Server 未运行。请执行: appium"}
+
+    @router.get("/mobile/precheck", tags=["手机测试"])
+    async def mobile_precheck() -> dict:
+        """一次性握手：检测设备 + 自动启动 Appium Server（如未运行）。
+
+        Returns:
+            {
+                "ok": bool,
+                "device_ok": bool,
+                "appium_ok": bool,
+                "message": str,  # 中文友好提示
+                "device_message": str,
+                "appium_message": str,
+            }
+        """
+        from src.controller.android import AndroidController, MobileConfig
+        ctrl = AndroidController(MobileConfig())
+
+        # 第1步：检测设备
+        device_result = await ctrl.check_device()
+        device_ok = device_result["ok"]
+
+        if not device_ok:
+            return {
+                "ok": False,
+                "device_ok": False,
+                "appium_ok": False,
+                "message": f"手机未连接：{device_result['message']}",
+                "device_message": device_result["message"],
+                "appium_message": "跳过（设备未连接）",
+            }
+
+        # 第2步：确保 Appium Server 运行（未启动则自动启动）
+        appium_result = await ctrl.ensure_appium_server(timeout=30)
+        appium_ok = appium_result["ok"]
+
+        if appium_ok:
+            message = f"环境就绪！{device_result['message']}，{appium_result['message']}"
+        else:
+            message = f"Appium启动失败：{appium_result['message']}"
+
+        return {
+            "ok": device_ok and appium_ok,
+            "device_ok": device_ok,
+            "appium_ok": appium_ok,
+            "message": message,
+            "device_message": device_result["message"],
+            "appium_message": appium_result["message"],
+        }
 
     @router.post("/mobile/session/create", tags=["手机测试"])
     async def create_mobile_session(req: dict) -> dict:

@@ -39,6 +39,16 @@ class ConnectionManager:
 
     async def connect(self, ws: WebSocket) -> None:
         """接受并注册新的 WebSocket 连接。"""
+        # 清理可能的死连接（超过3个说明有残留）
+        if len(self._connections) >= 3:
+            alive: list[WebSocket] = []
+            for old_ws in self._connections:
+                try:
+                    await old_ws.send_text('{"type":"ping"}')
+                    alive.append(old_ws)
+                except Exception:
+                    logger.debug("清理死连接")
+            self._connections = alive
         await ws.accept()
         self._connections.append(ws)
         logger.info("WebSocket 客户端已连接 | 当前连接数={}", len(self._connections))

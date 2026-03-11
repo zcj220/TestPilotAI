@@ -191,7 +191,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       this._postMessage({ command: "testResult", data: report });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
+      const raw = err instanceof Error ? err.message : String(err);
+      // 解析引擎返回的 JSON 错误详情（如 HTTP 400: {"detail":"Appium未就绪: ..."} ）
+      let message = raw;
+      try {
+        const jsonMatch = raw.match(/\{[\s\S]*"detail"\s*:\s*"([^"]+)"/);
+        if (jsonMatch) { message = jsonMatch[1]; }
+      } catch { /* 解析失败用原始信息 */ }
       this._postMessage({ command: "testError", data: { error: message } });
     }
   }
@@ -283,6 +289,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         md += `通过率: ${(r.pass_rate || 0).toFixed(0)}% | Bug: ${r.bug_count || 0}\n\n`;
       });
 
+      // 合并所有蓝本的 bugs 和 steps
+      const allBugs = results.flatMap((r) => (r as unknown as Record<string, unknown>).bugs as unknown[] || []);
+      const allSteps = results.flatMap((r) => (r as unknown as Record<string, unknown>).steps as unknown[] || []);
+
       // 用最后一个报告的格式返回汇总
       const summary: TestReportResponse = {
         test_name: `批量测试（${results.length}个蓝本）`,
@@ -294,6 +304,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         pass_rate: passRate,
         duration_seconds: totalDuration,
         report_markdown: md,
+        bugs: allBugs,
+        steps: allSteps,
       } as TestReportResponse;
 
       this._postMessage({ command: "testResult", data: summary });
@@ -511,13 +523,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - 断言失败时引擎会自动截图留证，蓝本不用额外写
 - ❌ 禁止每个场景末尾都加 screenshot（浪费视觉大模型费用和时间）
 
-【规则12：蓝本按功能模块拆分】
-- 按业务功能模块拆分蓝本，不要把所有场景塞进一个文件
-- 拆分原则：一个功能模块 = 一个蓝本文件，改了哪个功能就只跑哪个蓝本
-  * 例：auth（登录注册）、cart（购物车）、checkout（结算支付）、profile（个人中心）
+【规则12：蓝本文件命名与拆分】
+- 命名规范：
+  * 主蓝本（小项目/全量测试）：testpilot/testpilot.json
+  * 分模块蓝本（大项目按功能拆分）：testpilot/<模块名>.testpilot.json
+- 拆分判断：页面≤3个用一个 testpilot.json；页面>3个按功能模块拆分
+  * 例：auth.testpilot.json、cart.testpilot.json、checkout.testpilot.json
   * 跨页面的端到端流程归属到终点功能模块（如"加购→结算→下单"归入 checkout）
-- 命名规范：testpilot/<模块名>.testpilot.json
-- 每个蓝本独立可运行，场景开头都要从 navigate 开始
+- 每个蓝本独立可运行，非首页场景开头要从 navigate 开始
 - 全量测试时通过 run_blueprint_batch 批量运行所有蓝本
 
 【规则13：蓝本增量修改（省Token）】
@@ -734,28 +747,14 @@ ${commonRules}`;
     const platform = (msg.platform || "web").toLowerCase();
     try {
       if (platform === "android" || platform === "ios") {
-        // 只检查设备是否连接，Session 由引擎在蓝本测试时自动创建
-        const devices = await this._client.listMobileDevices();
-        if ((devices.count || 0) === 0) {
-          this._postMessage({
-            command: "platformPrecheckResult",
-            data: {
-              ok: false,
-              platform,
-              message: "未检测到手机设备，请先连接手机并开启USB调试。",
-            },
-          });
-          return;
-        }
-
-        const first = devices.devices?.[0] || {};
-        const model = String((first as Record<string, unknown>).model || (first as Record<string, unknown>).serial || "设备");
+        // 一次性检测设备+Appium Server
+        const check = await this._client.mobilePrecheck();
         this._postMessage({
           command: "platformPrecheckResult",
           data: {
-            ok: true,
+            ok: check.ok,
             platform,
-            message: `设备 ${model} 已连接，Appium Session 将自动创建。`,
+            message: check.message,
           },
         });
         return;
@@ -824,6 +823,12 @@ ${commonRules}`;
       this._postMessage({ command: "connectDeviceResult", data: { ok: false, message } });
     };
     try {
+      // 0. 先检查引擎是否已连接（未连接则提示先启动引擎）
+      const engineOk = await httpCheck("http://127.0.0.1:8900/api/v1/health");
+      if (!engineOk) {
+        fail("引擎未启动，请先点击「启动引擎」按钮，再进行握手");
+        return;
+      }
       // 1. 检查 adb 是否可用
       const adbVersion = await run("adb version");
       if (!adbVersion.includes("Android Debug Bridge")) {
@@ -870,13 +875,10 @@ ${commonRules}`;
           return;
         }
       }
-      // 5. 检查引擎
-      const engineOk = await httpCheck("http://127.0.0.1:8900/health");
-      const engineNote = engineOk ? "引擎就绪" : "引擎未运行（请点击启动引擎）";
-      // 6. 全部就绪
+      // 5. 全部就绪
       this._postMessage({
         command: "connectDeviceResult",
-        data: { ok: engineOk, message: `握手${engineOk ? "成功" : "部分完成"} | 设备: ${model} | Appium: 就绪 | ${engineNote}` },
+        data: { ok: true, message: `握手成功 ✅ | 设备: ${model} | Appium: 就绪 | 引擎: 就绪` },
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1074,6 +1076,11 @@ ${commonRules}`;
       </div>
       <div style="display:flex;gap:4px;margin-top:2px">
         <button id="btnDetectDevice" class="btn-secondary" style="font-size:10px;padding:3px 6px;flex:1">检测设备</button>
+        <button id="btnHandshake" class="btn-secondary hidden" style="font-size:10px;padding:3px 6px;flex:1">🤝 握手</button>
+      </div>
+      <div id="handshakeStatusRow" class="hidden" style="display:flex;align-items:center;gap:4px;margin-top:4px;font-size:10px">
+        <span id="handshakeIcon">⏳</span>
+        <span id="handshakeText" style="color:var(--muted);word-break:break-word">未握手</span>
       </div>
     </div>
     <button id="btnLaunchEngine" class="hidden" style="background:#22c55e;margin-top:6px">🚀 一键启动引擎</button>
@@ -1301,6 +1308,21 @@ ${commonRules}`;
       checkDeviceStatus();
     });
 
+    // 握手按钮（检测设备+自动启动Appium）
+    document.getElementById("btnHandshake").addEventListener("click", () => {
+      const btn = document.getElementById("btnHandshake");
+      const row = document.getElementById("handshakeStatusRow");
+      const icon = document.getElementById("handshakeIcon");
+      const text = document.getElementById("handshakeText");
+      btn.disabled = true;
+      btn.textContent = "⏳ 握手中...";
+      row.classList.remove("hidden");
+      icon.textContent = "⏳";
+      text.textContent = "正在检测 Appium 环境...";
+      text.style.color = "var(--muted)";
+      vscode.postMessage({ command: "connectDevice", platform: getCurrentPlatform() });
+    });
+
     // 刷新项目按钮
     document.getElementById("btnRefreshProjects").addEventListener("click", () => {
       vscode.postMessage({ command: "scanBlueprints" });
@@ -1498,21 +1520,45 @@ ${commonRules}`;
         case "blueprintSelected": onBlueprintSelected(msg.data); break;
         case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
         case "deviceStatusResult": onDeviceStatusResult(msg.data); break;
+        case "connectDeviceResult": onConnectDeviceResult(msg.data); break;
       }
     });
 
     function onDeviceStatusResult(data) {
       const statusText = document.getElementById("deviceStatusText");
       const statusIcon = document.getElementById("deviceStatusIcon");
+      const btnHandshake = document.getElementById("btnHandshake");
       if (!data) return;
       if (data.connected) {
         statusText.textContent = (data.message || "设备已连接") + "（运行蓝本时自动连接）";
         statusText.style.color = "var(--success,#22c55e)";
         statusIcon.textContent = "✅";
+        btnHandshake.classList.remove("hidden");
       } else {
         statusText.textContent = data.message || "未检测到设备";
         statusText.style.color = "var(--error,#ef4444)";
         statusIcon.textContent = "❌";
+        btnHandshake.classList.add("hidden");
+        document.getElementById("handshakeStatusRow").classList.add("hidden");
+      }
+    }
+
+    function onConnectDeviceResult(data) {
+      const row = document.getElementById("handshakeStatusRow");
+      const icon = document.getElementById("handshakeIcon");
+      const text = document.getElementById("handshakeText");
+      const btn = document.getElementById("btnHandshake");
+      row.classList.remove("hidden");
+      btn.disabled = false;
+      btn.textContent = "🤝 握手";
+      if (data.ok) {
+        icon.textContent = "✅";
+        text.textContent = data.message || "握手成功";
+        text.style.color = "var(--success,#22c55e)";
+      } else {
+        icon.textContent = "❌";
+        text.textContent = data.message || "握手失败";
+        text.style.color = "var(--error,#ef4444)";
       }
     }
 

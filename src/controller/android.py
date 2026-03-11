@@ -83,6 +83,9 @@ class AndroidController(BaseController):
             name=self._config.device_name or "Android Device",
         )
         self._step_counter = 0
+        self._u2_dead = False  # U2被杀后置True，避免反复等/source超时
+        self._original_ime: Optional[str] = None  # 输入法备份，测试结束后恢复
+        self._ime_switched = False  # 是否已切换过输入法
         self._original_screen_off_timeout: Optional[str] = None
         self._original_stay_on: Optional[str] = None
         self._auto_dismiss = auto_dismiss_dialogs
@@ -159,6 +162,154 @@ class AndroidController(BaseController):
                 None, lambda: self._session_request(method, path, body, timeout=timeout)
             )
 
+    # ── 握手检测 ────────────────────────────────
+
+    async def check_appium_server(self) -> dict:
+        """检测 Appium Server 是否可达，返回状态信息。
+
+        Returns:
+            {"ok": True/False, "message": str, "appium_url": str}
+        """
+        appium_url = self._config.appium_url
+        try:
+            req = urllib.request.Request(f"{appium_url}/status", method="GET")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+                build = data.get("value", {}).get("build", {})
+                version = build.get("version", "unknown")
+                return {
+                    "ok": True,
+                    "message": f"Appium Server 就绪 (v{version})",
+                    "appium_url": appium_url,
+                }
+        except urllib.error.URLError:
+            return {
+                "ok": False,
+                "message": f"无法连接 Appium Server ({appium_url})。请先启动 Appium：appium --address 127.0.0.1 --port 4723",
+                "appium_url": appium_url,
+            }
+        except Exception as e:
+            return {
+                "ok": False,
+                "message": f"Appium Server 检测异常: {e}",
+                "appium_url": appium_url,
+            }
+
+    # 类变量：缓存 Appium 进程引用（防止重复启动）
+    _appium_process: subprocess.Popen = None
+    _appium_starting: bool = False
+
+    async def ensure_appium_server(self, timeout: int = 30) -> dict:
+        """确保 Appium Server 运行：未启动则自动启动，等待就绪。
+
+        Returns:
+            {"ok": True/False, "message": str}
+        """
+        # 先检测是否已经在运行
+        check = await self.check_appium_server()
+        if check["ok"]:
+            return {"ok": True, "message": check["message"]}
+
+        # 防止并发重复启动（多次点击precheck）
+        if AndroidController._appium_starting:
+            logger.info("Appium 正在启动中，等待...")
+            import time
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                await asyncio.sleep(1)
+                check = await self.check_appium_server()
+                if check["ok"]:
+                    return {"ok": True, "message": check["message"]}
+            return {"ok": False, "message": "Appium 启动等待超时"}
+
+        # 如果之前启动的进程还活着但端口没响应，先杀掉
+        if AndroidController._appium_process and AndroidController._appium_process.poll() is None:
+            logger.warning("发现未响应的 Appium 旧进程，正在终止...")
+            AndroidController._appium_process.kill()
+            AndroidController._appium_process = None
+
+        # 未运行 → 自动启动
+        AndroidController._appium_starting = True
+        try:
+            return await self._start_appium_process(timeout)
+        finally:
+            AndroidController._appium_starting = False
+
+    async def _start_appium_process(self, timeout: int) -> dict:
+        """内部方法：实际启动 Appium 进程。"""
+        appium_url = self._config.appium_url
+        import re
+        port_match = re.search(r":(\d+)$", appium_url)
+        port = port_match.group(1) if port_match else "4723"
+
+        logger.info("Appium Server 未运行，正在自动启动 (port={})...", port)
+        try:
+            import shutil
+            appium_path = shutil.which("appium")
+            if not appium_path:
+                return {
+                    "ok": False,
+                    "message": "appium 命令未找到。请先安装：npm install -g appium && appium driver install uiautomator2",
+                }
+
+            cmd = [appium_path, "--address", "127.0.0.1", "--port", port,
+                   "--log-no-colors", "--relaxed-security"]
+            logger.info("启动命令: {}", " ".join(cmd))
+            # stdout/stderr 重定向到 DEVNULL 避免管道缓冲区满导致进程卡死
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            AndroidController._appium_process = proc
+        except Exception as e:
+            return {"ok": False, "message": f"启动 Appium 失败: {e}"}
+
+        # 轮询等待 Appium 就绪
+        import time
+        deadline = time.time() + timeout
+        last_err = ""
+        while time.time() < deadline:
+            await asyncio.sleep(1)
+            check = await self.check_appium_server()
+            if check["ok"]:
+                logger.info("Appium Server 自动启动成功: {}", check["message"])
+                return {"ok": True, "message": f"Appium Server 已自动启动 ({check['message']})"}
+            last_err = check.get("message", "")
+            # 检查进程是否已退出（启动失败）
+            if proc.poll() is not None:
+                return {
+                    "ok": False,
+                    "message": f"Appium 进程启动后退出(code={proc.returncode})",
+                }
+
+        return {"ok": False, "message": f"Appium Server 启动超时({timeout}秒)。最后状态: {last_err}"}
+
+    async def check_device(self) -> dict:
+        """检测是否有 Android 设备连接（通过 adb devices）。
+
+        Returns:
+            {"ok": True/False, "message": str, "devices": list}
+        """
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    ["adb", "devices"], capture_output=True, text=True, timeout=5,
+                )
+            )
+            lines = result.stdout.strip().split("\n")[1:]
+            devices = [l.split()[0] for l in lines if "device" in l and "offline" not in l]
+            if devices:
+                return {"ok": True, "message": f"已连接 {len(devices)} 台设备: {', '.join(devices)}", "devices": devices}
+            else:
+                return {"ok": False, "message": "未检测到已连接的 Android 设备。请用 USB 连接手机并启用 USB 调试。", "devices": []}
+        except FileNotFoundError:
+            return {"ok": False, "message": "adb 未安装或不在 PATH 中。请安装 Android SDK Platform Tools。", "devices": []}
+        except Exception as e:
+            return {"ok": False, "message": f"设备检测异常: {e}", "devices": []}
+
     # ── BaseController 实现 ──────────────────────
 
     async def launch(self) -> None:
@@ -220,6 +371,7 @@ class AndroidController(BaseController):
         self._session_id = resp.get("value", {}).get("sessionId")
         if not self._session_id:
             raise RuntimeError(f"Appium Session 创建失败: {resp}")
+        self._u2_dead = False  # Session新建成功，U2可用
 
         # 更新设备信息
         caps = resp.get("value", {}).get("capabilities", {})
@@ -295,6 +447,9 @@ class AndroidController(BaseController):
 
     async def close(self) -> None:
         """关闭 Appium Session 并恢复屏幕设置。"""
+        # 恢复输入法
+        await self._restore_ime()
+
         # 停止 logcat
         await self.stop_logcat()
 
@@ -420,6 +575,7 @@ class AndroidController(BaseController):
         self._session_id = resp.get("value", {}).get("sessionId")
         if not self._session_id:
             raise RuntimeError(f"Session重建失败: {resp}")
+        self._u2_dead = False  # Session重建成功，U2可用
         logger.info("Session重建成功 | ID={}", self._session_id[:8])
 
         # 5. 设置 waitForIdleTimeout=0（Flutter 动画循环兼容）
@@ -491,30 +647,38 @@ class AndroidController(BaseController):
                 )
             )
 
-        # 1. adb tap 点击输入框获焦点
+        # 1. 点击输入框获焦点
+        await self.tap_xy(x, y)
+        await asyncio.sleep(1.5)  # 等键盘弹出动画完成
+
+        # 2. 再点一次确保光标在正确位置（Flutter有时首次tap只选中widget不弹键盘）
         await self.tap_xy(x, y)
         await asyncio.sleep(1.0)
 
-        # 2. 再tap一次确保焦点（Flutter有时首次tap只选中widget不弹键盘）
-        await self.tap_xy(x, y)
-        await asyncio.sleep(0.8)
+        # 3. 清空旧内容
+        # 先用多次退格清理（简单可靠，不依赖组合键）
+        # 10次退格足够清空常见输入（用户名、密码一般不超过10字符）
+        await _adb(["shell", "input", "keyevent",
+                     "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL"])
+        await asyncio.sleep(0.3)
+        await _adb(["shell", "input", "keyevent",
+                     "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL"])
+        await asyncio.sleep(0.5)
 
-        # 3. 清空旧内容：先移到末尾，再Shift+Home全选，再删除
-        await _adb(["shell", "input", "keyevent", "KEYCODE_MOVE_END"])
-        await asyncio.sleep(0.1)
-        # 用多次DEL逐个删除（每次一条命令，每条最多删5个避免超时）
-        for _ in range(3):
-            await _adb(["shell", "input", "keyevent",
-                        "KEYCODE_DEL", "KEYCODE_DEL", "KEYCODE_DEL",
-                        "KEYCODE_DEL", "KEYCODE_DEL"])
-        await asyncio.sleep(0.2)
+        # 4. 确保输入法不干扰
+        await self._ensure_latin_ime(adb_base, loop, _adb)
+        await asyncio.sleep(0.5)
 
-        # 4. adb input text 输入
-        await _adb(["shell", "input", "text", text], timeout=10)
+        # 5. 输入文本：逐段输入，每段间隔充足
+        chunk_size = 4
+        for i in range(0, len(text), chunk_size):
+            chunk = text[i:i + chunk_size]
+            await _adb(["shell", "input", "text", chunk], timeout=10)
+            await asyncio.sleep(0.3)  # 每段之间等0.3秒
         logger.info("坐标输入完成(adb): ({}, {}) -> '{}'", x, y, display)
 
-        # 5. 隐藏键盘（检查状态，安全关闭）
-        await asyncio.sleep(0.3)
+        # 6. 隐藏键盘
+        await asyncio.sleep(0.5)
         try:
             kb_result = await loop.run_in_executor(
                 None, lambda: subprocess.run(
@@ -560,6 +724,78 @@ class AndroidController(BaseController):
             )
         except Exception:
             pass
+
+    async def _ensure_latin_ime(self, adb_base: list[str], loop, _adb) -> None:
+        """确保输入法不会干扰 adb input text（中文输入法会吞数字键）。
+
+        策略：首次调用时检测当前输入法，如果不是 Latin 类就切换。
+        整个测试期间只切一次，测试结束时 close() 会恢复原输入法。
+        """
+        if self._ime_switched:
+            return  # 已经切过了
+
+        try:
+            # 获取当前输入法
+            result = await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "settings", "get", "secure", "default_input_method"],
+                    capture_output=True, timeout=3,
+                )
+            )
+            current_ime = result.stdout.decode(errors="ignore").strip()
+
+            # 常见的不会干扰的输入法（Latin/AOSP/Google英文键盘）
+            safe_imes = ["latin", "aosp", "leanback", "tv.ime"]
+            is_safe = any(s in current_ime.lower() for s in safe_imes)
+
+            if not is_safe and current_ime:
+                self._original_ime = current_ime
+                # 获取设备上可用的 Latin 键盘
+                list_result = await loop.run_in_executor(
+                    None, lambda: subprocess.run(
+                        adb_base + ["shell", "ime", "list", "-s"],
+                        capture_output=True, timeout=3,
+                    )
+                )
+                all_imes = list_result.stdout.decode(errors="ignore").strip().split("\n")
+                # 优先找 Latin 键盘
+                latin_ime = None
+                for ime in all_imes:
+                    ime = ime.strip()
+                    if any(s in ime.lower() for s in safe_imes):
+                        latin_ime = ime
+                        break
+                if latin_ime:
+                    await _adb(["shell", "ime", "set", latin_ime], timeout=3)
+                    self._ime_switched = True
+                    logger.info("输入法切换: {} → {} (避免中文输入法干扰)", current_ime.split("/")[-1], latin_ime.split("/")[-1])
+                else:
+                    logger.debug("未找到Latin键盘，保持当前输入法: {}", current_ime)
+            else:
+                self._ime_switched = True  # 当前已是安全输入法，标记无需再检测
+        except Exception as e:
+            logger.debug("输入法检测失败: {}", str(e)[:60])
+
+    async def _restore_ime(self) -> None:
+        """恢复原始输入法（测试结束时调用）。"""
+        if self._original_ime:
+            try:
+                loop = asyncio.get_event_loop()
+                device_serial = self._device.extra.get("serial", "") or self._config.device_name
+                adb_base = ["adb"]
+                if device_serial:
+                    adb_base.extend(["-s", device_serial])
+                await loop.run_in_executor(
+                    None, lambda: subprocess.run(
+                        adb_base + ["shell", "ime", "set", self._original_ime],
+                        capture_output=True, timeout=3,
+                    )
+                )
+                logger.info("输入法已恢复: {}", self._original_ime.split("/")[-1])
+            except Exception:
+                pass
+            self._original_ime = None
+            self._ime_switched = False
 
     async def screenshot(self, name: str = "") -> Path:
         """截取手机屏幕。
@@ -805,11 +1041,13 @@ class AndroidController(BaseController):
             UI树XML字符串，失败返回空字符串
         """
         # 方式A：通过Appium /source（U2已经在运行，不会冲突）
-        if self._session_id:
+        # 超时设10秒：Flutter页面跳转后U2可能崩溃，不要等60秒
+        # 如果U2已被标记为死亡，跳过/source直接走adb dump
+        if self._session_id and not self._u2_dead:
             try:
                 loop = asyncio.get_event_loop()
                 resp = await loop.run_in_executor(
-                    None, lambda: self._session_request("GET", "/source")
+                    None, lambda: self._session_request("GET", "/source", timeout=10)
                 )
                 xml_str = resp.get("value", "")
                 if xml_str and "<hierarchy" in xml_str:
@@ -817,14 +1055,33 @@ class AndroidController(BaseController):
                     return xml_str
             except Exception as e:
                 logger.debug("Appium /source失败: {}", str(e)[:60])
+                self._u2_dead = True  # 标记U2已死，后续跳过/source
 
-        # 方式B：adb uiautomator dump（Appium未连接时使用）
+        # 方式B：adb uiautomator dump（Appium /source失败时使用）
+        # 注意：U2 Server 可能还活着但无响应，必须先杀掉才能让 adb dump 获取新鲜XML
+        # 重要：不要清空 _session_id！后续 click/fill 用纯 adb tap 不需要 session，
+        #       而 get_text 等需要 session 的操作会通过 _safe_session_call 自动恢复
         device_serial = self._device.extra.get("serial", "") or self._config.device_name
         adb_base = ["adb"]
         if device_serial:
             adb_base.extend(["-s", device_serial])
         loop = asyncio.get_event_loop()
         try:
+            # 先杀掉可能僵死的 U2 Server，释放 UiAutomation 实例
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "am", "force-stop", "io.appium.uiautomator2.server"],
+                    capture_output=True, timeout=5,
+                )
+            )
+            await asyncio.sleep(0.5)
+            # 先删旧文件避免读到缓存
+            await loop.run_in_executor(
+                None, lambda: subprocess.run(
+                    adb_base + ["shell", "rm", "-f", "/sdcard/tp_ui_dump.xml"],
+                    capture_output=True, timeout=3,
+                )
+            )
             await loop.run_in_executor(
                 None, lambda: subprocess.run(
                     adb_base + ["shell", "uiautomator", "dump", "/sdcard/tp_ui_dump.xml"],
@@ -1124,6 +1381,7 @@ class AndroidController(BaseController):
         self._session_id = resp.get("value", {}).get("sessionId")
         if not self._session_id:
             raise RuntimeError(f"U2恢复失败: Session重建失败: {resp}")
+        self._u2_dead = False  # U2恢复成功
 
         # 4. 重新设置 waitForIdleTimeout=0（Flutter 兼容）
         try:

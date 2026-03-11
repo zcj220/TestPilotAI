@@ -208,6 +208,18 @@ export class EngineClient {
     return this._post<{ session_id: string; message: string; device?: Record<string, unknown> }>("/api/v1/mobile/session/create", params);
   }
 
+  /** 手机测试环境一键检测（设备+Appium） */
+  async mobilePrecheck(): Promise<{
+    ok: boolean;
+    device_ok: boolean;
+    appium_ok: boolean;
+    message: string;
+    device_message: string;
+    appium_message: string;
+  }> {
+    return this._get("/api/v1/mobile/precheck");
+  }
+
   /** 检查小程序开发者工具状态 */
   async getMiniprogramDevtoolsStatus(): Promise<{ found: boolean; path?: string; message?: string }> {
     return this._get<{ found: boolean; path?: string; message?: string }>("/api/v1/miniprogram/devtools/status");

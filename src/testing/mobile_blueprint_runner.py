@@ -338,6 +338,8 @@ class MobileBlueprintRunner:
                 await self._ctrl.back()
 
             elif step_def.action == "assert_text":
+                # assert_text 的预期值在 expected 字段（不是 value 字段）
+                expected = step_def.expected or value or ""
                 # 优先用UI树验证（Appium findElement在Flutter上会超时）
                 text = await self._get_text_from_ui_tree(target)
                 if text is None:
@@ -346,8 +348,8 @@ class MobileBlueprintRunner:
                         text = await self._ctrl.get_text(target)
                     except Exception:
                         text = ""
-                if is_formula(value):
-                    formula_result = validate_formula(value, text)
+                if is_formula(expected):
+                    formula_result = validate_formula(expected, text)
                     if not formula_result.passed:
                         elapsed = time.time() - start
                         bug = BugReport(
@@ -356,7 +358,7 @@ class MobileBlueprintRunner:
                             title=f"数值计算错误: {target}",
                             description=formula_result.detail,
                             location=target or "",
-                            reproduction=f"检查元素 {target}，公式={value}",
+                            reproduction=f"检查元素 {target}，公式={expected}",
                             screenshot_path=None,
                             step_number=step_num,
                         )
@@ -365,13 +367,13 @@ class MobileBlueprintRunner:
                             status=StepStatus.FAILED, duration_seconds=elapsed,
                             error_message=formula_result.detail,
                         ), bug
-                elif value and value not in text:
+                elif expected and expected not in text:
                     elapsed = time.time() - start
                     bug = BugReport(
                         severity=BugSeverity.HIGH,
                         category="文本断言失败",
                         title=f"元素文本不匹配: {target}",
-                        description=f"预期包含'{value}'，实际为'{text}'",
+                        description=f"预期包含'{expected}'，实际为'{text}'",
                         location=target or "",
                         reproduction=f"检查元素 {target} 的文本内容",
                         screenshot_path=None,
@@ -380,7 +382,7 @@ class MobileBlueprintRunner:
                     return StepResult(
                         step=step_num, action=action_type, description=desc,
                         status=StepStatus.FAILED, duration_seconds=elapsed,
-                        error_message=f"文本断言失败: 预期'{value}'，实际'{text}'",
+                        error_message=f"文本断言失败: 预期'{expected}'，实际'{text}'",
                     ), bug
 
             # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
@@ -503,7 +505,7 @@ class MobileBlueprintRunner:
             desc = t["description"]
             matched_node = None
 
-            # accessibility_id:xxx → content-desc匹配
+            # accessibility_id:xxx → content-desc匹配，兼容hint/text（Flutter常用hintText做标识）
             if selector.startswith("accessibility_id:"):
                 aid = selector[len("accessibility_id:"):]
                 for node in all_nodes:
@@ -511,6 +513,12 @@ class MobileBlueprintRunner:
                     if cd == aid or cd.startswith(aid):
                         matched_node = node
                         break
+                if matched_node is None:
+                    for node in all_nodes:
+                        hint = node.get("hint", "") or node.get("text", "")
+                        if hint == aid:
+                            matched_node = node
+                            break
 
             # id:xxx → resource-id匹配
             elif selector.startswith("id:"):
@@ -657,8 +665,12 @@ class MobileBlueprintRunner:
             return
         except RuntimeError as e:
             err = str(e)
-            if "no such element" not in err and "元素查找超时" not in err:
-                raise  # 非元素找不到的错误，直接抛出
+            # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
+            recoverable = ("no such element" in err or "元素查找超时" in err
+                           or "session" in err.lower() or "超时" in err
+                           or "instrumentation" in err)
+            if not recoverable:
+                raise
 
         # 第3层：截图+AI实时定位
         logger.info("  [视觉降级] Appium找不到 {}，截图+AI识别...", target)
@@ -696,6 +708,12 @@ class MobileBlueprintRunner:
                 if cd == aid or cd.startswith(aid):
                     matched = node
                     break
+            if matched is None:
+                for node in all_nodes:
+                    hint = node.get("hint", "") or node.get("text", "")
+                    if hint == aid:
+                        matched = node
+                        break
         elif selector.startswith("id:"):
             rid = selector[len("id:"):]
             for node in all_nodes:
@@ -732,7 +750,11 @@ class MobileBlueprintRunner:
             return
         except RuntimeError as e:
             err = str(e)
-            if "no such element" not in err and "元素查找超时" not in err:
+            # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
+            recoverable = ("no such element" in err or "元素查找超时" in err
+                           or "session" in err.lower() or "超时" in err
+                           or "instrumentation" in err)
+            if not recoverable:
                 raise
 
         # 第3层：截图+AI实时定位

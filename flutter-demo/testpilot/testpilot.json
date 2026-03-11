@@ -1,0 +1,267 @@
+{
+  "app_name": "TaskPilot Flutter Demo",
+  "description": "Flutter任务管理APP完整测试：登录（正确/空账号/错误密码）+ 任务列表（添加/完成计数/删除/删完崩溃）。覆盖4个预埋Bug。",
+  "base_url": "",
+  "version": "3.0",
+  "platform": "android",
+  "app_package": "com.testpilot.flutter_demo",
+  "app_activity": ".MainActivity",
+  "pages": [
+    {
+      "url": "",
+      "title": "登录页",
+      "scenarios": [
+        {
+          "name": "场景1：正确账号登录成功",
+          "steps": [
+            {
+              "action": "wait",
+              "value": "2000",
+              "description": "等待Flutter应用启动"
+            },
+            {
+              "action": "screenshot",
+              "value": "login_page"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:tf_username",
+              "value": "admin",
+              "description": "输入正确用户名"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:tf_password",
+              "value": "admin123",
+              "description": "输入正确密码"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
+            },
+            {
+              "action": "wait",
+              "value": "2000",
+              "description": "等待页面跳转"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务",
+              "description": "验证跳转到任务列表页"
+            },
+            {
+              "action": "screenshot",
+              "value": "task_list_page"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "url": "",
+      "title": "任务列表页",
+      "scenarios": [
+        {
+          "name": "场景2：添加新任务",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "accessibility_id:tf_new_task",
+              "value": "TestTask",
+              "description": "输入新任务名称"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_add",
+              "description": "点击添加按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务：4 项",
+              "description": "验证任务数变为4"
+            }
+          ]
+        },
+        {
+          "name": "场景3：完成任务后计数器应减少（Bug-3）",
+          "steps": [
+            {
+              "action": "click",
+              "target": "accessibility_id:chk_task_0",
+              "description": "勾选第1个任务为完成"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务：3 项",
+              "description": "完成1项后应显示3项待办（Bug-3：实际仍显示4）"
+            },
+            {
+              "action": "screenshot",
+              "value": "after_complete_task"
+            }
+          ]
+        },
+        {
+          "name": "场景4：删除任务",
+          "steps": [
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_delete_1",
+              "description": "删除第2个任务"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务：3 项",
+              "description": "删除1个后显示3项"
+            }
+          ]
+        },
+        {
+          "name": "场景5：逐个删除所有任务触发崩溃（Bug-4）",
+          "steps": [
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_delete_0",
+              "description": "删除第1项"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_delete_0",
+              "description": "删除第2项"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_delete_0",
+              "description": "删除最后一项"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "screenshot",
+              "value": "after_delete_all"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_pending",
+              "expected": "待办任务：0 项",
+              "description": "删完后应显示0项（Bug-4：可能崩溃）"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "url": "",
+      "title": "登录页-异常测试",
+      "scenarios": [
+        {
+          "name": "场景6：空账号应被拒绝（Bug-1）",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.flutter_demo/.MainActivity",
+              "description": "重启回登录页"
+            },
+            {
+              "action": "wait",
+              "value": "2000",
+              "description": "等待Flutter渲染"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "不输入任何内容直接点击登录"
+            },
+            {
+              "action": "wait",
+              "value": "1500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_error",
+              "expected": "请输入用户名",
+              "description": "空账号应显示错误提示（Bug-1：实际直接登录）"
+            },
+            {
+              "action": "screenshot",
+              "value": "empty_login_bug"
+            }
+          ]
+        },
+        {
+          "name": "场景7：错误密码应提示错误",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.flutter_demo/.MainActivity",
+              "description": "重启回登录页"
+            },
+            {
+              "action": "wait",
+              "value": "2000",
+              "description": "等待Flutter渲染"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:tf_username",
+              "value": "admin",
+              "description": "输入正确用户名"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:tf_password",
+              "value": "wrong",
+              "description": "输入错误密码"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:txt_error",
+              "expected": "用户名或密码错误",
+              "description": "验证显示错误提示"
+            },
+            {
+              "action": "screenshot",
+              "value": "wrong_password"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
