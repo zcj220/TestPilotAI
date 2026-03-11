@@ -159,6 +159,18 @@ TestPilot AI/
 | GET | `/api/v1/memory/stats` | 记忆系统统计信息 |
 | GET | `/api/v1/memory/page/{url}` | 查询页面历史测试信息 |
 
+## 支持的测试平台
+
+| 平台 | 状态 | 方案 |
+|------|------|------|
+| **Web 应用** | ✅ 已验证 | Playwright + Docker 沙箱 |
+| **微信小程序** | ✅ 已验证 | Playwright + 小程序开发者工具 |
+| **Android 原生** | ✅ 已验证 | Appium + adb + AI视觉 |
+| **Flutter Android** | ✅ 已验证（95%通过率） | 纯adb方案 + UI树/AI双保险 |
+| **Windows 桌面** | 🔄 进行中 | pywinauto + AI视觉 |
+| **iOS** | 📋 计划中 | Appium + WebDriverAgent |
+| **macOS 桌面** | 📋 计划中 | pyautogui + AI视觉 |
+
 ## 开发路线图
 
 - [x] **v0.1** — 基础骨架（FastAPI + Docker沙箱 + Playwright）
@@ -169,6 +181,20 @@ TestPilot AI/
 - [x] **v0.6** — 桌面应用（React+TailwindCSS+Vite 前端，待套Tauri壳打包）
 - [x] **v0.7** — 可视化与体验优化（实时日志推送+VNC/截图流实时观看+积分计量系统）
 - [x] **v1.0** — 正式发布（商业化积分系统+用户认证+帮助文档+完整功能闭环）
+- [x] **v1.1** — 移动端测试（Android原生+Flutter | Appium+adb+AI视觉双保险 | 输入法兼容）
+- [ ] **v1.2** — 原生Android验证 + Web/小程序UI树兜底增强
+- [ ] **v1.3** — Windows桌面测试验证 + macOS支持
+- [ ] **v1.4** — 社区经验库（用户授权上传测试经验，众包测试知识共享）
+- [ ] **v1.5** — 自动闭环增强（插件一键启动引擎 + 自动测试→修复→重测循环）
+- [ ] **v2.0** — iOS支持 + 云端部署 + 团队协作
+
+## 社区经验库（v1.4 规划）
+
+TestPilot AI 计划建立众包测试知识库：
+- **用户授权上传**：测试100%通过后，经用户同意自动上传蓝本和测试经验
+- **智能匹配**：新用户遇到相似问题时，自动推荐已验证的解决方案
+- **按平台/框架分类**：Android/iOS/Web × Flutter/Native/React Native
+- **隐私保护**：仅上传脱敏后的测试模式，不上传业务数据
 
 ## 许可证
 

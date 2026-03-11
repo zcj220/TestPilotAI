@@ -1,0 +1,262 @@
+{
+  "app_name": "NoteApp 原生Android Demo",
+  "description": "原生Android笔记应用完整测试：登录（正确/空账号/错误密码）+ 笔记列表（添加/搜索/标星/删除/字数统计）。覆盖3个预埋Bug。",
+  "base_url": "",
+  "version": "1.0",
+  "platform": "android",
+  "app_package": "com.testpilot.noteapp",
+  "app_activity": ".MainActivity",
+  "pages": [
+    {
+      "url": "",
+      "title": "登录页",
+      "scenarios": [
+        {
+          "name": "场景1：正确账号登录成功",
+          "steps": [
+            {
+              "action": "wait",
+              "value": "2000",
+              "description": "等待应用启动"
+            },
+            {
+              "action": "screenshot",
+              "value": "login_page"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_username",
+              "value": "admin",
+              "description": "输入正确用户名"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_password",
+              "value": "admin123",
+              "description": "输入正确密码"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
+            },
+            {
+              "action": "wait",
+              "value": "1500",
+              "description": "等待页面跳转"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_note_count",
+              "expected": "共 3 条笔记",
+              "description": "验证跳转到笔记列表页（默认3条）"
+            },
+            {
+              "action": "screenshot",
+              "value": "note_list_page"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "url": "",
+      "title": "笔记列表页",
+      "scenarios": [
+        {
+          "name": "场景2：添加新笔记",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_new_note",
+              "value": "MyTestNote",
+              "description": "输入新笔记内容"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_add",
+              "description": "点击添加按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_note_count",
+              "expected": "共 4 条笔记",
+              "description": "验证笔记数变为4"
+            }
+          ]
+        },
+        {
+          "name": "场景3：字数统计验证（Bug-3）",
+          "steps": [
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_char_count",
+              "expected": "总字数：30",
+              "description": "验证字数统计（Bug-3：实际显示60，多算了一倍）"
+            },
+            {
+              "action": "screenshot",
+              "value": "char_count_check"
+            }
+          ]
+        },
+        {
+          "name": "场景4：搜索功能（Bug-2）",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_search",
+              "value": "hello",
+              "description": "搜索hello（小写）"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_note_count",
+              "expected": "共 4 条笔记",
+              "description": "搜索应不区分大小写找到Hello World（Bug-2：区分大小写导致找不到）"
+            },
+            {
+              "action": "screenshot",
+              "value": "search_result"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_clear_search",
+              "description": "清空搜索"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            }
+          ]
+        },
+        {
+          "name": "场景5：删除笔记",
+          "steps": [
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_delete_0",
+              "description": "删除第1条笔记"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "click",
+              "target": "xpath://android.widget.Button[@text='删除']",
+              "description": "确认删除对话框"
+            },
+            {
+              "action": "wait",
+              "value": "500"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_note_count",
+              "expected": "共 3 条笔记",
+              "description": "删除后笔记数减1"
+            },
+            {
+              "action": "screenshot",
+              "value": "after_delete"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "url": "",
+      "title": "登录页-异常测试",
+      "scenarios": [
+        {
+          "name": "场景6：空账号应被拒绝（Bug-1）",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.noteapp/.MainActivity",
+              "description": "重启回登录页"
+            },
+            {
+              "action": "wait",
+              "value": "1500",
+              "description": "等待渲染"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "不输入直接点登录"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_error",
+              "expected": "请输入用户名",
+              "description": "空账号应显示错误（Bug-1：实际提示请输入密码）"
+            },
+            {
+              "action": "screenshot",
+              "value": "empty_login"
+            }
+          ]
+        },
+        {
+          "name": "场景7：错误密码应提示错误",
+          "steps": [
+            {
+              "action": "navigate",
+              "value": "com.testpilot.noteapp/.MainActivity",
+              "description": "重启回登录页"
+            },
+            {
+              "action": "wait",
+              "value": "1500"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_username",
+              "value": "admin",
+              "description": "输入正确用户名"
+            },
+            {
+              "action": "fill",
+              "target": "accessibility_id:et_password",
+              "value": "wrongpass",
+              "description": "输入错误密码"
+            },
+            {
+              "action": "click",
+              "target": "accessibility_id:btn_login",
+              "description": "点击登录"
+            },
+            {
+              "action": "wait",
+              "value": "1000"
+            },
+            {
+              "action": "assert_text",
+              "target": "accessibility_id:tv_error",
+              "expected": "用户名或密码错误",
+              "description": "验证错误提示"
+            },
+            {
+              "action": "screenshot",
+              "value": "wrong_password"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

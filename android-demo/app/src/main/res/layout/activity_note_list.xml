@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical">
+
+    <!-- 搜索栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="#F5F5F5">
+
+        <EditText
+            android:id="@+id/et_search"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="搜索笔记..."
+            android:contentDescription="et_search"
+            android:inputType="text"
+            android:background="@android:drawable/editbox_background"
+            android:padding="12dp" />
+
+        <ImageButton
+            android:id="@+id/btn_clear_search"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@android:drawable/ic_menu_close_clear_cancel"
+            android:contentDescription="btn_clear_search"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <!-- 统计信息 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:background="#EEEEEE">
+
+        <TextView
+            android:id="@+id/tv_note_count"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="共 0 条笔记"
+            android:contentDescription="tv_note_count"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+
+        <TextView
+            android:id="@+id/tv_char_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="总字数：0"
+            android:contentDescription="tv_char_count"
+            android:textSize="13sp"
+            android:textColor="#666666" />
+    </LinearLayout>
+
+    <!-- 笔记列表 -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rv_notes"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <!-- 空状态 -->
+    <TextView
+        android:id="@+id/tv_empty"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:gravity="center"
+        android:text="暂无笔记\n点击右下角 + 添加"
+        android:contentDescription="tv_empty"
+        android:textSize="16sp"
+        android:textColor="#BBBBBB"
+        android:visibility="gone" />
+
+    <!-- 底部输入栏 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:background="#FFFFFF"
+        android:elevation="8dp">
+
+        <EditText
+            android:id="@+id/et_new_note"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="写点什么..."
+            android:contentDescription="et_new_note"
+            android:inputType="text"
+            android:padding="12dp"
+            android:background="@android:drawable/editbox_background" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_add"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="添加"
+            android:contentDescription="btn_add"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+</LinearLayout>
