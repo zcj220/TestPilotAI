@@ -60,6 +60,11 @@ desktop/dist/
 # Tauri (Rust桌面应用)
 desktop/src-tauri/target/
 
+# Android Demo 构建产物
+android-demo/.gradle/
+android-demo/app/build/
+android-demo/local.properties
+
 # 调试临时文件
 diag*.py
 diag*.txt
