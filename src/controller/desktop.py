@@ -1,8 +1,11 @@
 """
-Windows 桌面控制器（v7.0）
+Windows 桌面控制器（v8.0 — pywinauto版）
 
-基于 ctypes + Win32 API 实现，零外部依赖。
-支持：Win32 / WPF / WinForms / UWP 原生应用测试。
+基于 pywinauto + Win32 API 实现。
+pywinauto 负责稳定的点击和输入（内置焦点保护），
+Win32 API 负责截图和窗口管理。
+
+支持：Win32 / WPF / WinForms / UWP / Tk 等应用测试。
 
 选择器格式：
 - name:XXX         → 按窗口标题/控件名称查找
@@ -51,11 +54,13 @@ class DesktopController(BaseController):
     查找控件，通过 SendInput 模拟键鼠操作。
     """
 
-    def __init__(self, config: Optional[DesktopConfig] = None) -> None:
+    def __init__(self, config: Optional[DesktopConfig] = None, bg_mode: bool = False) -> None:
         self._config = config or DesktopConfig()
         self._hwnd: Optional[int] = None
         self._target_window: Optional[WindowInfo] = None
+        self._pwa_win = None  # pywinauto 窗口对象
         self._step_counter = 0
+        self._bg_mode = bg_mode  # True=PostMessage后台, False=pywinauto前台
         self._device = DeviceInfo(
             platform=Platform.WINDOWS,
             name="Windows Desktop",
@@ -81,6 +86,10 @@ class DesktopController(BaseController):
 
     # ── BaseController 实现 ──────────────────────
 
+    async def connect(self) -> None:
+        """connect 是 launch 的别名。"""
+        await self.launch()
+
     async def launch(self) -> None:
         """启动控制器：查找或启动目标窗口。"""
         # 如果配置了exe，先启动它
@@ -103,18 +112,33 @@ class DesktopController(BaseController):
         self._hwnd = window.hwnd
         self._target_window = window
         self._device.is_connected = True
-        self._device.extra = {"hwnd": self._hwnd, "pid": window.pid}
+
+        # 用 pywinauto 连接窗口（提供稳定的点击/输入）
+        try:
+            from pywinauto import Application
+            pwa_app = Application(backend='win32').connect(handle=self._hwnd)
+            self._pwa_win = pwa_app.window(handle=self._hwnd)
+            logger.debug("pywinauto 已连接 | hwnd={}"  , self._hwnd)
+        except Exception as e:
+            logger.warning("pywinauto 连接失败，fallback到原生Win32: {}", e)
+            self._pwa_win = None
 
         # 聚焦窗口
         WindowManager.focus_window(self._hwnd)
 
-        # 更新屏幕尺寸为窗口尺寸
-        rect = WindowManager.get_window_rect(self._hwnd)
-        self._device.screen_width = rect["width"]
-        self._device.screen_height = rect["height"]
+        # 使用client区域（不含标题栏和边框）作为坐标基准
+        # 截图也只截client区域，AI坐标和点击坐标完全对齐
+        client_rect = WindowManager.get_client_rect(self._hwnd)
+        self._device.screen_width = client_rect["width"]
+        self._device.screen_height = client_rect["height"]
+        self._device.extra = {
+            "hwnd": self._hwnd,
+            "pid": window.pid,
+            "window_rect": client_rect,  # 用client区域作为AI坐标基准
+        }
 
-        logger.info("DesktopController 已启动 | {} | {}x{}",
-                     window, rect["width"], rect["height"])
+        logger.info("DesktopController 已启动 | {} | client={}x{}",
+                     window, client_rect["width"], client_rect["height"])
 
     async def close(self) -> None:
         """关闭控制器（不关闭目标窗口）。"""
@@ -178,9 +202,8 @@ class DesktopController(BaseController):
         await self.tap(selector)
         await asyncio.sleep(0.2)
 
-        # 用 SendInput 逐字输入（支持中文/Unicode）
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: _send_text(text))
+        # 输入文本（根据 bg_mode 自动选择后台或前台）
+        await self._send_text_bg(text)
 
     async def screenshot(self, name: str = "") -> Path:
         """截取目标窗口。"""
@@ -209,6 +232,14 @@ class DesktopController(BaseController):
         """获取元素文本。"""
         elem = await self._find_element_uia(selector)
         return elem.get("name", "") if elem else ""
+
+    async def get_visible_text(self) -> str:
+        """获取窗口内所有可见文本（用于 assert_text 降级）。"""
+        ui_tree = await self.get_page_source()
+        # 从 UI 树中提取所有 Name 不为空的文本
+        import re
+        names = re.findall(r"Name='([^']+)'", ui_tree)
+        return "\n".join(n for n in names if n.strip())
 
     async def wait_for_element(self, selector: str, timeout_ms: int = 10000) -> None:
         """等待元素出现。"""
@@ -245,9 +276,46 @@ class DesktopController(BaseController):
             await asyncio.sleep(0.5)
 
     async def _click_at(self, x: int, y: int) -> None:
-        """在屏幕坐标点击。"""
+        """在屏幕坐标点击（坐标基于client区域）。
+
+        优先用 pywinauto.click_input（内置焦点保护，对tkinter等框架更稳定），
+        无pywinauto时 fallback 到 PostMessage 或 SendInput。
+        """
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: _click_screen(x, y))
+        if self._pwa_win is not None:
+            # pywinauto click_input的coords是相对于窗口左上角（含标题栏）
+            # 我们的x,y是基于client区域的屏幕绝对坐标，需要转成相对于窗口左上角
+            rect = self._pwa_win.rectangle()
+            rel_x = x - rect.left
+            rel_y = y - rect.top
+            await loop.run_in_executor(
+                None, lambda: self._pwa_win.click_input(coords=(rel_x, rel_y))
+            )
+        elif self._bg_mode and self._hwnd:
+            await loop.run_in_executor(None, lambda: _click_bg(self._hwnd, x, y))
+        else:
+            if self._hwnd:
+                WindowManager.focus_window(self._hwnd)
+                await asyncio.sleep(0.1)
+            await loop.run_in_executor(None, lambda: _click_screen(x, y))
+
+    async def _send_text_bg(self, text: str) -> None:
+        """输入文本。
+
+        优先用 pywinauto.type_keys（稳定，支持tkinter等框架），
+        无pywinauto时 fallback 到 PostMessage 或 SendInput。
+        """
+        loop = asyncio.get_event_loop()
+        if self._pwa_win is not None:
+            # pywinauto type_keys: 需要转义特殊字符
+            escaped = text.replace('{', '{{').replace('}', '}}').replace('+', '{+}').replace('^', '{^}').replace('%', '{%}').replace('~', '{~}').replace('(', '{(}').replace(')', '{)}')
+            await loop.run_in_executor(
+                None, lambda: self._pwa_win.type_keys(escaped, with_spaces=True, with_tabs=True)
+            )
+        elif self._bg_mode and self._hwnd:
+            await loop.run_in_executor(None, lambda: _send_text_bg(self._hwnd, text))
+        else:
+            await loop.run_in_executor(None, lambda: _send_text(text))
 
     async def _find_element_uia(self, selector: str) -> Optional[dict]:
         """通过 PowerShell UI Automation 查找元素。"""
@@ -259,17 +327,74 @@ class DesktopController(BaseController):
         )
 
 
-# ── Win32 输入模拟 ────────────────────────────────
+# ── Win32 消息常量 ────────────────────────────────
+
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_CHAR = 0x0102
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+MK_LBUTTON = 0x0001
+
+
+# ── 后台消息注入（不干扰用户鼠标） ──────────────────
+
+def _screen_to_client(hwnd: int, x: int, y: int) -> tuple[int, int]:
+    """屏幕坐标 → 窗口客户区坐标。"""
+    point = ctypes.wintypes.POINT(x, y)
+    user32.ScreenToClient(hwnd, ctypes.byref(point))
+    return point.x, point.y
+
+
+def _click_bg(hwnd: int, screen_x: int, screen_y: int) -> None:
+    """后台点击：PostMessage WM_LBUTTONDOWN/UP（不移动系统鼠标）。
+
+    将屏幕绝对坐标转换为窗口客户区相对坐标，
+    通过 PostMessage 发送到目标窗口，用户鼠标不受影响。
+    """
+    cx, cy = _screen_to_client(hwnd, screen_x, screen_y)
+    lparam = cy << 16 | (cx & 0xFFFF)
+
+    # 先找子窗口（某些框架的控件是子窗口）
+    child = user32.ChildWindowFromPoint(hwnd, ctypes.wintypes.POINT(cx, cy))
+    target = child if child and child != hwnd else hwnd
+    if child and child != hwnd:
+        # 坐标需要再转换为子窗口的客户区坐标
+        cx2, cy2 = _screen_to_client(child, screen_x, screen_y)
+        lparam = cy2 << 16 | (cx2 & 0xFFFF)
+        target = child
+
+    user32.PostMessageW(target, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
+    import time
+    time.sleep(0.05)
+    user32.PostMessageW(target, WM_LBUTTONUP, 0, lparam)
+
+
+def _send_text_bg(hwnd: int, text: str) -> None:
+    """后台输入文本：PostMessage WM_CHAR（不干扰用户键盘）。"""
+    for ch in text:
+        user32.PostMessageW(hwnd, WM_CHAR, ord(ch), 0)
+        import time
+        time.sleep(0.02)
+
+
+def _send_key_bg(hwnd: int, vk: int) -> None:
+    """后台发送虚拟按键。"""
+    user32.PostMessageW(hwnd, WM_KEYDOWN, vk, 0)
+    import time
+    time.sleep(0.02)
+    user32.PostMessageW(hwnd, WM_KEYUP, vk, 0)
+
+
+# ── 前台输入（Fallback，会移动系统鼠标） ─────────────
 
 def _click_screen(x: int, y: int) -> None:
-    """在屏幕坐标 (x, y) 处点击。"""
-    # 先移动鼠标
+    """前台点击（Fallback）：SendInput移动系统鼠标。"""
     screen_w = user32.GetSystemMetrics(0)
     screen_h = user32.GetSystemMetrics(1)
     abs_x = int(x * 65535 / screen_w)
     abs_y = int(y * 65535 / screen_h)
 
-    # 构造 INPUT 结构体数组
     class MOUSEINPUT(ctypes.Structure):
         _fields_ = [
             ("dx", ctypes.wintypes.LONG), ("dy", ctypes.wintypes.LONG),
@@ -284,15 +409,12 @@ def _click_screen(x: int, y: int) -> None:
         _fields_ = [("type", ctypes.wintypes.DWORD), ("union", INPUT_UNION)]
 
     inputs = (INPUT * 3)()
-    # 移动
     inputs[0].type = INPUT_MOUSE
     inputs[0].union.mi.dx = abs_x
     inputs[0].union.mi.dy = abs_y
     inputs[0].union.mi.dwFlags = MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE
-    # 按下
     inputs[1].type = INPUT_MOUSE
     inputs[1].union.mi.dwFlags = MOUSEEVENTF_LEFTDOWN
-    # 抬起
     inputs[2].type = INPUT_MOUSE
     inputs[2].union.mi.dwFlags = MOUSEEVENTF_LEFTUP
 

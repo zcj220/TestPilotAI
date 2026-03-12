@@ -127,7 +127,7 @@ class WindowManager:
 
     @staticmethod
     def get_window_rect(hwnd: int) -> dict:
-        """获取窗口位置和大小。"""
+        """获取窗口位置和大小（含标题栏和边框）。"""
         rect = ctypes.wintypes.RECT()
         user32.GetWindowRect(hwnd, ctypes.byref(rect))
         return {"left": rect.left, "top": rect.top,
@@ -136,41 +136,78 @@ class WindowManager:
                 "height": rect.bottom - rect.top}
 
     @staticmethod
-    def capture_window(hwnd: int, filepath: Path) -> Path:
-        """截取指定窗口为 BMP，然后转存为 PNG（需pillow）或保存BMP。"""
-        rect = ctypes.wintypes.RECT()
-        user32.GetWindowRect(hwnd, ctypes.byref(rect))
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        if w <= 0 or h <= 0:
-            raise RuntimeError(f"窗口尺寸异常: {w}x{h}")
+    def get_client_rect(hwnd: int) -> dict:
+        """获取client区域的屏幕坐标（不含标题栏和边框）。
 
+        返回的left/top是client区域左上角在屏幕上的绝对坐标。
+        width/height是client区域的纯内容尺寸。
+        """
+        # client区域相对于窗口的(0,0)开始
+        client_rect = ctypes.wintypes.RECT()
+        user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+        # 将client左上角(0,0)转为屏幕坐标
+        pt = ctypes.wintypes.POINT(0, 0)
+        user32.ClientToScreen(hwnd, ctypes.byref(pt))
+        w = client_rect.right
+        h = client_rect.bottom
+        return {"left": pt.x, "top": pt.y,
+                "right": pt.x + w, "bottom": pt.y + h,
+                "width": w, "height": h}
+
+    @staticmethod
+    def capture_window(hwnd: int, filepath: Path) -> Path:
+        """截取窗口client区域为 PNG（不含标题栏和边框，AI坐标更精确）。"""
+        # 获取完整窗口和client区域信息
+        win_rect = ctypes.wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(win_rect))
+        client_rect = ctypes.wintypes.RECT()
+        user32.GetClientRect(hwnd, ctypes.byref(client_rect))
+        pt = ctypes.wintypes.POINT(0, 0)
+        user32.ClientToScreen(hwnd, ctypes.byref(pt))
+
+        # client区域相对于窗口左上角的偏移（标题栏+边框的厚度）
+        offset_x = pt.x - win_rect.left
+        offset_y = pt.y - win_rect.top
+        cw = client_rect.right
+        ch = client_rect.bottom
+        if cw <= 0 or ch <= 0:
+            raise RuntimeError(f"client区域尺寸异常: {cw}x{ch}")
+
+        # 先截完整窗口，再裁剪client区域
+        full_w = win_rect.right - win_rect.left
+        full_h = win_rect.bottom - win_rect.top
         hwnd_dc = user32.GetWindowDC(hwnd)
         mem_dc = gdi32.CreateCompatibleDC(hwnd_dc)
-        bitmap = gdi32.CreateCompatibleBitmap(hwnd_dc, w, h)
+        bitmap = gdi32.CreateCompatibleBitmap(hwnd_dc, full_w, full_h)
         gdi32.SelectObject(mem_dc, bitmap)
         user32.PrintWindow(hwnd, mem_dc, 2)  # PW_RENDERFULLCONTENT
 
-        # 读取像素数据
-        bmi = _make_bitmapinfo(w, h)
-        buf = ctypes.create_string_buffer(w * h * 4)
-        gdi32.GetDIBits(mem_dc, bitmap, 0, h, buf, ctypes.byref(bmi), DIB_RGB_COLORS)
+        # 创建client区域大小的位图，从完整截图中裁剪
+        client_dc = gdi32.CreateCompatibleDC(hwnd_dc)
+        client_bitmap = gdi32.CreateCompatibleBitmap(hwnd_dc, cw, ch)
+        gdi32.SelectObject(client_dc, client_bitmap)
+        gdi32.BitBlt(client_dc, 0, 0, cw, ch, mem_dc, offset_x, offset_y, SRCCOPY)
 
-        # 写BMP文件
-        bmp_path = filepath.with_suffix(".bmp")
-        _write_bmp(bmp_path, w, h, buf.raw)
+        # 读取client区域像素数据
+        bmi = _make_bitmapinfo(cw, ch)
+        buf = ctypes.create_string_buffer(cw * ch * 4)
+        gdi32.GetDIBits(client_dc, client_bitmap, 0, ch, buf, ctypes.byref(bmi), DIB_RGB_COLORS)
 
         # 清理GDI资源
+        gdi32.DeleteObject(client_bitmap)
+        gdi32.DeleteDC(client_dc)
         gdi32.DeleteObject(bitmap)
         gdi32.DeleteDC(mem_dc)
         user32.ReleaseDC(hwnd, hwnd_dc)
 
-        logger.debug("窗口截图已保存 | {} ({}x{})", bmp_path, w, h)
-        return bmp_path
+        # 转换为PNG
+        png_path = _save_as_png(filepath, cw, ch, buf.raw)
+        logger.debug("窗口截图已保存 | {} ({}x{})", png_path, cw, ch)
+        return png_path
 
     @staticmethod
     def capture_screen(filepath: Path) -> Path:
-        """全屏截图。"""
+        """全屏截图（PNG格式）。"""
         w = user32.GetSystemMetrics(0)  # SM_CXSCREEN
         h = user32.GetSystemMetrics(1)  # SM_CYSCREEN
 
@@ -184,15 +221,13 @@ class WindowManager:
         buf = ctypes.create_string_buffer(w * h * 4)
         gdi32.GetDIBits(mem_dc, bitmap, 0, h, buf, ctypes.byref(bmi), DIB_RGB_COLORS)
 
-        bmp_path = filepath.with_suffix(".bmp")
-        _write_bmp(bmp_path, w, h, buf.raw)
-
         gdi32.DeleteObject(bitmap)
         gdi32.DeleteDC(mem_dc)
         user32.ReleaseDC(0, screen_dc)
 
-        logger.debug("全屏截图已保存 | {} ({}x{})", bmp_path, w, h)
-        return bmp_path
+        png_path = _save_as_png(filepath, w, h, buf.raw)
+        logger.debug("全屏截图已保存 | {} ({}x{})", png_path, w, h)
+        return png_path
 
 
 def _make_bitmapinfo(w: int, h: int):
@@ -229,8 +264,24 @@ def _make_bitmapinfo(w: int, h: int):
     return bmi
 
 
+def _save_as_png(filepath: Path, w: int, h: int, pixel_data: bytes) -> Path:
+    """将BGRA像素数据保存为PNG文件（体积远小于BMP）。"""
+    png_path = filepath.with_suffix(".png")
+    try:
+        from PIL import Image
+        # GDI返回的是BGRA格式，需要转为RGBA
+        img = Image.frombytes("RGBA", (w, h), pixel_data, "raw", "BGRA")
+        img.save(png_path, "PNG", optimize=True)
+    except ImportError:
+        # Pillow不可用时fallback到BMP
+        bmp_path = filepath.with_suffix(".bmp")
+        _write_bmp(bmp_path, w, h, pixel_data)
+        return bmp_path
+    return png_path
+
+
 def _write_bmp(path: Path, w: int, h: int, pixel_data: bytes) -> None:
-    """写入BMP文件。"""
+    """写入BMP文件（Pillow不可用时的fallback）。"""
     row_size = w * 4
     data_size = row_size * h
     file_size = 54 + data_size

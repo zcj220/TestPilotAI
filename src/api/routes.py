@@ -906,14 +906,17 @@ def create_router(
 
     @router.post("/test/desktop-blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_desktop_blueprint_test(req: dict) -> TestReportResponse:
-        """桌面应用蓝本测试：通过 pywinauto 操控 Windows 桌面应用窗口。"""
+        """桌面应用蓝本测试：UI Automation + AI视觉双保险。"""
         from pathlib import Path
         from src.testing.blueprint import BlueprintParser
-        from src.controller.desktop import DesktopController, DesktopConfig
+        from src.controller.desktop import DesktopController
+        from src.controller.window_manager import DesktopConfig
+        from src.testing.desktop_blueprint_runner import DesktopBlueprintRunner
 
         blueprint_path = req.get("blueprint_path", "")
         window_title = req.get("window_title", "")
         base_url_override = req.get("base_url", "")
+        app_exe = req.get("app_exe", "")  # 被测应用启动命令，自动重启确保干净状态
 
         bp_file = Path(blueprint_path)
         if not bp_file.exists():
@@ -921,80 +924,48 @@ def create_router(
 
         try:
             blueprint = BlueprintParser.parse_file(str(bp_file))
-            base_url = base_url_override or blueprint.base_url
+            if base_url_override:
+                blueprint.base_url = base_url_override
 
             if not window_title:
                 window_title = blueprint.app_name
 
-            config = DesktopConfig(window_title=window_title)
+            # 如果提供了app_exe，先关旧窗口再重启，确保干净状态
+            if app_exe:
+                import subprocess, time, ctypes
+                user32 = ctypes.windll.user32
+                WM_CLOSE = 0x0010
+                hwnd = user32.FindWindowW(None, window_title)
+                if hwnd:
+                    user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+                    logger.info("已关闭旧窗口: {} (hwnd={})", window_title, hwnd)
+                    time.sleep(2)
+                subprocess.Popen(app_exe, shell=True)
+                time.sleep(3)
+                logger.info("已重启被测应用: {}", app_exe)
+
+            config = DesktopConfig(target_title=window_title)
             controller = DesktopController(config)
 
-            from src.testing.models import StepResult, TestReport, BugReport
-            import time
+            # 获取AI客户端（如果可用）
+            ai_client = None
+            try:
+                from src.core.ai_client import AIClient
+                ai_client = AIClient()
+            except Exception:
+                logger.debug("AI客户端不可用，桌面测试将仅使用UI Automation")
 
-            start = time.time()
-            steps_results = []
-            bugs = []
-
-            await controller.connect()
-
-            for page in blueprint.pages:
-                for scenario in page.scenarios:
-                    for i, step in enumerate(scenario.steps):
-                        step_start = time.time()
-                        try:
-                            action = step.action
-                            if action == "click":
-                                await controller.click(step.target or "")
-                            elif action == "fill":
-                                await controller.input_text(step.target or "", step.value or "")
-                            elif action == "screenshot":
-                                await controller.screenshot()
-                            elif action == "assert_text":
-                                texts = await controller.get_visible_text()
-                                if step.expected and step.expected not in (texts or ""):
-                                    raise AssertionError(f"预期文本未找到: {step.expected}")
-
-                            steps_results.append(StepResult(
-                                step_number=len(steps_results) + 1,
-                                action=action,
-                                status="passed",
-                                duration=time.time() - step_start,
-                            ))
-                        except Exception as e:
-                            steps_results.append(StepResult(
-                                step_number=len(steps_results) + 1,
-                                action=step.action,
-                                status="failed",
-                                error=str(e),
-                                duration=time.time() - step_start,
-                            ))
-                            bugs.append(BugReport(
-                                severity="medium",
-                                title=f"步骤{len(steps_results)}失败: {step.action}",
-                                description=str(e),
-                            ))
+            runner = DesktopBlueprintRunner(
+                controller=controller,
+                ai_client=ai_client,
+            )
+            report = await runner.run(blueprint)
 
             await controller.close()
 
-            total = len(steps_results)
-            passed = sum(1 for s in steps_results if s.status == "passed")
-            duration = time.time() - start
-
-            report = TestReport(
-                test_name=f"桌面蓝本测试-{blueprint.app_name}",
-                url=base_url,
-                total_steps=total,
-                passed_steps=passed,
-                failed_steps=total - passed,
-                bugs=bugs,
-                duration_seconds=duration,
-                steps=steps_results,
-            )
-
             return TestReportResponse(
                 test_name=report.test_name,
-                url=report.url,
+                url=report.url or "",
                 total_steps=report.total_steps,
                 passed_steps=report.passed_steps,
                 failed_steps=report.failed_steps,

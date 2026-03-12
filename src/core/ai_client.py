@@ -138,6 +138,7 @@ class AIClient:
             ".jpeg": "image/jpeg",
             ".gif": "image/gif",
             ".webp": "image/webp",
+            ".bmp": "image/bmp",
         }
         mime_type = mime_map.get(suffix, "image/png")
 

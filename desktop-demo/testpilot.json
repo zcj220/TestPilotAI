@@ -1,0 +1,231 @@
+{
+  "app_name": "NoteApp",
+  "description": "Windows桌面笔记应用测试蓝本（tkinter版）。场景按状态依赖排序：先登录→主页操作→Logout→登录错误验证",
+  "platform": "desktop",
+  "base_url": "",
+  "pages": [
+    {
+      "url": "",
+      "name": "完整流程",
+      "description": "所有场景按执行顺序排列，场景间状态连贯",
+      "scenarios": [
+        {
+          "name": "正确登录",
+          "description": "使用正确的用户名和密码登录，进入主页",
+          "steps": [
+            {
+              "action": "screenshot",
+              "description": "登录页初始状态"
+            },
+            {
+              "action": "fill",
+              "target": "name:Username输入框",
+              "value": "admin",
+              "description": "输入用户名admin"
+            },
+            {
+              "action": "fill",
+              "target": "name:Password输入框",
+              "value": "admin123",
+              "description": "输入密码admin123"
+            },
+            {
+              "action": "click",
+              "target": "name:Login按钮",
+              "description": "点击Login按钮"
+            },
+            {
+              "action": "wait",
+              "value": "1500",
+              "description": "等待页面切换"
+            },
+            {
+              "action": "screenshot",
+              "description": "登录后主页面"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:笔记统计区域",
+              "expected": "Total: 3 notes",
+              "description": "验证笔记数量显示3条"
+            }
+          ]
+        },
+        {
+          "name": "添加笔记",
+          "description": "在主页底部输入框添加一条新笔记",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:底部新笔记输入框",
+              "value": "Test Note 123",
+              "description": "在底部输入框输入Test Note 123"
+            },
+            {
+              "action": "click",
+              "target": "name:Add按钮",
+              "description": "点击Add按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表刷新"
+            },
+            {
+              "action": "screenshot",
+              "description": "添加笔记后的列表"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:笔记统计区域",
+              "expected": "Total: 4 notes",
+              "description": "验证笔记数变为4条"
+            }
+          ]
+        },
+        {
+          "name": "搜索笔记",
+          "description": "在顶部搜索框输入Hello搜索，验证结果",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:顶部搜索输入框",
+              "value": "Hello",
+              "description": "在搜索框输入Hello"
+            },
+            {
+              "action": "click",
+              "target": "name:Search按钮",
+              "description": "点击Search按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待搜索结果"
+            },
+            {
+              "action": "screenshot",
+              "description": "搜索Hello结果"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:笔记列表区域",
+              "expected": "Hello World",
+              "description": "验证搜索结果包含Hello World"
+            }
+          ]
+        },
+        {
+          "name": "清除搜索",
+          "description": "点击Clear按钮恢复全部列表",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Clear按钮",
+              "description": "点击Clear按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表恢复"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:笔记统计区域",
+              "expected": "Total:",
+              "description": "验证恢复显示所有笔记"
+            },
+            {
+              "action": "screenshot",
+              "description": "清除搜索后的完整列表"
+            }
+          ]
+        },
+        {
+          "name": "登出",
+          "description": "点击Logout按钮返回登录页",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Logout按钮",
+              "description": "点击右上角Logout按钮"
+            },
+            {
+              "action": "wait",
+              "value": "1000",
+              "description": "等待回到登录页"
+            },
+            {
+              "action": "screenshot",
+              "description": "回到登录页"
+            }
+          ]
+        },
+        {
+          "name": "空用户名登录",
+          "description": "不输入用户名直接点登录，验证提示",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Login按钮",
+              "description": "不输入任何内容直接点Login"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待提示出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "空用户名提示截图"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:登录页提示信息",
+              "expected": "Please enter username",
+              "description": "验证提示为Please enter username"
+            }
+          ]
+        },
+        {
+          "name": "错误密码登录",
+          "description": "输入正确用户名但错误密码，验证提示",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:Username输入框",
+              "value": "admin",
+              "description": "输入用户名admin"
+            },
+            {
+              "action": "fill",
+              "target": "name:Password输入框",
+              "value": "wrongpass",
+              "description": "输入错误密码wrongpass"
+            },
+            {
+              "action": "click",
+              "target": "name:Login按钮",
+              "description": "点击Login按钮"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待提示出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "错误密码提示截图"
+            },
+            {
+              "action": "assert_text",
+              "target": "name:登录页提示信息",
+              "expected": "Invalid username or password",
+              "description": "验证提示为Invalid username or password"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
