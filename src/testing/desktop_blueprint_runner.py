@@ -14,6 +14,7 @@ Windows 桌面蓝本执行器（v1.0）
 """
 
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -89,6 +90,12 @@ class DesktopBlueprintRunner:
         self._on_screenshot = on_screenshot
         self._on_step = on_step
         self._test_controller = test_controller
+        # 跨场景坐标缓存：界面不变时直接复用，不重复发图给AI
+        self._page_hash: str = ""
+        self._global_coord_cache: dict[str, tuple[int, int]] = {}
+        # OCR文字缓存：相同界面的assert_text直接复用，不重复发AI
+        self._ocr_hash: str = ""
+        self._ocr_text_cache: str = ""
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -138,10 +145,14 @@ class DesktopBlueprintRunner:
                 except Exception as nav_err:
                     logger.error("页面导航失败: {} | {}", page.url, nav_err)
 
-            for scenario in page.scenarios:
+            for scenario_idx, scenario in enumerate(page.scenarios):
                 if cancelled:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
+
+                # 场景间等待UI稳定（第一个场景除外），防止Logout后截图时机太快
+                if scenario_idx > 0:
+                    await asyncio.sleep(1.5)
 
                 # 场景开始前预分析页面元素坐标（双保险）
                 scene_coords = await self._analyze_page_elements(scenario)
@@ -231,14 +242,21 @@ class DesktopBlueprintRunner:
                 url = value or page.url or blueprint.base_url
                 await self._ctrl.navigate(url)
                 await asyncio.sleep(1)
+                self._invalidate_coord_cache()
                 if scene_coords is not None:
                     scene_coords.clear()
 
             elif step_def.action == "click":
                 await self._smart_tap(target, desc, scene_coords)
+                # 点击后界面可能变化，清空OCR缓存
+                self._ocr_hash = ""
+                self._ocr_text_cache = ""
 
             elif step_def.action == "fill":
                 await self._smart_fill(target, value, desc, scene_coords)
+                # 输入后界面可能变化，清空OCR缓存
+                self._ocr_hash = ""
+                self._ocr_text_cache = ""
 
             elif step_def.action == "wait":
                 if target:
@@ -525,21 +543,72 @@ class DesktopBlueprintRunner:
 
         return coords
 
+    def _screenshot_hash(self, screenshot_path) -> str:
+        """计算截图文件的MD5 hash，用于判断界面是否变化。"""
+        try:
+            data = Path(screenshot_path).read_bytes()
+            return hashlib.md5(data).hexdigest()
+        except Exception:
+            return ""
+
+    def _invalidate_coord_cache(self):
+        """界面发生变化时清空坐标缓存（如navigate/logout后）。"""
+        self._page_hash = ""
+        self._global_coord_cache.clear()
+        logger.debug("坐标缓存已清空（界面变化）")
+
     async def _ai_analyze_elements(
         self,
         targets: list[dict],
     ) -> dict[str, tuple[int, int]]:
-        """截图 + AI 分析元素坐标（归一化坐标 → 屏幕坐标）。"""
+        """截图 + AI 分析元素坐标（归一化坐标 → 屏幕坐标）。
+
+        跨场景缓存策略：
+          - 截图hash不变 → 界面未变，直接从全局缓存取坐标，跳过AI调用
+          - 截图hash变了 → 界面已变，清缓存，重新AI分析，结果写入缓存
+          - 仅分析缓存中没有的新元素（增量分析）
+        """
         coords: dict[str, tuple[int, int]] = {}
         try:
             screenshot_path = await self._ctrl.screenshot("ai_analyze")
+            current_hash = self._screenshot_hash(screenshot_path)
+
             rect = self._ctrl._device.extra.get("window_rect") or {}
             win_w = rect.get("width") or self._ctrl._device.screen_width or 800
             win_h = rect.get("height") or self._ctrl._device.screen_height or 600
 
-            # 构建AI提示
+            # ── 检查界面是否变化 ─────────────────────────
+            if current_hash and current_hash == self._page_hash:
+                # 界面未变：从全局缓存取已有坐标
+                cached_hit = 0
+                for t in targets:
+                    key = t["target"]
+                    if key in self._global_coord_cache:
+                        coords[key] = self._global_coord_cache[key]
+                        cached_hit += 1
+
+                if cached_hit == len(targets):
+                    logger.info("  坐标缓存命中 {}/{} 元素（界面未变，跳过AI）", cached_hit, len(targets))
+                    return coords
+
+                # 有新元素不在缓存里，只分析未命中的部分（增量）
+                uncached = [t for t in targets if t["target"] not in coords]
+                logger.info("  坐标缓存命中 {}/{}，增量分析 {} 个新元素",
+                            cached_hit, len(targets), len(uncached))
+            else:
+                # 界面变了：清旧缓存，分析全部元素
+                if current_hash != self._page_hash:
+                    self._global_coord_cache.clear()
+                    self._page_hash = current_hash
+                    logger.debug("界面已变（hash不同），清空坐标缓存")
+                uncached = targets
+
+            # ── AI分析未缓存的元素 ───────────────────────
+            if not uncached:
+                return coords
+
             descriptions = []
-            for i, t in enumerate(targets):
+            for i, t in enumerate(uncached):
                 descriptions.append(f"{i+1}. target='{t['target']}' description='{t['description']}'")
 
             prompt = (
@@ -573,15 +642,14 @@ class DesktopBlueprintRunner:
                 win_top = win_rect.get("top", 0)
 
                 # 构建 target 名称映射（去掉 name: 前缀匹配）
-                target_names = {t["target"]: t["target"] for t in targets}
-                for t in targets:
+                target_names = {t["target"]: t["target"] for t in uncached}
+                for t in uncached:
                     bare = t["target"]
                     if bare.startswith("name:"):
                         target_names[bare[5:]] = bare
 
                 for item in items:
                     t_name = item.get("target", "")
-                    # 尝试精确匹配或去前缀匹配
                     matched_key = target_names.get(t_name) or target_names.get(f"name:{t_name}")
                     if not matched_key:
                         continue
@@ -597,6 +665,8 @@ class DesktopBlueprintRunner:
                         abs_x = int(win_left + nx * win_w)
                         abs_y = int(win_top + ny * win_h)
                         coords[matched_key] = (abs_x, abs_y)
+                        # 写入全局缓存供后续场景复用
+                        self._global_coord_cache[matched_key] = (abs_x, abs_y)
 
         except Exception as e:
             logger.warning("AI视觉分析失败: {}", str(e)[:100])
@@ -687,6 +757,11 @@ class DesktopBlueprintRunner:
         if self._ai:
             try:
                 screenshot_path = await self._ctrl.screenshot("assert_ocr")
+                current_hash = self._screenshot_hash(screenshot_path)
+                # 同一界面的OCR直接复用缓存，不重复发AI
+                if current_hash and current_hash == self._ocr_hash and self._ocr_text_cache:
+                    logger.debug("OCR缓存命中（界面未变，跳过AI）")
+                    return self._ocr_text_cache
                 loop = asyncio.get_event_loop()
                 prompt = (
                     "请识别这张截图中所有可见的文字内容，逐行列出。"
@@ -699,6 +774,8 @@ class DesktopBlueprintRunner:
                 )
                 if ocr_text:
                     logger.debug("AI OCR文本: {}", ocr_text[:300])
+                    self._ocr_hash = current_hash
+                    self._ocr_text_cache = ocr_text
                     return ocr_text
             except Exception as e:
                 logger.warning("AI OCR失败: {}", e)

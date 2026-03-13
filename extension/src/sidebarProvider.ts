@@ -1070,6 +1070,25 @@ ${commonRules}`;
 
     .hidden { display: none; }
 
+    /* 经验库样式 */
+    .exp-item { border:1px solid var(--input-border); border-radius:4px; padding:8px; margin-bottom:6px; font-size:11px; }
+    .exp-item:hover { border-color:var(--btn-bg); }
+    .exp-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .exp-title { font-weight:600; color:var(--fg); flex:1; }
+    .exp-badges { display:flex; gap:3px; flex-shrink:0; }
+    .exp-badge { padding:1px 5px; border-radius:8px; font-size:10px; font-weight:600; }
+    .badge-platform { background:#1e40af22; color:#60a5fa; }
+    .badge-hard { background:#7f1d1d22; color:#f87171; }
+    .badge-medium { background:#78350f22; color:#fbbf24; }
+    .badge-easy { background:#14532d22; color:#4ade80; }
+    .exp-solution { color:var(--fg); margin-bottom:3px; line-height:1.4; }
+    .exp-cause { color:var(--muted); font-size:10px; margin-bottom:3px; }
+    .exp-failed { color:#f87171; font-size:10px; margin-bottom:3px; }
+    .exp-meta { display:flex; gap:8px; color:var(--muted); font-size:10px; }
+    .exp-actions { display:flex; gap:4px; margin-top:5px; }
+    .exp-actions button { font-size:10px; padding:2px 6px; flex:0; }
+    .exp-empty { text-align:center; color:var(--muted); padding:20px; font-size:12px; }
+
     /* Bug列表样式 */
     .bug-item {
       background: var(--vscode-editor-background);
@@ -1144,6 +1163,7 @@ ${commonRules}`;
     <div class="tab-bar">
       <button class="active" id="tabBlueprint">蓝本模式</button>
       <button id="tabExplore">探索模式</button>
+      <button id="tabCommunity">经验库</button>
     </div>
 
     <!-- 蓝本模式 -->
@@ -1192,6 +1212,44 @@ ${commonRules}`;
       <input type="text" id="inputProjectPath" class="hidden" placeholder="D:\\projects\\my-app" />
 
       <button id="btnStartTest">▶ 开始测试</button>
+    </div>
+
+    <!-- 经验库 -->
+    <div class="tab-content" id="panelCommunity">
+      <div style="margin-bottom:8px">
+        <input type="text" id="communitySearch" placeholder="搜索经验（错误类型、平台...）" style="font-size:11px" />
+        <div style="display:flex;gap:4px;margin-top:4px">
+          <select id="communityPlatform" style="flex:1;font-size:11px;padding:4px">
+            <option value="">全部平台</option>
+            <option value="web">Web</option>
+            <option value="android">Android</option>
+            <option value="desktop">桌面</option>
+            <option value="miniprogram">小程序</option>
+          </select>
+          <button class="btn-secondary" id="btnSearchCommunity" style="flex:1;font-size:11px;padding:4px">🔍 搜索</button>
+          <button class="btn-secondary" id="btnRefreshCommunity" style="font-size:11px;padding:4px">↻</button>
+        </div>
+      </div>
+      <div id="communityStats" style="font-size:11px;color:var(--muted);margin-bottom:6px">加载中...</div>
+      <div id="communityList" style="max-height:350px;overflow-y:auto"></div>
+      <hr style="border:0;border-top:1px solid var(--border);margin:8px 0"/>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:4px">📤 分享修复经验</div>
+      <input type="text" id="shareErrorType" placeholder="错误类型（如 element_not_found）" style="font-size:11px" />
+      <input type="text" id="shareSolution" placeholder="修复方案描述" style="font-size:11px;margin-top:4px" />
+      <input type="text" id="shareRootCause" placeholder="根本原因（可选）" style="font-size:11px;margin-top:4px" />
+      <select id="sharePlatform" style="font-size:11px;margin-top:4px;width:100%;padding:4px">
+        <option value="web">Web</option>
+        <option value="android">Android</option>
+        <option value="desktop">桌面</option>
+        <option value="miniprogram">小程序</option>
+      </select>
+      <select id="shareDifficulty" style="font-size:11px;margin-top:4px;width:100%;padding:4px">
+        <option value="easy">⭐ 简单</option>
+        <option value="medium" selected>⭐⭐ 中等</option>
+        <option value="hard">⭐⭐⭐ 困难</option>
+      </select>
+      <button id="btnShareExperience" style="margin-top:6px;background:#8b5cf6">📤 分享到社区</button>
+      <div id="shareResult" style="font-size:11px;margin-top:4px;display:none"></div>
     </div>
   </div>
 
@@ -1273,16 +1331,22 @@ ${commonRules}`;
     // Tab切换
     const tabBlueprint = document.getElementById("tabBlueprint");
     const tabExplore = document.getElementById("tabExplore");
+    const tabCommunity = document.getElementById("tabCommunity");
     const panelBlueprint = document.getElementById("panelBlueprint");
     const panelExplore = document.getElementById("panelExplore");
+    const panelCommunity = document.getElementById("panelCommunity");
 
-    tabBlueprint.addEventListener("click", () => {
-      tabBlueprint.classList.add("active"); tabExplore.classList.remove("active");
-      panelBlueprint.classList.add("active"); panelExplore.classList.remove("active");
-    });
-    tabExplore.addEventListener("click", () => {
-      tabExplore.classList.add("active"); tabBlueprint.classList.remove("active");
-      panelExplore.classList.add("active"); panelBlueprint.classList.remove("active");
+    function switchTab(activeTab, activePanel) {
+      [tabBlueprint, tabExplore, tabCommunity].filter(Boolean).forEach(t => t.classList.remove("active"));
+      [panelBlueprint, panelExplore, panelCommunity].filter(Boolean).forEach(p => p.classList.remove("active"));
+      if (activeTab) activeTab.classList.add("active");
+      if (activePanel) activePanel.classList.add("active");
+    }
+    tabBlueprint.addEventListener("click", () => switchTab(tabBlueprint, panelBlueprint));
+    tabExplore.addEventListener("click", () => switchTab(tabExplore, panelExplore));
+    if (tabCommunity) tabCommunity.addEventListener("click", () => {
+      switchTab(tabCommunity, panelCommunity);
+      loadCommunityExperiences();
     });
 
     // 蓝本多选列表
@@ -2014,6 +2078,169 @@ ${commonRules}`;
       logArea.appendChild(entry);
       logArea.scrollTop = logArea.scrollHeight;
     }
+
+    // ── 社区经验库 ──────────────────────────────────────────
+    const communityList = document.getElementById("communityList");
+    const communityStats = document.getElementById("communityStats");
+    const communitySearch = document.getElementById("communitySearch");
+    const communityPlatform = document.getElementById("communityPlatform");
+    const btnSearchCommunity = document.getElementById("btnSearchCommunity");
+    const btnRefreshCommunity = document.getElementById("btnRefreshCommunity");
+    const btnShareExperience = document.getElementById("btnShareExperience");
+    const shareResult = document.getElementById("shareResult");
+
+    let engineBaseUrl = "http://127.0.0.1:8900/api/v1";
+
+    async function loadCommunityExperiences() {
+      const platform = communityPlatform.value;
+      const search = communitySearch.value.trim();
+      communityList.innerHTML = '<div class="exp-empty">加载中...</div>';
+
+      try {
+        // 加载统计
+        const statsResp = await fetch(engineBaseUrl + "/community/stats");
+        if (statsResp.ok) {
+          const stats = await statsResp.json();
+          communityStats.textContent = "共 " + stats.total_experiences + " 条经验 | 👍 " + stats.total_upvotes + " 次点赞 | ✅ " + stats.total_adoptions + " 次采纳";
+        }
+
+        // 搜索/列表
+        let url = engineBaseUrl + "/community/experiences?limit=20";
+        if (platform) url += "&platform=" + encodeURIComponent(platform);
+        if (search) url = engineBaseUrl + "/community/suggest?error_type=" + encodeURIComponent(search) + "&platform=" + encodeURIComponent(platform) + "&limit=20";
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        const data = await resp.json();
+        renderCommunityExperiences(data.experiences || []);
+      } catch (e) {
+        communityList.innerHTML = '<div class="exp-empty">⚠️ 无法连接到引擎<br><small>确保引擎已启动（poetry run python main.py）</small></div>';
+        communityStats.textContent = "未连接";
+      }
+    }
+
+    function renderCommunityExperiences(items) {
+      if (!items || items.length === 0) {
+        communityList.innerHTML = '<div class="exp-empty">暂无经验<br><small>测试后遇到Bug，修复后可分享到这里</small></div>';
+        return;
+      }
+      communityList.innerHTML = "";
+      items.slice(0, 10).forEach((exp, idx) => {
+        const diffClass = exp.difficulty === "hard" ? "badge-hard" : exp.difficulty === "easy" ? "badge-easy" : "badge-medium";
+        const diffLabel = exp.difficulty === "hard" ? "⭐⭐⭐" : exp.difficulty === "easy" ? "⭐" : "⭐⭐";
+        const failedHtml = exp.failed_attempts && exp.failed_attempts.length > 0
+          ? '<div class="exp-failed">❌ 踩过的坑: ' + escapeHtml(exp.failed_attempts.slice(0,2).join(" | ")) + '</div>'
+          : "";
+        const tagsHtml = exp.context_tags && exp.context_tags.length > 0
+          ? '<span>' + exp.context_tags.slice(0,3).map(t => '#' + t).join(' ') + '</span>'
+          : "";
+
+        const div = document.createElement("div");
+        div.className = "exp-item";
+        div.innerHTML =
+          '<div class="exp-header">' +
+            '<span class="exp-title">' + escapeHtml(exp.error_type || "未知错误") + '</span>' +
+            '<span class="exp-badges">' +
+              '<span class="exp-badge badge-platform">' + escapeHtml(exp.platform) + '</span>' +
+              '<span class="exp-badge ' + diffClass + '">' + diffLabel + '</span>' +
+            '</span>' +
+          '</div>' +
+          '<div class="exp-solution">💡 ' + escapeHtml(exp.solution_strategy || "") + '</div>' +
+          (exp.root_cause ? '<div class="exp-cause">🔍 根因: ' + escapeHtml(exp.root_cause) + '</div>' : '') +
+          failedHtml +
+          '<div class="exp-meta">' +
+            '<span>👍 ' + (exp.upvotes || 0) + '</span>' +
+            '<span>✅ 采纳 ' + (exp.adoptions || 0) + '</span>' +
+            '<span>🔁 ' + (exp.total_attempts || 1) + '次尝试</span>' +
+            (exp.time_spent_minutes > 0 ? '<span>⏱ ' + exp.time_spent_minutes + '分钟</span>' : '') +
+            tagsHtml +
+          '</div>' +
+          '<div class="exp-actions">' +
+            '<button data-action="vote" data-id="' + exp.id + '" class="btn-secondary">👍 赞</button>' +
+            '<button data-action="adopt" data-id="' + exp.id + '" style="background:#16a34a;font-size:10px;padding:2px 6px">✅ 采纳</button>' +
+          '</div>';
+        communityList.appendChild(div);
+      });
+    }
+
+    async function voteExp(expId, up) {
+      try {
+        const resp = await fetch(engineBaseUrl + "/community/vote/" + expId + "?up=" + up, { method: "POST" });
+        if (resp.ok) { loadCommunityExperiences(); }
+      } catch(e) {}
+    }
+
+    async function adoptExp(expId) {
+      try {
+        const resp = await fetch(engineBaseUrl + "/community/adopt/" + expId, { method: "POST" });
+        if (resp.ok) { loadCommunityExperiences(); }
+      } catch(e) {}
+    }
+
+    if (communityList) communityList.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      if (btn.dataset.action === "vote") voteExp(id, true);
+      else if (btn.dataset.action === "adopt") adoptExp(id);
+    });
+
+    if (btnSearchCommunity) btnSearchCommunity.addEventListener("click", loadCommunityExperiences);
+    if (btnRefreshCommunity) btnRefreshCommunity.addEventListener("click", loadCommunityExperiences);
+    if (communitySearch) communitySearch.addEventListener("keydown", (e) => { if (e.key === "Enter") loadCommunityExperiences(); });
+
+    if (btnShareExperience) btnShareExperience.addEventListener("click", async () => {
+      const errorType = document.getElementById("shareErrorType").value.trim();
+      const solution = document.getElementById("shareSolution").value.trim();
+      const rootCause = document.getElementById("shareRootCause").value.trim();
+      const platform = document.getElementById("sharePlatform").value;
+      const difficulty = document.getElementById("shareDifficulty").value;
+
+      if (!errorType || !solution) {
+        shareResult.style.display = "block";
+        shareResult.style.color = "#f87171";
+        shareResult.textContent = "错误类型和修复方案不能为空";
+        return;
+      }
+
+      btnShareExperience.disabled = true;
+      btnShareExperience.textContent = "上传中...";
+      shareResult.style.display = "none";
+
+      try {
+        const resp = await fetch(engineBaseUrl + "/community/share", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            platform,
+            error_type: errorType,
+            solution_strategy: solution,
+            root_cause: rootCause,
+            difficulty,
+          }),
+        });
+        const data = await resp.json();
+        shareResult.style.display = "block";
+        if (data.success) {
+          shareResult.style.color = "#4ade80";
+          shareResult.textContent = "✅ " + data.message;
+          document.getElementById("shareErrorType").value = "";
+          document.getElementById("shareSolution").value = "";
+          document.getElementById("shareRootCause").value = "";
+          loadCommunityExperiences();
+        } else {
+          shareResult.style.color = "#fbbf24";
+          shareResult.textContent = "⚠️ " + data.message + (data.duplicates && data.duplicates.length > 0 ? "（已有 " + data.duplicates.length + " 条相似方案）" : "");
+        }
+      } catch(e) {
+        shareResult.style.display = "block";
+        shareResult.style.color = "#f87171";
+        shareResult.textContent = "上传失败: " + e.message;
+      } finally {
+        btnShareExperience.disabled = false;
+        btnShareExperience.textContent = "📤 分享到社区";
+      }
+    });
 
     // 初始检查
     vscode.postMessage({ command: "checkEngine" });
