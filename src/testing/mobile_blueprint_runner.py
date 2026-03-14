@@ -30,7 +30,7 @@ from src.testing.models import (
 )
 from src.testing.formula_validator import is_formula, validate_formula
 from src.testing.smart_input import generate_smart_value, is_auto_value
-from src.testing.ai_hub import AIHub, HubAction, StepContext, DIALOG_BUTTON_KEYWORDS
+from src.testing.ai_hub import AIHub, FaultType, HubAction, StepContext, DIALOG_BUTTON_KEYWORDS
 
 
 class MobileBlueprintRunner:
@@ -253,8 +253,13 @@ class MobileBlueprintRunner:
                                 ))
                             all_results.append(result)
                             if bug:
+                                self._label_bug_fault(bug, decision.fault)
                                 all_bugs.append(bug)
                             break
+
+                        # 归因标记
+                        if bug:
+                            self._label_bug_fault(bug, decision.fault)
                     else:
                         self._hub.on_step_passed()
 
@@ -308,6 +313,14 @@ class MobileBlueprintRunner:
         return report
 
     # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
+
+    @staticmethod
+    def _label_bug_fault(bug: BugReport, fault: FaultType) -> None:
+        """根据归因给Bug打标签，让编程AI知道谁的锅。"""
+        if fault == FaultType.APP and not bug.category.startswith("["):
+            bug.category = f"[应用Bug]{bug.category}"
+        elif fault == FaultType.TEST and not bug.category.startswith("["):
+            bug.category = f"[测试问题]{bug.category}"
 
     async def _hub_screenshot(self, tag: str):
         """AIHub 截图回调。"""

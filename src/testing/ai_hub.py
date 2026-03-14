@@ -36,6 +36,13 @@ class HubAction(str, Enum):
     NONE = "none"              # 无额外操作，按原逻辑走
 
 
+class FaultType(str, Enum):
+    """失败归因：谁的锅？"""
+    APP = "app"          # 被测应用的Bug（数据错误、页面崩溃、功能异常）→ 报给编程AI
+    TEST = "test"        # 测试脚本/框架问题（选择器错、时序问题、弹窗遮挡）→ 中枢自己处理
+    UNKNOWN = "unknown"  # 无法判断
+
+
 @dataclass
 class StepRecord:
     """单步操作记录，用于构建历史上下文。"""
@@ -88,6 +95,7 @@ class HubDecision:
     """AI中枢返回的决策。"""
     action: HubAction = HubAction.NONE
     reason: str = ""
+    fault: FaultType = FaultType.UNKNOWN  # 失败归因
     popup_closed: bool = False           # 是否关闭了弹窗
     ai_cost_ms: float = 0               # 本次决策的AI调用耗时
 
@@ -141,6 +149,7 @@ class AIHub:
         self._total_heals: int = 0
         self._total_l1_calls: int = 0
         self._total_l2_calls: int = 0
+        self._total_rule_judgments: int = 0
         self._total_skipped_scenes: int = 0
 
     # ── 公共接口 ──────────────────────────────────────────
@@ -186,6 +195,11 @@ class AIHub:
                 reason=f"连续失败{self._consecutive_failures}步，场景级熔断",
             )
 
+        # ── L0.5 规则预判：不需要AI就能确定是APP Bug的场景 ──
+        rule_decision = self._try_rule_judge(ctx)
+        if rule_decision:
+            return rule_decision
+
         # ── L1 弹窗自愈（仅对可能被弹窗遮挡的操作）──
         if ctx.action in ("click", "fill", "assert_text", "assert_visible"):
             decision = await self._try_l1_popup_heal(ctx)
@@ -208,8 +222,47 @@ class AIHub:
             "total_heals": self._total_heals,
             "l1_calls": self._total_l1_calls,
             "l2_calls": self._total_l2_calls,
+            "rule_judgments": self._total_rule_judgments,
             "skipped_scenes": self._total_skipped_scenes,
         }
+
+    # ── L0.5: 规则预判（零AI成本）─────────────────────────
+
+    def _try_rule_judge(self, ctx: StepContext) -> Optional[HubDecision]:
+        """L0.5：基于错误信息的规则预判，不调AI，零token消耗。
+
+        能100%确定是APP Bug的情况：
+        - assert_text：元素找到了，但文字不对 → 应用显示了错误数据
+        - 计算验证失败：数值算错了 → 应用计算逻辑有Bug
+        这些不需要截图也不需要AI分析，直接判定。
+
+        不能确定的情况（交给L1/L2）：
+        - 元素找不到（可能是选择器错，也可能是应用没渲染）
+        - 通用异常（需要AI看截图）
+        """
+        err = ctx.error_message or ""
+
+        # assert_text：找到元素但文字不对 → 100% APP Bug
+        if ctx.action == "assert_text" and "文本断言失败" in err:
+            self._total_rule_judgments += 1
+            logger.info("  📋 AI中枢规则预判: 文本不匹配 → APP Bug（省去AI调用）")
+            return HubDecision(
+                action=HubAction.NONE,
+                fault=FaultType.APP,
+                reason=f"规则预判: {err[:120]}",
+            )
+
+        # 计算验证失败 → 100% APP Bug
+        if ctx.action == "assert_text" and "计算" in err:
+            self._total_rule_judgments += 1
+            logger.info("  📋 AI中枢规则预判: 计算错误 → APP Bug（省去AI调用）")
+            return HubDecision(
+                action=HubAction.NONE,
+                fault=FaultType.APP,
+                reason=f"规则预判: {err[:120]}",
+            )
+
+        return None
 
     # ── L1: 弹窗自愈 ─────────────────────────────────────
 
@@ -336,13 +389,16 @@ class AIHub:
                 f"但是失败了。报错：{(ctx.error_message or '未知')[:200]}\n\n"
                 "现在请你看看这张截图，就像你自己坐在电脑前一样，告诉我：\n"
                 "- 画面上是什么情况？\n"
-                "- 为什么这一步做不了？（比如：元素没出来？被遮住了？页面还没加载好？跳转到了别的页面？）\n"
-                "- 你觉得应该怎么办？\n\n"
+                "- 为什么这一步做不了？\n"
+                "- 这个失败是【应用自己的Bug】还是【测试脚本的问题】？\n\n"
+                "判断标准：\n"
+                "- app = 应用的Bug：页面显示了错误的数据、功能不正常、页面崩溃/白屏、\n"
+                "         计算结果不对、该出现的内容缺失（应用自身没实现好）\n"
+                "- test = 测试脚本的问题：选择器找不到元素（但页面看起来正常）、\n"
+                "         页面还在加载、弹窗遮挡、动画没播完、时序太快\n\n"
                 "返回JSON：\n"
-                '{"diagnosis": "一句话说清楚原因", "suggestion": "retry"或"skip"或"none"}\n'
-                "retry = 有可能再试一次就好了（页面在加载、动画还没完）\n"
-                "skip = 这步确实没法做（元素不存在、页面跳错了）\n"
-                "none = 看不出来、不确定\n\n"
+                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"none"}\n'
+                "suggestion含义：retry=再试一次可能好/skip=跳过/none=不确定\n\n"
                 "只返回JSON。"
             )
 
@@ -361,22 +417,35 @@ class AIHub:
             if not json_match:
                 return HubDecision(action=HubAction.NONE, reason="L2返回无JSON", ai_cost_ms=cost_ms)
 
-            result = json.loads(json_match.group().replace("'", '"'))
+            # 容错：去掉中文引号、修复常见JSON格式问题
+            raw_json = json_match.group()
+            raw_json = raw_json.replace("\u201c", '"').replace("\u201d", '"')  # 中文引号
+            raw_json = raw_json.replace("'", '"')
+            result = json.loads(raw_json)
             diagnosis = result.get("diagnosis", "")
             suggestion = result.get("suggestion", "none")
+            fault_str = result.get("fault", "unknown")
 
-            logger.info("  🧠 AI中枢L2诊断: {} → {}", diagnosis, suggestion)
+            # 解析归因
+            try:
+                fault = FaultType(fault_str)
+            except ValueError:
+                fault = FaultType.UNKNOWN
+
+            logger.info("  🧠 AI中枢L2诊断: {} | 归因={} | 建议={}", diagnosis, fault.value, suggestion)
 
             if suggestion == "retry":
                 return HubDecision(
                     action=HubAction.RETRY,
                     reason=f"L2诊断建议重试: {diagnosis}",
+                    fault=fault,
                     ai_cost_ms=cost_ms,
                 )
             elif suggestion == "skip":
                 return HubDecision(
                     action=HubAction.SKIP_STEP,
                     reason=f"L2诊断建议跳过: {diagnosis}",
+                    fault=fault,
                     ai_cost_ms=cost_ms,
                 )
 
