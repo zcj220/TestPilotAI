@@ -40,6 +40,7 @@ from src.testing.models import (
     TestReport,
 )
 from src.testing.controller import TestController
+from src.testing.ai_hub import AIHub, HubAction, HubDecision, StepContext, DIALOG_BUTTON_KEYWORDS
 
 try:
     from src.core.ai_client import AIClient
@@ -96,9 +97,8 @@ class DesktopBlueprintRunner:
         # OCR文字缓存：相同界面的assert_text直接复用，不重复发AI
         self._ocr_hash: str = ""
         self._ocr_text_cache: str = ""
-        # 弹窗自愈：记录连续失败步数，用于场景级跳过（第3层防御）
-        self._consecutive_failures: int = 0
-        self._MAX_CONSECUTIVE_FAILURES: int = 3
+        # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
+        self._hub = AIHub(ai_client)
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -152,8 +152,8 @@ class DesktopBlueprintRunner:
                 if cancelled:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
-                # 场景切换时重置连续失败计数
-                self._consecutive_failures = 0
+                # 场景切换时重置AI中枢连续失败计数
+                self._hub.on_scenario_start()
 
                 # 场景间等待UI稳定（第一个场景除外），防止Logout后截图时机太快
                 if scenario_idx > 0:
@@ -184,46 +184,56 @@ class DesktopBlueprintRunner:
                         step_num, step_def, page, blueprint, scene_coords
                     )
 
-                    # ── 弹窗自愈：步骤失败时尝试检测并关闭弹窗后重试 ──
-                    if bug and step_def.action in ("click", "fill", "assert_text", "assert_visible"):
-                        healed = await self._try_heal_popup()
-                        if healed:
-                            logger.info("  🔄 弹窗已关闭，重试步骤{}", step_num)
+                    # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
+                    if bug:
+                        ctx = StepContext(
+                            step_num=step_num,
+                            total_steps=blueprint.total_steps,
+                            action=step_def.action,
+                            target=step_def.target,
+                            value=step_def.value,
+                            error_message=result.error_message if result else None,
+                            scenario_name=scenario.name,
+                            platform="desktop",
+                            screenshot_fn=self._hub_screenshot,
+                            click_fn=self._hub_click,
+                        )
+                        decision = await self._hub.on_step_failed(ctx)
+
+                        if decision.action == HubAction.RETRY:
+                            logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
+                            # 弹窗关闭后清缓存
+                            self._ocr_hash = ""
+                            self._ocr_text_cache = ""
+                            self._invalidate_coord_cache()
                             result, bug = await self._execute_step(
                                 step_num, step_def, page, blueprint, scene_coords
                             )
                             if not bug:
-                                logger.info("  ✅ 弹窗自愈成功，步骤{}重试通过", step_num)
+                                logger.info("  ✅ AI中枢自愈成功，步骤{}重试通过", step_num)
 
-                    # 更新连续失败计数
-                    if bug:
-                        self._consecutive_failures += 1
+                        elif decision.action == HubAction.SKIP_SCENE:
+                            # L3 熔断：跳过当前场景剩余步骤
+                            remaining_idx = scenario.steps.index(step_def) + 1
+                            for skip_step in scenario.steps[remaining_idx:]:
+                                step_num += 1
+                                skip_desc = skip_step.description or skip_step.action
+                                try:
+                                    skip_action = ActionType(skip_step.action)
+                                except ValueError:
+                                    skip_action = ActionType.SCREENSHOT
+                                all_results.append(StepResult(
+                                    step=step_num, action=skip_action,
+                                    description=f"[跳过-场景blocked] {skip_desc}",
+                                    status=StepStatus.FAILED, duration_seconds=0,
+                                    error_message=decision.reason,
+                                ))
+                            all_results.append(result)
+                            if bug:
+                                all_bugs.append(bug)
+                            break
                     else:
-                        self._consecutive_failures = 0
-
-                    # ── 第3层防御：连续失败过多则跳过当前场景 ──
-                    if self._consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
-                        logger.warning("  ⚠️ 场景[{}]连续失败{}步，跳到下一场景",
-                                       scenario.name, self._consecutive_failures)
-                        # 把剩余步骤标记为SKIPPED
-                        remaining_idx = scenario.steps.index(step_def) + 1
-                        for skip_step in scenario.steps[remaining_idx:]:
-                            step_num += 1
-                            skip_desc = skip_step.description or skip_step.action
-                            try:
-                                skip_action = ActionType(skip_step.action)
-                            except ValueError:
-                                skip_action = ActionType.SCREENSHOT
-                            all_results.append(StepResult(
-                                step=step_num, action=skip_action,
-                                description=f"[跳过-场景blocked] {skip_desc}",
-                                status=StepStatus.FAILED, duration_seconds=0,
-                                error_message=f"场景'{scenario.name}'连续失败{self._MAX_CONSECUTIVE_FAILURES}步，已跳过",
-                            ))
-                        all_results.append(result)
-                        if bug:
-                            all_bugs.append(bug)
-                        break
+                        self._hub.on_step_passed()
 
                     all_results.append(result)
 
@@ -254,8 +264,9 @@ class DesktopBlueprintRunner:
         if self._test_controller:
             self._test_controller.on_test_complete()
 
-        logger.info("桌面蓝本测试完成 | 通过={}/{} | Bug={}",
-                    report.passed_steps, report.total_steps, len(all_bugs))
+        logger.info("桌面蓝本测试完成 | 通过={}/{} | Bug={} | AI中枢={}",
+                    report.passed_steps, report.total_steps, len(all_bugs),
+                    self._hub.stats)
         return report
 
     # ── 步骤执行 ──────────────────────────────────────────
@@ -417,70 +428,27 @@ class DesktopBlueprintRunner:
 
     # ── 弹窗自愈（第2层防御） ─────────────────────────────
 
-    async def _try_heal_popup(self) -> bool:
-        """尝试检测并关闭意外弹窗。返回True表示成功关闭了弹窗。"""
-        if not self._ai:
-            return False
+    # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
 
-        try:
-            screenshot_path = await self._ctrl.screenshot("popup_detect")
-            win_rect = self._ctrl._device.extra.get("window_rect") or {}
-            win_w = win_rect.get("width") or self._ctrl._device.screen_width or 800
-            win_h = win_rect.get("height") or self._ctrl._device.screen_height or 600
-            win_left = win_rect.get("left", 0)
-            win_top = win_rect.get("top", 0)
+    async def _hub_screenshot(self, tag: str):
+        """AIHub 截图回调：截图并返回路径。"""
+        return await self._ctrl.screenshot(tag)
 
-            prompt = (
-                "这是一个Windows桌面应用的截图。请判断截图中是否有模态弹窗/对话框覆盖在主界面上方。\n"
-                "如果有弹窗，请找到关闭按钮（如OK、Cancel、Close、Yes、No、确定、取消、X按钮）的中心坐标。\n"
-                "坐标为归一化值(0~1)，(0,0)是截图左上角。\n\n"
-                "返回JSON格式：\n"
-                '- 有弹窗：{"popup": true, "button": "OK", "x": 0.5, "y": 0.7}\n'
-                '- 无弹窗：{"popup": false}'
-            )
-
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(
-                None, lambda: self._ai.analyze_screenshot(
-                    str(screenshot_path), prompt, reasoning_effort="low", timeout=20
-                )
-            )
-
-            logger.debug("弹窗检测AI返回(前300字): {}", response[:300])
-            json_match = re.search(r"\{.*?\}", response, re.DOTALL)
-            if not json_match:
-                return False
-
-            result = json.loads(json_match.group().replace("'", '"'))
-            if not result.get("popup"):
-                return False
-
-            nx = self._normalize_coord(result.get("x"), win_w)
-            ny = self._normalize_coord(result.get("y"), win_h)
-            if nx is not None and ny is not None:
-                abs_x = int(win_left + nx * win_w)
-                abs_y = int(win_top + ny * win_h)
-                btn_name = result.get("button", "unknown")
-                logger.info("  🔧 弹窗自愈：检测到弹窗，点击[{}]按钮 ({}, {})", btn_name, abs_x, abs_y)
-                await self._ctrl._click_at(abs_x, abs_y)
-                await asyncio.sleep(0.5)
-                # 清空缓存，弹窗关闭后界面状态变化
-                self._ocr_hash = ""
-                self._ocr_text_cache = ""
-                self._invalidate_coord_cache()
-                return True
-
-        except Exception as e:
-            logger.warning("弹窗自愈检测失败: {}", str(e)[:100])
-
-        return False
+    async def _hub_click(self, nx: float, ny: float):
+        """AIHub 点击回调：归一化坐标 → 绝对坐标 → 点击。"""
+        win_rect = self._ctrl._device.extra.get("window_rect") or {}
+        win_w = win_rect.get("width") or self._ctrl._device.screen_width or 800
+        win_h = win_rect.get("height") or self._ctrl._device.screen_height or 600
+        win_left = win_rect.get("left", 0)
+        win_top = win_rect.get("top", 0)
+        abs_x = int(win_left + nx * win_w)
+        abs_y = int(win_top + ny * win_h)
+        await self._ctrl._click_at(abs_x, abs_y)
 
     # ── 智能操作（双保险） ──────────────────────────────────
 
-    # 弹窗按钮关键词：这些按钮通常出现在动态弹窗上，不能使用预分析缓存
-    _DIALOG_BUTTONS = {"name:OK", "name:Ok", "name:ok", "name:Yes", "name:No",
-                       "name:Cancel", "name:Close", "name:确定", "name:取消",
-                       "name:是", "name:否", "name:关闭"}
+    # 弹窗按钮关键词：委托给 AIHub 统一管理
+    _DIALOG_BUTTONS = DIALOG_BUTTON_KEYWORDS
 
     async def _smart_tap(
         self,
@@ -490,7 +458,7 @@ class DesktopBlueprintRunner:
     ) -> None:
         """智能点击：UI Automation优先 → 预分析坐标 → AI视觉降级。"""
         # 弹窗按钮跳过预分析缓存，强制实时定位（弹窗是动态出现的，旧坐标无效）
-        is_dialog_btn = target in self._DIALOG_BUTTONS
+        is_dialog_btn = AIHub.is_dialog_button(target)
 
         # 第1层：预分析坐标（场景开始时已缓存）—— 弹窗按钮跳过
         if not is_dialog_btn and scene_coords and target in scene_coords:

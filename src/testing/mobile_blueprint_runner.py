@@ -30,6 +30,7 @@ from src.testing.models import (
 )
 from src.testing.formula_validator import is_formula, validate_formula
 from src.testing.smart_input import generate_smart_value, is_auto_value
+from src.testing.ai_hub import AIHub, HubAction, StepContext, DIALOG_BUTTON_KEYWORDS
 
 
 class MobileBlueprintRunner:
@@ -59,6 +60,8 @@ class MobileBlueprintRunner:
         self._on_screenshot = on_screenshot
         self._on_step = on_step
         self._test_controller = test_controller
+        # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
+        self._hub = AIHub(ai_client)
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -174,6 +177,7 @@ class MobileBlueprintRunner:
                 if cancelled:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
+                self._hub.on_scenario_start()
 
                 # 场景开始前截图+AI分析当前页面，预拿所有元素坐标
                 scene_coords = await self._analyze_page_elements(scenario)
@@ -202,6 +206,51 @@ class MobileBlueprintRunner:
                     result, bug = await self._execute_step(
                         step_num, step_def, page, blueprint, scene_coords
                     )
+
+                    # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
+                    if bug:
+                        ctx = StepContext(
+                            step_num=step_num,
+                            total_steps=blueprint.total_steps,
+                            action=step_def.action,
+                            target=step_def.target,
+                            value=step_def.value,
+                            error_message=result.error_message if result else None,
+                            scenario_name=scenario.name,
+                            platform="mobile",
+                            screenshot_fn=self._hub_screenshot,
+                            click_fn=self._hub_click,
+                        )
+                        decision = await self._hub.on_step_failed(ctx)
+
+                        if decision.action == HubAction.RETRY:
+                            logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
+                            result, bug = await self._execute_step(
+                                step_num, step_def, page, blueprint, scene_coords
+                            )
+
+                        elif decision.action == HubAction.SKIP_SCENE:
+                            remaining_idx = scenario.steps.index(step_def) + 1
+                            for skip_step in scenario.steps[remaining_idx:]:
+                                step_num += 1
+                                skip_desc = skip_step.description or skip_step.action
+                                try:
+                                    skip_action = ActionType(skip_step.action)
+                                except ValueError:
+                                    skip_action = ActionType.SCREENSHOT
+                                all_results.append(StepResult(
+                                    step=step_num, action=skip_action,
+                                    description=f"[跳过-场景blocked] {skip_desc}",
+                                    status=StepStatus.FAILED, duration_seconds=0,
+                                    error_message=decision.reason,
+                                ))
+                            all_results.append(result)
+                            if bug:
+                                all_bugs.append(bug)
+                            break
+                    else:
+                        self._hub.on_step_passed()
+
                     all_results.append(result)
 
                     # navigate后scene_coords被清空 → 重新分析剩余步骤
@@ -241,9 +290,30 @@ class MobileBlueprintRunner:
         if self._test_controller:
             self._test_controller.on_test_complete()
 
-        logger.info("手机蓝本测试完成 | 通过={}/{} | Bug={}",
-                    report.passed_steps, report.total_steps, len(all_bugs))
+        logger.info("手机蓝本测试完成 | 通过={}/{} | Bug={} | AI中枢={}",
+                    report.passed_steps, report.total_steps, len(all_bugs),
+                    self._hub.stats)
         return report
+
+    # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
+
+    async def _hub_screenshot(self, tag: str):
+        """AIHub 截图回调。"""
+        try:
+            return await self._ctrl.screenshot(tag)
+        except Exception:
+            return None
+
+    async def _hub_click(self, nx: float, ny: float):
+        """AIHub 点击回调：归一化坐标 → 屏幕像素坐标 → 点击。"""
+        try:
+            sw = self._ctrl._device.screen_width or 1080
+            sh = self._ctrl._device.screen_height or 1920
+            x = int(nx * sw)
+            y = int(ny * sh)
+            await self._ctrl.tap_xy(x, y)
+        except Exception as e:
+            logger.warning("AI中枢Mobile点击失败: {}", str(e)[:80])
 
     # ── 步骤执行 ──────────────────────────────────────────
 
@@ -663,11 +733,8 @@ class MobileBlueprintRunner:
             logger.warning("  AI页面分析异常: {}", str(e)[:100])
         return coords
 
-    # 弹窗按钮关键词：这些按钮通常出现在动态弹窗上，不能使用预分析缓存
-    _DIALOG_BUTTONS = {"name:OK", "name:Ok", "name:ok", "name:YES", "name:yes",
-                       "name:Yes", "name:No", "name:no", "name:NO",
-                       "name:Cancel", "name:Close", "name:确定", "name:取消",
-                       "name:是", "name:否", "name:关闭"}
+    # 弹窗按钮关键词：委托给 AIHub 统一管理
+    _DIALOG_BUTTONS = DIALOG_BUTTON_KEYWORDS
 
     async def _smart_tap(
         self,
@@ -677,7 +744,7 @@ class MobileBlueprintRunner:
     ) -> None:
         """智能点击：视觉坐标 → Appium → 视觉降级。"""
         # 弹窗按钮跳过预分析缓存，强制实时定位（弹窗是动态出现的，旧坐标无效）
-        is_dialog_btn = target in self._DIALOG_BUTTONS
+        is_dialog_btn = AIHub.is_dialog_button(target)
 
         # 第1层：场景预分析的视觉坐标 —— 弹窗按钮跳过
         if not is_dialog_btn and scene_coords and target in scene_coords:

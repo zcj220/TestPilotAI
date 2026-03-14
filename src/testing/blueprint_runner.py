@@ -26,6 +26,7 @@ from src.testing.formula_validator import FormulaResult, is_formula, validate_fo
 from src.testing.smart_input import generate_smart_value, is_auto_value
 from src.testing.log_slicer import LogSlicer
 from src.testing.smart_repair import RepairStrategy, SmartRepairDecider
+from src.testing.ai_hub import AIHub, HubAction, StepContext
 
 
 class BlueprintRunner:
@@ -58,6 +59,8 @@ class BlueprintRunner:
         self._on_step = on_step
         self._anomaly_detector: AnomalyDetector | None = None
         self._log_slicer = LogSlicer()
+        # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
+        self._hub = AIHub(ai_client)
 
     async def run(
         self,
@@ -158,6 +161,7 @@ class BlueprintRunner:
                 if cancelled:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
+                self._hub.on_scenario_start()
 
                 for step_def in scenario.steps:
                     step_num += 1
@@ -182,6 +186,52 @@ class BlueprintRunner:
                     result, bug = await self._execute_step(
                         step_num, step_def, page, blueprint
                     )
+
+                    # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
+                    if bug:
+                        ctx = StepContext(
+                            step_num=step_num,
+                            total_steps=blueprint.total_steps,
+                            action=step_def.action,
+                            target=step_def.target,
+                            value=step_def.value,
+                            error_message=result.error_message if result else None,
+                            scenario_name=scenario.name,
+                            platform="web",
+                            screenshot_fn=self._hub_screenshot,
+                            click_fn=self._hub_click,
+                        )
+                        decision = await self._hub.on_step_failed(ctx)
+
+                        if decision.action == HubAction.RETRY:
+                            logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
+                            result, bug = await self._execute_step(
+                                step_num, step_def, page, blueprint
+                            )
+
+                        elif decision.action == HubAction.SKIP_SCENE:
+                            # L3 熔断：跳过当前场景剩余步骤
+                            remaining_idx = scenario.steps.index(step_def) + 1
+                            for skip_step in scenario.steps[remaining_idx:]:
+                                step_num += 1
+                                skip_desc = skip_step.description or skip_step.action
+                                try:
+                                    skip_action = ActionType(skip_step.action)
+                                except ValueError:
+                                    skip_action = ActionType.SCREENSHOT
+                                all_results.append(StepResult(
+                                    step=step_num, action=skip_action,
+                                    description=f"[跳过-场景blocked] {skip_desc}",
+                                    status=StepStatus.FAILED, duration_seconds=0,
+                                    error_message=decision.reason,
+                                ))
+                            all_results.append(result)
+                            if bug:
+                                all_bugs.append(bug)
+                            break
+                    else:
+                        self._hub.on_step_passed()
+
                     all_results.append(result)
 
                     # v2.1：日志切片 - 步骤结束
@@ -264,15 +314,38 @@ class BlueprintRunner:
             repair_stats=repair_decider.stats if smart_repair_enabled else None,
         )
 
-        logger.info("蓝本测试完成 | 通过={}/{} | Bug={} | 修复统计={}",
+        logger.info("蓝本测试完成 | 通过={}/{} | Bug={} | 修复统计={} | AI中枢={}",
                      report.passed_steps, report.total_steps, len(all_bugs),
-                     repair_decider.stats if smart_repair_enabled else "N/A")
+                     repair_decider.stats if smart_repair_enabled else "N/A",
+                     self._hub.stats)
 
         # v2.0：通知控制器测试完成
         if self._controller:
             self._controller.on_test_complete()
 
         return report
+
+    # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
+
+    async def _hub_screenshot(self, tag: str):
+        """AIHub 截图回调。"""
+        try:
+            path = await self._browser.screenshot()
+            return path
+        except Exception:
+            return None
+
+    async def _hub_click(self, nx: float, ny: float):
+        """AIHub 点击回调：归一化坐标 → 页面像素坐标 → 点击。"""
+        try:
+            viewport = await self._browser.page.evaluate(
+                "() => ({w: window.innerWidth, h: window.innerHeight})"
+            )
+            x = int(nx * viewport["w"])
+            y = int(ny * viewport["h"])
+            await self._browser.page.mouse.click(x, y)
+        except Exception as e:
+            logger.warning("AI中枢Web点击失败: {}", str(e)[:80])
 
     async def _execute_step(
         self,
