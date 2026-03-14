@@ -268,7 +268,7 @@ class DesktopBlueprintRunner:
 
             elif step_def.action == "assert_text":
                 expected = step_def.expected or value or ""
-                text = await self._get_text(target)
+                text = await self._get_text(target) or ""
                 if is_formula(expected):
                     formula_result = validate_formula(expected, text)
                     if not formula_result.passed:
@@ -458,7 +458,8 @@ class DesktopBlueprintRunner:
     async def _select_all_delete(self) -> None:
         """Ctrl+A 全选 + Backspace 清空输入框。
 
-        优先用 pywinauto.type_keys（稳定），fallback 到 PostMessage/SendInput。
+        优先用 pywinauto.type_keys（对tkinter最稳定），
+        fallback 到 SendInput。
         """
         loop = asyncio.get_event_loop()
         pwa_win = getattr(self._ctrl, '_pwa_win', None)
@@ -543,6 +544,36 @@ class DesktopBlueprintRunner:
 
         return coords
 
+    @staticmethod
+    def _normalize_coord(val, dimension: int) -> Optional[float]:
+        """将AI返回的坐标值归一化到0~1范围。
+
+        兼容多种格式：
+          - 标准归一化: 0.5 → 0.5
+          - 绝对像素: 219 → 219/dimension
+          - 字符串分数: "219/889" → eval → 0.246
+        """
+        if val is None:
+            return None
+        # 字符串分数如 "219/889"
+        if isinstance(val, str) and "/" in val:
+            try:
+                parts = val.split("/")
+                val = float(parts[0]) / float(parts[1])
+            except (ValueError, ZeroDivisionError):
+                return None
+        try:
+            val = float(val)
+        except (TypeError, ValueError):
+            return None
+        # 已经是归一化值
+        if 0 <= val <= 1:
+            return val
+        # 绝对像素值：转归一化
+        if dimension > 0 and 1 < val <= dimension * 1.5:
+            return val / dimension
+        return None
+
     def _screenshot_hash(self, screenshot_path) -> str:
         """计算截图文件的MD5 hash，用于判断界面是否变化。"""
         try:
@@ -622,7 +653,7 @@ class DesktopBlueprintRunner:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None, lambda: self._ai.analyze_screenshot(
-                    str(screenshot_path), prompt, reasoning_effort="low"
+                    str(screenshot_path), prompt, reasoning_effort="low", timeout=30
                 )
             )
 
@@ -661,7 +692,10 @@ class DesktopBlueprintRunner:
                         nx, ny = float(nx), float(ny)
                     except (TypeError, ValueError):
                         continue
-                    if 0 <= nx <= 1 and 0 <= ny <= 1:
+                    # 坐标容错：支持分数(219/889)、绝对像素(869)、标准归一化(0.5)
+                    nx = self._normalize_coord(nx, win_w)
+                    ny = self._normalize_coord(ny, win_h)
+                    if nx is not None and ny is not None:
                         abs_x = int(win_left + nx * win_w)
                         abs_y = int(win_top + ny * win_h)
                         coords[matched_key] = (abs_x, abs_y)
@@ -700,7 +734,7 @@ class DesktopBlueprintRunner:
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None, lambda: self._ai.analyze_screenshot(
-                    str(screenshot_path), prompt, reasoning_effort="low"
+                    str(screenshot_path), prompt, reasoning_effort="low", timeout=30
                 )
             )
 
@@ -716,12 +750,10 @@ class DesktopBlueprintRunner:
                     item = {}
                 nx = item.get("x")
                 ny = item.get("y")
+                # 坐标容错：支持分数(219/889)、绝对像素(869)、标准归一化(0.5)
+                nx = self._normalize_coord(nx, win_w)
+                ny = self._normalize_coord(ny, win_h)
                 if nx is not None and ny is not None:
-                    try:
-                        nx, ny = float(nx), float(ny)
-                    except (TypeError, ValueError):
-                        nx, ny = -1, -1
-                if nx is not None and ny is not None and 0 <= nx <= 1 and 0 <= ny <= 1:
                     abs_x = int(win_left + nx * win_w)
                     abs_y = int(win_top + ny * win_h)
                     return (abs_x, abs_y)
@@ -734,26 +766,13 @@ class DesktopBlueprintRunner:
     # ── 文本获取 ──────────────────────────────────────────
 
     async def _get_text(self, selector: str) -> str:
-        """获取元素文本：UI Automation优先 → 全窗口文本 → AI视觉OCR降级。"""
-        # 1. UI Automation精确获取
-        if selector:
-            try:
-                text = await self._ctrl.get_text(selector)
-                if text:
-                    return text
-            except Exception:
-                pass
+        """获取元素文本：AI视觉OCR优先（最全面），UI Automation作为补充。
 
-        # 2. UI Automation全窗口文本
-        ui_text = await self._ctrl.get_visible_text()
-        # 如果UI树返回了有意义的文本（不仅仅是窗口标题），直接用
-        lines = [l.strip() for l in ui_text.split("\n") if l.strip()]
-        win_title = self._ctrl._target_window.title if self._ctrl._target_window else ""
-        meaningful = [l for l in lines if l != win_title]
-        if meaningful:
-            return ui_text
-
-        # 3. AI视觉OCR降级（tkinter等框架UI树不暴露文本）
+        桌面应用的 UI Automation 文本通常不完整（只有控件Name属性），
+        而 AI OCR 能识别所有可见文字（包括列表内容、统计信息等），
+        所以优先使用 AI OCR，仅在 AI 不可用时降级到 UI Automation。
+        """
+        # 1. AI视觉OCR（最全面，能识别所有可见文字）
         if self._ai:
             try:
                 screenshot_path = await self._ctrl.screenshot("assert_ocr")
@@ -769,7 +788,7 @@ class DesktopBlueprintRunner:
                 )
                 ocr_text = await loop.run_in_executor(
                     None, lambda: self._ai.analyze_screenshot(
-                        str(screenshot_path), prompt, reasoning_effort="minimal"
+                        str(screenshot_path), prompt, reasoning_effort="minimal", timeout=20, max_tokens=2048
                     )
                 )
                 if ocr_text:
@@ -780,7 +799,16 @@ class DesktopBlueprintRunner:
             except Exception as e:
                 logger.warning("AI OCR失败: {}", e)
 
-        return ui_text
+        # 2. AI不可用或失败时，降级到UI Automation
+        if selector:
+            try:
+                text = await self._ctrl.get_text(selector)
+                if text:
+                    return text
+            except Exception:
+                pass
+        ui_text = await self._ctrl.get_visible_text()
+        return ui_text or ""
 
     # ── 报告生成 ──────────────────────────────────────────
 

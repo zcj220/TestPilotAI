@@ -914,9 +914,7 @@ def create_router(
         from src.testing.desktop_blueprint_runner import DesktopBlueprintRunner
 
         blueprint_path = req.get("blueprint_path", "")
-        window_title = req.get("window_title", "")
         base_url_override = req.get("base_url", "")
-        app_exe = req.get("app_exe", "")  # 被测应用启动命令，自动重启确保干净状态
 
         bp_file = Path(blueprint_path)
         if not bp_file.exists():
@@ -927,10 +925,14 @@ def create_router(
             if base_url_override:
                 blueprint.base_url = base_url_override
 
-            if not window_title:
-                window_title = blueprint.app_name
+            # 从蓝本JSON读取原始字段（BlueprintParser可能不解析这些），API参数可覆盖
+            import json
+            raw_bp = json.loads(bp_file.read_text(encoding="utf-8"))
+            window_title = req.get("window_title", "") or raw_bp.get("window_title", "") or blueprint.app_name
+            app_exe = req.get("app_exe", "") or raw_bp.get("app_exe", "")
+            bp_dir = bp_file.parent  # 蓝本所在目录，用于相对路径执行
 
-            # 如果提供了app_exe，先关旧窗口再重启，确保干净状态
+            # 自动启动/重启被测应用（确保干净状态）
             if app_exe:
                 import subprocess, time, ctypes
                 user32 = ctypes.windll.user32
@@ -940,9 +942,26 @@ def create_router(
                     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
                     logger.info("已关闭旧窗口: {} (hwnd={})", window_title, hwnd)
                     time.sleep(2)
-                subprocess.Popen(app_exe, shell=True)
-                time.sleep(3)
-                logger.info("已重启被测应用: {}", app_exe)
+                    # 等窗口真正关闭
+                    for _ in range(10):
+                        if not user32.FindWindowW(None, window_title):
+                            break
+                        time.sleep(0.3)
+                # 如果命令以python开头，优先使用项目虚拟环境的python
+                launch_cmd = app_exe
+                if launch_cmd.startswith("python "):
+                    venv_python = bp_dir.parent / ".venv" / "Scripts" / "python.exe"
+                    if not venv_python.exists():
+                        venv_python = bp_dir / ".venv" / "Scripts" / "python.exe"
+                    if venv_python.exists():
+                        launch_cmd = f'"{venv_python}" {launch_cmd[7:]}'
+                subprocess.Popen(launch_cmd, shell=True, cwd=str(bp_dir))
+                # 等窗口出现（最多10秒），而不是固定等3秒
+                for _wait in range(20):
+                    time.sleep(0.5)
+                    if user32.FindWindowW(None, window_title):
+                        break
+                logger.info("已启动被测应用: {} (工作目录: {})", app_exe, bp_dir)
 
             config = DesktopConfig(target_title=window_title)
             controller = DesktopController(config)

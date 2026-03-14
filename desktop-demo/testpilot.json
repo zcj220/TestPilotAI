@@ -3,6 +3,8 @@
   "description": "Windows桌面笔记应用测试蓝本（tkinter版）。场景按状态依赖排序：先登录→主页操作→Logout→登录错误验证",
   "platform": "desktop",
   "base_url": "",
+  "window_title": "NoteApp",
+  "app_exe": "python notepad_app.py",
   "pages": [
     {
       "url": "",
@@ -19,20 +21,20 @@
             },
             {
               "action": "fill",
-              "target": "name:Username输入框",
+              "target": "name:Username",
               "value": "admin",
-              "description": "输入用户名admin"
+              "description": "在顶部Username标签右侧的输入框输入admin"
             },
             {
               "action": "fill",
-              "target": "name:Password输入框",
+              "target": "name:Password",
               "value": "admin123",
-              "description": "输入密码admin123"
+              "description": "在Password标签右侧的输入框输入admin123"
             },
             {
               "action": "click",
-              "target": "name:Login按钮",
-              "description": "点击Login按钮"
+              "target": "name:Login",
+              "description": "点击页面中间的蓝色Login按钮"
             },
             {
               "action": "wait",
@@ -45,7 +47,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:笔记统计区域",
+              "target": "name:Total",
               "expected": "Total: 3 notes",
               "description": "验证笔记数量显示3条"
             }
@@ -57,14 +59,14 @@
           "steps": [
             {
               "action": "fill",
-              "target": "name:底部新笔记输入框",
+              "target": "name:Enter new note...",
               "value": "Test Note 123",
-              "description": "在底部输入框输入Test Note 123"
+              "description": "在页面底部包含'Enter new note...'占位符的输入框输入"
             },
             {
               "action": "click",
-              "target": "name:Add按钮",
-              "description": "点击Add按钮"
+              "target": "name:Add",
+              "description": "点击底部输入框右侧的绿色Add按钮"
             },
             {
               "action": "wait",
@@ -77,7 +79,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:笔记统计区域",
+              "target": "name:Total",
               "expected": "Total: 4 notes",
               "description": "验证笔记数变为4条"
             }
@@ -89,14 +91,14 @@
           "steps": [
             {
               "action": "fill",
-              "target": "name:顶部搜索输入框",
+              "target": "name:Search notes...",
               "value": "Hello",
-              "description": "在搜索框输入Hello"
+              "description": "在顶部包含'Search notes...'占位符的搜索框输入Hello"
             },
             {
               "action": "click",
-              "target": "name:Search按钮",
-              "description": "点击Search按钮"
+              "target": "name:Search",
+              "description": "点击搜索框右侧的Search按钮"
             },
             {
               "action": "wait",
@@ -109,7 +111,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:笔记列表区域",
+              "target": "name:Hello World",
               "expected": "Hello World",
               "description": "验证搜索结果包含Hello World"
             }
@@ -121,8 +123,8 @@
           "steps": [
             {
               "action": "click",
-              "target": "name:Clear按钮",
-              "description": "点击Clear按钮"
+              "target": "name:Clear",
+              "description": "点击搜索框右侧Search按钮旁边的Clear按钮"
             },
             {
               "action": "wait",
@@ -131,7 +133,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:笔记统计区域",
+              "target": "name:Total",
               "expected": "Total:",
               "description": "验证恢复显示所有笔记"
             },
@@ -147,13 +149,13 @@
           "steps": [
             {
               "action": "click",
-              "target": "name:Logout按钮",
-              "description": "点击右上角Logout按钮"
+              "target": "name:Logout",
+              "description": "点击页面右上角的红色Logout按钮"
             },
             {
               "action": "wait",
-              "value": "1000",
-              "description": "等待回到登录页"
+              "value": "2000",
+              "description": "等待回到登录页（tkinter重绘需要较长时间）"
             },
             {
               "action": "screenshot",
@@ -167,8 +169,8 @@
           "steps": [
             {
               "action": "click",
-              "target": "name:Login按钮",
-              "description": "不输入任何内容直接点Login"
+              "target": "name:Login",
+              "description": "不输入任何内容，直接点击蓝色Login按钮"
             },
             {
               "action": "wait",
@@ -181,7 +183,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:登录页提示信息",
+              "target": "name:Please enter",
               "expected": "Please enter username",
               "description": "验证提示为Please enter username"
             }
@@ -193,20 +195,20 @@
           "steps": [
             {
               "action": "fill",
-              "target": "name:Username输入框",
+              "target": "name:Username",
               "value": "admin",
-              "description": "输入用户名admin"
+              "description": "在顶部Username标签右侧的输入框输入admin"
             },
             {
               "action": "fill",
-              "target": "name:Password输入框",
+              "target": "name:Password",
               "value": "wrongpass",
-              "description": "输入错误密码wrongpass"
+              "description": "在Password标签右侧的输入框输入错误密码"
             },
             {
               "action": "click",
-              "target": "name:Login按钮",
-              "description": "点击Login按钮"
+              "target": "name:Login",
+              "description": "点击页面中间的蓝色Login按钮"
             },
             {
               "action": "wait",
@@ -219,7 +221,7 @@
             },
             {
               "action": "assert_text",
-              "target": "name:登录页提示信息",
+              "target": "name:Invalid",
               "expected": "Invalid username or password",
               "description": "验证提示为Invalid username or password"
             }

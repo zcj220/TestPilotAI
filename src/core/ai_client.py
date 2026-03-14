@@ -76,6 +76,7 @@ class AIClient:
         prompt: str,
         system_prompt: str = "",
         reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
     ) -> str:
         """纯文本对话（测试脚本生成、Bug修复建议、报告生成等）。
 
@@ -95,7 +96,7 @@ class AIClient:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
-        return self._call_chat(messages, reasoning_effort)
+        return self._call_chat(messages, reasoning_effort, timeout=timeout)
 
     def analyze_screenshot(
         self,
@@ -103,6 +104,8 @@ class AIClient:
         prompt: str = "请描述这个页面的内容，并指出可能存在的UI问题或Bug。",
         system_prompt: str = "",
         reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """分析截图（视觉理解）。
 
@@ -162,7 +165,7 @@ class AIClient:
         })
 
         logger.info("发送截图分析请求 | 文件={} | 大小={}KB", path.name, len(image_data) // 1024)
-        return self._call_chat(messages, reasoning_effort)
+        return self._call_chat(messages, reasoning_effort, timeout=timeout, max_tokens=max_tokens)
 
     def analyze_screenshot_url(
         self,
@@ -206,12 +209,16 @@ class AIClient:
         self,
         messages: list[dict],
         reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_tokens: Optional[int] = None,
     ) -> str:
         """调用 Chat Completions API 的内部方法。
 
         Args:
             messages: 对话消息列表
             reasoning_effort: 思考深度覆盖
+            timeout: 单次请求超时（秒），传入时不重试
+            max_tokens: 最大输出token数覆盖，不传则用全局配置
 
         Returns:
             str: AI 响应文本
@@ -225,12 +232,20 @@ class AIClient:
         effective_reasoning = reasoning_effort or self._config.reasoning_effort
 
         try:
-            response = self._client.chat.completions.create(
+            # 构建调用参数
+            kwargs: dict = dict(
                 model=self._config.model,
                 messages=messages,
-                max_completion_tokens=self._config.max_completion_tokens,
+                max_completion_tokens=max_tokens or self._config.max_completion_tokens,
                 reasoning_effort=effective_reasoning,
             )
+            # 短超时场景：用 with_options 创建限制重试的临时客户端
+            # max_retries=1：连接错误允许重试1次，但不会无限重试
+            client = self._client
+            if timeout is not None:
+                kwargs["timeout"] = timeout
+                client = self._client.with_options(max_retries=1)
+            response = client.chat.completions.create(**kwargs)
 
             # 提取响应文本
             if not response.choices:

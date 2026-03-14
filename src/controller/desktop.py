@@ -276,18 +276,25 @@ class DesktopController(BaseController):
             await asyncio.sleep(0.5)
 
     async def _click_at(self, x: int, y: int) -> None:
-        """在屏幕坐标点击（坐标基于client区域）。
+        """在屏幕绝对坐标点击（x,y 是 client_left + norm*width 的屏幕坐标）。
 
-        优先用 pywinauto.click_input（内置焦点保护，对tkinter等框架更稳定），
-        无pywinauto时 fallback 到 PostMessage 或 SendInput。
+        优先用 pywinauto.click_input（内置焦点保护，对tkinter等框架最稳定）。
+        坐标转换：x,y 基于 client origin，click_input 需要相对于 window rect，
+        差值就是标题栏高度和边框宽度，通过 client_origin - window_rect 计算。
         """
         loop = asyncio.get_event_loop()
         if self._pwa_win is not None:
-            # pywinauto click_input的coords是相对于窗口左上角（含标题栏）
-            # 我们的x,y是基于client区域的屏幕绝对坐标，需要转成相对于窗口左上角
+            # x,y 是屏幕绝对坐标（client_left + norm*width）
+            # click_input(absolute=False) 的 coords 相对于窗口 rectangle 左上角（含标题栏）
+            # 所以需要减去窗口 rect 的 left/top
             rect = self._pwa_win.rectangle()
+            # 但 x,y 是基于 client origin 计算的，client origin 比 window rect 多了标题栏+边框
+            # 所以 rel = (x - client_left) + (client_left - window_left) = x - window_left
+            # 即直接用 x - rect.left 就是对的！关键是 x 本身的计算要基于 client origin
             rel_x = x - rect.left
             rel_y = y - rect.top
+            logger.debug("click_input | screen=({},{}) rect=({},{}) rel=({},{})",
+                         x, y, rect.left, rect.top, rel_x, rel_y)
             await loop.run_in_executor(
                 None, lambda: self._pwa_win.click_input(coords=(rel_x, rel_y))
             )
@@ -302,19 +309,21 @@ class DesktopController(BaseController):
     async def _send_text_bg(self, text: str) -> None:
         """输入文本。
 
-        优先用 pywinauto.type_keys（稳定，支持tkinter等框架），
-        无pywinauto时 fallback 到 PostMessage 或 SendInput。
+        优先用 pywinauto.type_keys（对tkinter等框架最稳定），
+        无pywinauto时 fallback 到 SendInput Unicode。
         """
         loop = asyncio.get_event_loop()
         if self._pwa_win is not None:
-            # pywinauto type_keys: 需要转义特殊字符
+            # pywinauto type_keys: 需要转义特殊字符，pause防止字符丢失
             escaped = text.replace('{', '{{').replace('}', '}}').replace('+', '{+}').replace('^', '{^}').replace('%', '{%}').replace('~', '{~}').replace('(', '{(}').replace(')', '{)}')
             await loop.run_in_executor(
-                None, lambda: self._pwa_win.type_keys(escaped, with_spaces=True, with_tabs=True)
+                None, lambda: self._pwa_win.type_keys(escaped, with_spaces=True, with_tabs=True, pause=0.05)
             )
-        elif self._bg_mode and self._hwnd:
-            await loop.run_in_executor(None, lambda: _send_text_bg(self._hwnd, text))
         else:
+            # fallback: SendInput Unicode
+            if self._hwnd:
+                WindowManager.focus_window(self._hwnd)
+                await asyncio.sleep(0.1)
             await loop.run_in_executor(None, lambda: _send_text(text))
 
     async def _find_element_uia(self, selector: str) -> Optional[dict]:
