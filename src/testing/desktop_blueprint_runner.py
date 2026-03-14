@@ -96,6 +96,9 @@ class DesktopBlueprintRunner:
         # OCR文字缓存：相同界面的assert_text直接复用，不重复发AI
         self._ocr_hash: str = ""
         self._ocr_text_cache: str = ""
+        # 弹窗自愈：记录连续失败步数，用于场景级跳过（第3层防御）
+        self._consecutive_failures: int = 0
+        self._MAX_CONSECUTIVE_FAILURES: int = 3
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -149,6 +152,8 @@ class DesktopBlueprintRunner:
                 if cancelled:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
+                # 场景切换时重置连续失败计数
+                self._consecutive_failures = 0
 
                 # 场景间等待UI稳定（第一个场景除外），防止Logout后截图时机太快
                 if scenario_idx > 0:
@@ -178,6 +183,48 @@ class DesktopBlueprintRunner:
                     result, bug = await self._execute_step(
                         step_num, step_def, page, blueprint, scene_coords
                     )
+
+                    # ── 弹窗自愈：步骤失败时尝试检测并关闭弹窗后重试 ──
+                    if bug and step_def.action in ("click", "fill", "assert_text", "assert_visible"):
+                        healed = await self._try_heal_popup()
+                        if healed:
+                            logger.info("  🔄 弹窗已关闭，重试步骤{}", step_num)
+                            result, bug = await self._execute_step(
+                                step_num, step_def, page, blueprint, scene_coords
+                            )
+                            if not bug:
+                                logger.info("  ✅ 弹窗自愈成功，步骤{}重试通过", step_num)
+
+                    # 更新连续失败计数
+                    if bug:
+                        self._consecutive_failures += 1
+                    else:
+                        self._consecutive_failures = 0
+
+                    # ── 第3层防御：连续失败过多则跳过当前场景 ──
+                    if self._consecutive_failures >= self._MAX_CONSECUTIVE_FAILURES:
+                        logger.warning("  ⚠️ 场景[{}]连续失败{}步，跳到下一场景",
+                                       scenario.name, self._consecutive_failures)
+                        # 把剩余步骤标记为SKIPPED
+                        remaining_idx = scenario.steps.index(step_def) + 1
+                        for skip_step in scenario.steps[remaining_idx:]:
+                            step_num += 1
+                            skip_desc = skip_step.description or skip_step.action
+                            try:
+                                skip_action = ActionType(skip_step.action)
+                            except ValueError:
+                                skip_action = ActionType.SCREENSHOT
+                            all_results.append(StepResult(
+                                step=step_num, action=skip_action,
+                                description=f"[跳过-场景blocked] {skip_desc}",
+                                status=StepStatus.FAILED, duration_seconds=0,
+                                error_message=f"场景'{scenario.name}'连续失败{self._MAX_CONSECUTIVE_FAILURES}步，已跳过",
+                            ))
+                        all_results.append(result)
+                        if bug:
+                            all_bugs.append(bug)
+                        break
+
                     all_results.append(result)
 
                     # navigate后清空预分析坐标
@@ -368,7 +415,72 @@ class DesktopBlueprintRunner:
             screenshot_path=str(screenshot_path) if screenshot_path else None,
         ), None
 
+    # ── 弹窗自愈（第2层防御） ─────────────────────────────
+
+    async def _try_heal_popup(self) -> bool:
+        """尝试检测并关闭意外弹窗。返回True表示成功关闭了弹窗。"""
+        if not self._ai:
+            return False
+
+        try:
+            screenshot_path = await self._ctrl.screenshot("popup_detect")
+            win_rect = self._ctrl._device.extra.get("window_rect") or {}
+            win_w = win_rect.get("width") or self._ctrl._device.screen_width or 800
+            win_h = win_rect.get("height") or self._ctrl._device.screen_height or 600
+            win_left = win_rect.get("left", 0)
+            win_top = win_rect.get("top", 0)
+
+            prompt = (
+                "这是一个Windows桌面应用的截图。请判断截图中是否有模态弹窗/对话框覆盖在主界面上方。\n"
+                "如果有弹窗，请找到关闭按钮（如OK、Cancel、Close、Yes、No、确定、取消、X按钮）的中心坐标。\n"
+                "坐标为归一化值(0~1)，(0,0)是截图左上角。\n\n"
+                "返回JSON格式：\n"
+                '- 有弹窗：{"popup": true, "button": "OK", "x": 0.5, "y": 0.7}\n'
+                '- 无弹窗：{"popup": false}'
+            )
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: self._ai.analyze_screenshot(
+                    str(screenshot_path), prompt, reasoning_effort="low", timeout=20
+                )
+            )
+
+            logger.debug("弹窗检测AI返回(前300字): {}", response[:300])
+            json_match = re.search(r"\{.*?\}", response, re.DOTALL)
+            if not json_match:
+                return False
+
+            result = json.loads(json_match.group().replace("'", '"'))
+            if not result.get("popup"):
+                return False
+
+            nx = self._normalize_coord(result.get("x"), win_w)
+            ny = self._normalize_coord(result.get("y"), win_h)
+            if nx is not None and ny is not None:
+                abs_x = int(win_left + nx * win_w)
+                abs_y = int(win_top + ny * win_h)
+                btn_name = result.get("button", "unknown")
+                logger.info("  🔧 弹窗自愈：检测到弹窗，点击[{}]按钮 ({}, {})", btn_name, abs_x, abs_y)
+                await self._ctrl._click_at(abs_x, abs_y)
+                await asyncio.sleep(0.5)
+                # 清空缓存，弹窗关闭后界面状态变化
+                self._ocr_hash = ""
+                self._ocr_text_cache = ""
+                self._invalidate_coord_cache()
+                return True
+
+        except Exception as e:
+            logger.warning("弹窗自愈检测失败: {}", str(e)[:100])
+
+        return False
+
     # ── 智能操作（双保险） ──────────────────────────────────
+
+    # 弹窗按钮关键词：这些按钮通常出现在动态弹窗上，不能使用预分析缓存
+    _DIALOG_BUTTONS = {"name:OK", "name:Ok", "name:ok", "name:Yes", "name:No",
+                       "name:Cancel", "name:Close", "name:确定", "name:取消",
+                       "name:是", "name:否", "name:关闭"}
 
     async def _smart_tap(
         self,
@@ -377,8 +489,11 @@ class DesktopBlueprintRunner:
         scene_coords: dict[str, tuple[int, int]] | None = None,
     ) -> None:
         """智能点击：UI Automation优先 → 预分析坐标 → AI视觉降级。"""
-        # 第1层：预分析坐标（场景开始时已缓存）
-        if scene_coords and target in scene_coords:
+        # 弹窗按钮跳过预分析缓存，强制实时定位（弹窗是动态出现的，旧坐标无效）
+        is_dialog_btn = target in self._DIALOG_BUTTONS
+
+        # 第1层：预分析坐标（场景开始时已缓存）—— 弹窗按钮跳过
+        if not is_dialog_btn and scene_coords and target in scene_coords:
             x, y = scene_coords[target]
             logger.debug("  使用预分析坐标点击: ({}, {})", x, y)
             await self._ctrl._click_at(x, y)
@@ -783,12 +898,13 @@ class DesktopBlueprintRunner:
                     return self._ocr_text_cache
                 loop = asyncio.get_event_loop()
                 prompt = (
-                    "请识别这张截图中所有可见的文字内容，逐行列出。"
-                    "只输出文字内容本身，不要加任何解释或格式。"
+                    "List ALL visible text in this screenshot, line by line. "
+                    "Include every button label, list item, input placeholder, status bar text, and title. "
+                    "Output ONLY the raw text, no explanation."
                 )
                 ocr_text = await loop.run_in_executor(
                     None, lambda: self._ai.analyze_screenshot(
-                        str(screenshot_path), prompt, reasoning_effort="minimal", timeout=20, max_tokens=2048
+                        str(screenshot_path), prompt, reasoning_effort="low", timeout=30, max_tokens=2048
                     )
                 )
                 if ocr_text:

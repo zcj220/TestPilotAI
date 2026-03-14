@@ -258,6 +258,16 @@
             {
               "action": "screenshot",
               "description": "重复添加时的警告弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:OK",
+              "description": "点击弹窗中的OK按钮关闭重复警告，关闭后回到主界面，输入框仍显示Read book"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待弹窗关闭"
             }
           ]
         },
@@ -333,6 +343,16 @@
             {
               "action": "screenshot",
               "description": "空输入时的警告弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:OK",
+              "description": "点击弹窗中的OK按钮关闭空输入警告，关闭后回到主界面"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待弹窗关闭"
             }
           ]
         }

@@ -663,6 +663,12 @@ class MobileBlueprintRunner:
             logger.warning("  AI页面分析异常: {}", str(e)[:100])
         return coords
 
+    # 弹窗按钮关键词：这些按钮通常出现在动态弹窗上，不能使用预分析缓存
+    _DIALOG_BUTTONS = {"name:OK", "name:Ok", "name:ok", "name:YES", "name:yes",
+                       "name:Yes", "name:No", "name:no", "name:NO",
+                       "name:Cancel", "name:Close", "name:确定", "name:取消",
+                       "name:是", "name:否", "name:关闭"}
+
     async def _smart_tap(
         self,
         target: str,
@@ -670,8 +676,11 @@ class MobileBlueprintRunner:
         scene_coords: dict[str, tuple[int, int]] | None = None,
     ) -> None:
         """智能点击：视觉坐标 → Appium → 视觉降级。"""
-        # 第1层：场景预分析的视觉坐标
-        if scene_coords and target in scene_coords:
+        # 弹窗按钮跳过预分析缓存，强制实时定位（弹窗是动态出现的，旧坐标无效）
+        is_dialog_btn = target in self._DIALOG_BUTTONS
+
+        # 第1层：场景预分析的视觉坐标 —— 弹窗按钮跳过
+        if not is_dialog_btn and scene_coords and target in scene_coords:
             x, y = scene_coords[target]
             logger.info("  [视觉] 使用预分析坐标点击 ({}, {}) | {}", x, y, desc)
             await self._ctrl.tap_xy(x, y)

@@ -170,6 +170,21 @@ description: 生成或修改 TestPilot AI 测试蓝本（testpilot.json）时必
 - 不支持 `navigate`（没有URL概念）
 - `fill` 会自动 Ctrl+A 全选后输入，无需手动清空
 - 页面切换后必须加 `wait`（等窗口重绘）
+- **⚠️ 弹窗必须关闭**：任何触发弹窗（QMessageBox/alert/confirm）的操作后，必须加一个click步骤关闭弹窗（点OK/Yes/No/Cancel等），否则弹窗会遮挡主界面，导致后续所有步骤失败
+
+```json
+✅ 正确（弹窗后关闭）：
+{"action": "click", "target": "name:Add", "description": "点击Add，因输入为空会弹出警告"},
+{"action": "wait", "value": "500", "description": "等待弹窗出现"},
+{"action": "screenshot", "description": "空输入警告弹窗"},
+{"action": "click", "target": "name:OK", "description": "点击OK关闭弹窗，回到主界面"},
+{"action": "wait", "value": "300", "description": "等待弹窗关闭"}
+
+❌ 错误（弹窗不关闭，后续全部卡死）：
+{"action": "click", "target": "name:Add", "description": "点击Add"},
+{"action": "screenshot", "description": "警告弹窗"}
+// 下一个场景的操作全部被弹窗遮挡！
+```
 
 ---
 

@@ -1,0 +1,77 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证标记完成和排序功能。选中待办项后点Toggle Done标记完成，验证Done+1和Urgent更新；使用排序下拉框按Priority排序。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "标记完成与排序",
+      "description": "测试Toggle Done和排序功能",
+      "scenarios": [
+        {
+          "name": "标记完成与Urgent更新",
+          "description": "选中Buy milk并标记完成，验证Done计数+1且Urgent计数-1",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Buy milk",
+              "description": "点击列表中包含Buy milk文字的那一行，使其高亮选中"
+            },
+            {
+              "action": "click",
+              "target": "name:Toggle Done",
+              "description": "点击绿色Toggle Done按钮，Buy milk标记为完成"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待状态刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Done: 1",
+              "description": "验证已完成数变为1"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 1",
+              "description": "验证Urgent从2降为1（Buy milk是High优先级，完成后不计入Urgent）"
+            },
+            {
+              "action": "screenshot",
+              "description": "Buy milk标记完成后，该行变灰带✓"
+            }
+          ]
+        },
+        {
+          "name": "排序功能",
+          "description": "使用排序下拉框按Priority排序",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Sort: Default",
+              "description": "点击排序下拉框（当前显示Sort: Default）"
+            },
+            {
+              "action": "click",
+              "target": "name:Sort: Priority",
+              "description": "选择Sort: Priority选项，列表按优先级重新排序"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待排序完成"
+            },
+            {
+              "action": "screenshot",
+              "description": "按优先级排序后的列表，High在前"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

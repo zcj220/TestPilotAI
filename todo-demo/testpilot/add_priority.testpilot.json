@@ -1,0 +1,68 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证添加待办功能和优先级选择。测试选择High优先级后添加新待办，验证列表更新、Total+1、Urgent+1。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "添加待办",
+      "description": "测试添加功能和优先级选择",
+      "scenarios": [
+        {
+          "name": "添加High优先级待办",
+          "description": "选择High优先级后添加新待办，验证列表更新和Urgent计数+1",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:High",
+              "description": "点击输入框右侧的优先级下拉框，当前显示Medium，点击后选择High选项。下拉框位于输入框和Add按钮之间"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待下拉选择完成"
+            },
+            {
+              "action": "fill",
+              "target": "name:输入待办事项...",
+              "value": "Fix critical bug",
+              "description": "在页面中部包含'输入待办事项...'占位符的输入框中输入"
+            },
+            {
+              "action": "click",
+              "target": "name:Add",
+              "description": "点击蓝色Add按钮，列表新增一行'○ [H] Fix critical bug'"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 6",
+              "description": "验证底部统计栏总数从5变为6"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Fix critical bug",
+              "description": "验证列表中出现新添加的Fix critical bug"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 3",
+              "description": "验证Urgent计数从2变为3（新增了一条High优先级）"
+            },
+            {
+              "action": "screenshot",
+              "description": "添加High优先级待办后的完整界面"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

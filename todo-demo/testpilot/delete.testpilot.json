@@ -1,0 +1,61 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证删除功能（含确认弹窗交互）。选中待办项后点Delete，弹出确认对话框，点Yes确认删除，验证Total-1。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "删除待办",
+      "description": "测试删除功能和确认弹窗",
+      "scenarios": [
+        {
+          "name": "删除待办（含确认弹窗）",
+          "description": "选中Exercise后点Delete，弹出确认对话框，点Yes确认删除",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Exercise",
+              "description": "点击列表中包含Exercise文字的那一行，使其高亮选中"
+            },
+            {
+              "action": "click",
+              "target": "name:Delete",
+              "description": "点击红色Delete按钮，弹出确认对话框"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待确认弹窗出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "删除确认弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:Yes",
+              "description": "点击确认弹窗中的Yes按钮确认删除"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 4",
+              "description": "验证总数从5变为4（删除了Exercise）"
+            },
+            {
+              "action": "screenshot",
+              "description": "删除Exercise后的列表状态"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

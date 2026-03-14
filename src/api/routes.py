@@ -931,6 +931,9 @@ def create_router(
             window_title = req.get("window_title", "") or raw_bp.get("window_title", "") or blueprint.app_name
             app_exe = req.get("app_exe", "") or raw_bp.get("app_exe", "")
             bp_dir = bp_file.parent  # 蓝本所在目录，用于相对路径执行
+            # 如果蓝本在 testpilot/ 子目录下，工作目录应为其父目录（项目根目录）
+            if bp_dir.name == "testpilot":
+                bp_dir = bp_dir.parent
 
             # 自动启动/重启被测应用（确保干净状态）
             if app_exe:

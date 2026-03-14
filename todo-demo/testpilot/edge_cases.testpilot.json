@@ -1,0 +1,143 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证边界场景：重复添加检测（弹出警告）、全选标记完成（Select All）、清空已完成项（Clear Done）、空输入验证（弹出警告）。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "边界场景",
+      "description": "测试异常输入和批量操作",
+      "scenarios": [
+        {
+          "name": "重复添加检测",
+          "description": "尝试添加已存在的待办项，验证弹出重复警告",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:输入待办事项...",
+              "value": "Read book",
+              "description": "在输入框中输入已存在的'Read book'"
+            },
+            {
+              "action": "click",
+              "target": "name:Add",
+              "description": "点击Add按钮，因为Read book已存在，弹出重复警告"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待重复警告弹窗出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "重复添加时的警告弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:OK",
+              "description": "点击OK关闭重复警告弹窗"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待弹窗关闭"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 5",
+              "description": "验证重复添加未生效，仍为5条"
+            }
+          ]
+        },
+        {
+          "name": "全选标记完成",
+          "description": "点击Select All将所有待办标记为已完成",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Select All",
+              "description": "点击蓝色Select All按钮，所有项变为已完成"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待状态刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Done: 5",
+              "description": "验证Done数等于总数5（全部已完成）"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 0",
+              "description": "验证Urgent变为0（所有High优先级都已完成）"
+            },
+            {
+              "action": "screenshot",
+              "description": "全选完成后，所有项显示✓"
+            }
+          ]
+        },
+        {
+          "name": "清空已完成项",
+          "description": "点Clear Done清除全部已完成项，列表变空",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Clear Done",
+              "description": "点击灰色Clear Done按钮，移除所有已完成项"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 0",
+              "description": "验证清空后总数为0"
+            },
+            {
+              "action": "screenshot",
+              "description": "清空后的空列表状态"
+            }
+          ]
+        },
+        {
+          "name": "空输入验证",
+          "description": "列表为空时，不输入内容直接点Add，验证弹出警告",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Add",
+              "description": "不输入内容直接点Add，弹出警告'Please enter a todo item'"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待警告弹窗出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "空输入时的警告弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:OK",
+              "description": "点击OK关闭空输入警告弹窗"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待弹窗关闭"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

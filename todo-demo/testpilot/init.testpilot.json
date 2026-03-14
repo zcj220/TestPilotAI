@@ -1,0 +1,52 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证应用启动后的初始状态：5条待办数据正确显示、优先级标签[H]/[M]/[L]、统计栏Total/Done/Urgent计数正确。初始数据：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "初始状态验证",
+      "description": "验证应用启动后的初始数据和界面元素",
+      "scenarios": [
+        {
+          "name": "初始状态验证",
+          "description": "验证应用启动后的初始数据（5条）、优先级标签和统计栏（含Urgent计数）",
+          "steps": [
+            {
+              "action": "screenshot",
+              "description": "应用启动后的初始状态，应显示5条待办，每条带优先级标签[H]/[M]/[L]"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 5",
+              "description": "验证底部统计栏显示初始有5条待办"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 2",
+              "description": "验证底部统计栏显示2条高优先级未完成（Buy milk和Write report）"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Buy milk",
+              "description": "验证列表包含初始数据Buy milk"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Write report",
+              "description": "验证列表包含初始数据Write report"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Done: 0",
+              "description": "验证初始时没有已完成项"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

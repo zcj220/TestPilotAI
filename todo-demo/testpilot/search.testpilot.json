@@ -1,0 +1,64 @@
+{
+  "app_name": "TodoApp",
+  "description": "验证搜索过滤功能。在搜索框输入关键词后列表实时过滤只显示匹配项，清空搜索后恢复全部。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
+  "platform": "desktop",
+  "base_url": "",
+  "window_title": "TodoApp",
+  "app_exe": "python todo_app.py",
+  "pages": [
+    {
+      "url": "",
+      "name": "搜索过滤",
+      "description": "测试搜索框的实时过滤功能",
+      "scenarios": [
+        {
+          "name": "搜索过滤功能",
+          "description": "在搜索框输入关键词，验证列表实时过滤只显示匹配项，并显示过滤状态提示",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:Search...",
+              "value": "book",
+              "description": "在搜索框中输入book，列表实时过滤只显示包含book的项"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待过滤结果显示"
+            },
+            {
+              "action": "screenshot",
+              "description": "搜索book后的过滤结果，应只显示Read book一项"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Showing 1 of 5",
+              "description": "验证过滤状态提示显示'Showing 1 of 5 items'"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Read book",
+              "description": "验证过滤后列表只显示Read book"
+            },
+            {
+              "action": "fill",
+              "target": "name:Search...",
+              "value": "",
+              "description": "清空搜索框，列表恢复显示全部"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表恢复"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 5",
+              "description": "验证清空搜索后统计栏仍显示5条"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
