@@ -37,6 +37,36 @@ class HubAction(str, Enum):
 
 
 @dataclass
+class StepRecord:
+    """单步操作记录，用于构建历史上下文。"""
+    step_num: int
+    action: str
+    target: Optional[str] = None
+    value: Optional[str] = None
+    passed: bool = True
+    error: Optional[str] = None
+
+    def describe(self) -> str:
+        """用大白话描述这一步做了什么。"""
+        parts = {
+            "click": f"点击了'{self.target}'",
+            "fill": f"在'{self.target}'中输入了'{self.value}'",
+            "assert_text": f"检查'{self.target}'的文字",
+            "assert_visible": f"检查'{self.target}'是否可见",
+            "navigate": f"打开了页面'{self.value or self.target}'",
+            "wait": f"等待'{self.target or self.value}'",
+            "screenshot": "截了个图",
+            "select": f"在'{self.target}'选择了'{self.value}'",
+            "scroll": "滚动了页面",
+            "hover": f"鼠标移到了'{self.target}'上",
+        }
+        desc = parts.get(self.action, f"做了{self.action}操作")
+        if self.passed:
+            return f"第{self.step_num}步: {desc} → 成功"
+        return f"第{self.step_num}步: {desc} → 失败({self.error[:60] if self.error else '未知'})"
+
+
+@dataclass
 class StepContext:
     """步骤上下文，Runner 传给 AIHub 的信息包。"""
     step_num: int
@@ -104,6 +134,9 @@ class AIHub:
     def __init__(self, ai_client: Optional[Any] = None) -> None:
         self._ai = ai_client
         self._consecutive_failures: int = 0
+        # 步骤历史记录（最近N步），供L2分析上下文
+        self._step_history: list[StepRecord] = []
+        self._MAX_HISTORY: int = 8  # 最多记住最近8步
         # 统计
         self._total_heals: int = 0
         self._total_l1_calls: int = 0
@@ -112,13 +145,27 @@ class AIHub:
 
     # ── 公共接口 ──────────────────────────────────────────
 
+    def record_step(self, step_num: int, action: str,
+                    target: Optional[str] = None, value: Optional[str] = None,
+                    passed: bool = True, error: Optional[str] = None) -> None:
+        """记录一步操作结果（无论成败都记）。Runner 每步执行完都要调用。"""
+        self._step_history.append(StepRecord(
+            step_num=step_num, action=action,
+            target=target, value=value,
+            passed=passed, error=error,
+        ))
+        # 只保留最近N步
+        if len(self._step_history) > self._MAX_HISTORY:
+            self._step_history = self._step_history[-self._MAX_HISTORY:]
+
     def on_step_passed(self) -> None:
         """步骤通过时调用（L0），重置连续失败计数。"""
         self._consecutive_failures = 0
 
     def on_scenario_start(self) -> None:
-        """场景开始时调用，重置连续失败计数。"""
+        """场景开始时调用，重置连续失败计数和步骤历史。"""
         self._consecutive_failures = 0
+        self._step_history.clear()
 
     async def on_step_failed(self, ctx: StepContext) -> HubDecision:
         """步骤失败时的统一决策入口。
@@ -146,11 +193,11 @@ class AIHub:
                 self._consecutive_failures = 0  # 弹窗关闭后重置计数
                 return decision
 
-        # ── L2 失败诊断（预留，当前返回 NONE）──
-        # 未来：截图 + AI 分析失败原因，判断是否可重试
-        # decision = await self._try_l2_diagnose(ctx)
-        # if decision.action != HubAction.NONE:
-        #     return decision
+        # ── L2 失败诊断：像人一样看截图分析原因 ──
+        if ctx.action in ("click", "fill", "assert_text", "assert_visible"):
+            decision = await self._try_l2_diagnose(ctx)
+            if decision.action != HubAction.NONE:
+                return decision
 
         return HubDecision(action=HubAction.NONE, reason="L1/L2未能解决")
 
@@ -184,14 +231,17 @@ class AIHub:
             if not screenshot_path:
                 return HubDecision(action=HubAction.NONE, reason="截图失败")
 
-            # 2. AI 分析是否有弹窗
+            # 2. AI 分析是否有弹窗（像人一样观察）
             prompt = (
-                "这是一个应用的截图。请判断截图中是否有模态弹窗/对话框覆盖在主界面上方。\n"
-                "如果有弹窗，请找到关闭按钮（如OK、Cancel、Close、Yes、No、确定、取消、X按钮）的中心坐标。\n"
-                "坐标为归一化值(0~1)，(0,0)是截图左上角。\n\n"
-                "返回JSON格式：\n"
-                '- 有弹窗：{"popup": true, "button": "OK", "x": 0.5, "y": 0.7}\n'
-                '- 无弹窗：{"popup": false}'
+                "你是一个测试工程师，正在手动测试一个应用。现在你看到了这个截图。\n\n"
+                "请你仔细看一下：主界面上方有没有弹出一个对话框/弹窗/提示框？\n"
+                "（比如确认删除、报错提示、登录过期、权限提示等等）\n\n"
+                "如果有弹窗：找到能关闭它的按钮（OK、确定、取消、关闭、Yes、No、X等），\n"
+                "告诉我按钮的中心位置。坐标用0~1的比例值，(0,0)是左上角，(1,1)是右下角。\n\n"
+                "返回JSON：\n"
+                '有弹窗：{"popup": true, "button": "确定", "x": 0.5, "y": 0.7}\n'
+                '没弹窗：{"popup": false}\n\n'
+                "只返回JSON，不要解释。"
             )
 
             loop = asyncio.get_event_loop()
@@ -235,6 +285,105 @@ class AIHub:
             logger.warning("AI中枢L1弹窗检测失败: {}", str(e)[:100])
 
         return HubDecision(action=HubAction.NONE, reason="L1弹窗自愈未成功")
+
+    # ── L2: 失败诊断（像人一样分析原因）──────────────────
+
+    def _build_history_context(self) -> str:
+        """把最近的步骤历史拼成一段大白话，给 AI 当上下文。"""
+        if not self._step_history:
+            return ""
+        lines = ["以下是你之前的操作记录："]
+        for rec in self._step_history:
+            lines.append(f"  {rec.describe()}")
+        return "\n".join(lines)
+
+    async def _try_l2_diagnose(self, ctx: StepContext) -> HubDecision:
+        """L2：截图 + 步骤历史 → 直接发给多模态AI，让它看图分析。
+
+        核心思路：测试卡住了 → 截图发给AI → 把前因后果告诉它 →
+        让AI像一个坐在你旁边的同事一样看图说话、分析原因。
+        """
+        self._total_l2_calls += 1
+
+        if not self._ai or not ctx.screenshot_fn:
+            return HubDecision(action=HubAction.NONE, reason="缺少AI或截图能力")
+
+        start = time.time()
+        try:
+            screenshot_path = await ctx.screenshot_fn("l2_diagnose")
+            if not screenshot_path:
+                return HubDecision(action=HubAction.NONE, reason="截图失败")
+
+            # 构造当前操作的描述
+            action_desc = {
+                "click": f"点击'{ctx.target}'",
+                "fill": f"在'{ctx.target}'中输入'{ctx.value}'",
+                "assert_text": f"检查'{ctx.target}'处是否有文字'{ctx.value}'",
+                "assert_visible": f"检查'{ctx.target}'是否可见",
+            }.get(ctx.action, f"执行{ctx.action}操作")
+
+            # 拼接步骤历史
+            history = self._build_history_context()
+
+            prompt = (
+                "你是一个正在做手动测试的测试工程师。\n"
+                f"你正在测试的场景叫：「{ctx.scenario_name}」\n\n"
+            )
+            if history:
+                prompt += f"{history}\n\n"
+            prompt += (
+                f"然后你想做第{ctx.step_num}步：{action_desc}\n"
+                f"但是失败了。报错：{(ctx.error_message or '未知')[:200]}\n\n"
+                "现在请你看看这张截图，就像你自己坐在电脑前一样，告诉我：\n"
+                "- 画面上是什么情况？\n"
+                "- 为什么这一步做不了？（比如：元素没出来？被遮住了？页面还没加载好？跳转到了别的页面？）\n"
+                "- 你觉得应该怎么办？\n\n"
+                "返回JSON：\n"
+                '{"diagnosis": "一句话说清楚原因", "suggestion": "retry"或"skip"或"none"}\n'
+                "retry = 有可能再试一次就好了（页面在加载、动画还没完）\n"
+                "skip = 这步确实没法做（元素不存在、页面跳错了）\n"
+                "none = 看不出来、不确定\n\n"
+                "只返回JSON。"
+            )
+
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: self._ai.analyze_screenshot(
+                    str(screenshot_path), prompt,
+                    reasoning_effort="low", timeout=25,
+                )
+            )
+
+            cost_ms = (time.time() - start) * 1000
+            logger.info("  🧠 AI中枢L2诊断返回(前400字): {}", response[:400])
+
+            json_match = re.search(r"\{.*?\}", response, re.DOTALL)
+            if not json_match:
+                return HubDecision(action=HubAction.NONE, reason="L2返回无JSON", ai_cost_ms=cost_ms)
+
+            result = json.loads(json_match.group().replace("'", '"'))
+            diagnosis = result.get("diagnosis", "")
+            suggestion = result.get("suggestion", "none")
+
+            logger.info("  🧠 AI中枢L2诊断: {} → {}", diagnosis, suggestion)
+
+            if suggestion == "retry":
+                return HubDecision(
+                    action=HubAction.RETRY,
+                    reason=f"L2诊断建议重试: {diagnosis}",
+                    ai_cost_ms=cost_ms,
+                )
+            elif suggestion == "skip":
+                return HubDecision(
+                    action=HubAction.SKIP_STEP,
+                    reason=f"L2诊断建议跳过: {diagnosis}",
+                    ai_cost_ms=cost_ms,
+                )
+
+        except Exception as e:
+            logger.warning("AI中枢L2诊断失败: {}", str(e)[:100])
+
+        return HubDecision(action=HubAction.NONE, reason="L2诊断未给出明确建议")
 
     # ── 工具方法 ──────────────────────────────────────────
 

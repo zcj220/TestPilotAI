@@ -212,8 +212,15 @@ class DesktopBlueprintRunner:
                             if not bug:
                                 logger.info("  ✅ AI中枢自愈成功，步骤{}重试通过", step_num)
 
+                        elif decision.action == HubAction.SKIP_STEP:
+                            logger.info("  ⏭️ AI中枢：{}，跳过步骤{}", decision.reason, step_num)
+
                         elif decision.action == HubAction.SKIP_SCENE:
                             # L3 熔断：跳过当前场景剩余步骤
+                            self._hub.record_step(
+                                step_num, step_def.action, step_def.target, step_def.value,
+                                passed=False, error=result.error_message if result else None,
+                            )
                             remaining_idx = scenario.steps.index(step_def) + 1
                             for skip_step in scenario.steps[remaining_idx:]:
                                 step_num += 1
@@ -235,6 +242,11 @@ class DesktopBlueprintRunner:
                     else:
                         self._hub.on_step_passed()
 
+                    # 记录步骤结果，供AI中枢L2分析历史上下文
+                    self._hub.record_step(
+                        step_num, step_def.action, step_def.target, step_def.value,
+                        passed=not bug, error=result.error_message if bug and result else None,
+                    )
                     all_results.append(result)
 
                     # navigate后清空预分析坐标
