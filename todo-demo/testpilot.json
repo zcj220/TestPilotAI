@@ -1,6 +1,6 @@
 {
   "app_name": "TodoApp",
-  "description": "PyQt5待办事项应用完整测试。验证添加、标记完成、删除、清空已完成、空输入提示等核心功能。初始数据3条：Buy milk、Read book、Exercise",
+  "description": "PyQt5增强版待办事项应用测试。验证优先级、搜索过滤、排序、删除确认、全选、重复检测、空输入提示等功能。初始数据5条：Buy milk(High)、Read book(Medium)、Exercise(Low)、Write report(High)、Call dentist(Medium)",
   "platform": "desktop",
   "base_url": "",
   "window_title": "TodoApp",
@@ -13,43 +13,58 @@
       "scenarios": [
         {
           "name": "初始状态验证",
-          "description": "验证应用启动后的初始数据和统计",
+          "description": "验证应用启动后的初始数据（5条）、优先级标签和统计栏（含Urgent计数）",
           "steps": [
             {
               "action": "screenshot",
-              "description": "应用启动后的初始状态"
+              "description": "应用启动后的初始状态，应显示5条待办，每条带优先级标签[H]/[M]/[L]"
             },
             {
               "action": "assert_text",
-              "expected": "Total: 3",
-              "description": "验证底部统计栏显示初始有3条待办"
+              "expected": "Total: 5",
+              "description": "验证底部统计栏显示初始有5条待办"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 2",
+              "description": "验证底部统计栏显示2条高优先级未完成（Buy milk和Write report）"
             },
             {
               "action": "assert_text",
               "expected": "Buy milk",
-              "description": "验证列表区域包含初始数据Buy milk"
+              "description": "验证列表包含初始数据Buy milk"
             },
             {
               "action": "assert_text",
-              "expected": "Pending: 3",
-              "description": "验证底部统计栏显示3条都是未完成状态"
+              "expected": "Write report",
+              "description": "验证列表包含初始数据Write report"
             }
           ]
         },
         {
-          "name": "添加待办事项",
-          "description": "在输入框输入新待办并点Add添加，验证列表和统计更新",
+          "name": "添加High优先级待办",
+          "description": "选择High优先级后添加新待办，验证列表更新和Urgent计数+1",
           "steps": [
+            {
+              "action": "click",
+              "target": "name:High",
+              "description": "点击输入框右侧的优先级下拉框，当前显示Medium，点击后选择High选项。下拉框位于输入框和Add按钮之间"
+            },
+            {
+              "action": "wait",
+              "value": "300",
+              "description": "等待下拉选择完成"
+            },
             {
               "action": "fill",
               "target": "name:输入待办事项...",
-              "value": "Learn Python",
-              "description": "在页面顶部标题下方、包含'输入待办事项...'占位符文字的输入框中输入"
+              "value": "Fix critical bug",
+              "description": "在页面中部包含'输入待办事项...'占位符的输入框中输入。输入后文字会替换占位符"
             },
             {
               "action": "click",
               "target": "name:Add",
-              "description": "点击输入框右侧的蓝色Add按钮"
+              "description": "点击输入框行最右侧的蓝色Add按钮，点击后列表新增一行'○ [H] Fix critical bug'，底部Total变为6，Urgent变为3"
             },
             {
               "action": "wait",
@@ -57,34 +72,82 @@
               "description": "等待列表刷新"
             },
             {
-              "action": "screenshot",
-              "description": "添加Learn Python后的列表"
+              "action": "assert_text",
+              "expected": "Total: 6",
+              "description": "验证底部统计栏总数从5变为6"
             },
             {
               "action": "assert_text",
-              "expected": "Total: 4",
-              "description": "验证底部统计栏总数从3变为4"
+              "expected": "Fix critical bug",
+              "description": "验证列表中出现新添加的Fix critical bug"
             },
             {
               "action": "assert_text",
-              "expected": "Learn Python",
-              "description": "验证列表中出现新添加的Learn Python"
+              "expected": "Urgent: 3",
+              "description": "验证Urgent计数从2变为3（新增了一条High优先级）"
             }
           ]
         },
         {
-          "name": "标记完成",
-          "description": "先点击选中Buy milk列表项，再点Toggle Done标记完成，验证Done计数变为1",
+          "name": "搜索过滤功能",
+          "description": "在搜索框输入关键词，验证列表实时过滤只显示匹配项，并显示过滤状态提示",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:Search...",
+              "value": "book",
+              "description": "在页面顶部标题下方、黄色背景的搜索框（含Search...占位符）中输入book，输入后列表实时过滤只显示包含book的项（Read book），搜索框下方出现'Showing 1 of 6 items'"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待过滤结果显示"
+            },
+            {
+              "action": "screenshot",
+              "description": "搜索book后的过滤结果，应只显示Read book一项"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Showing 1 of 6",
+              "description": "验证过滤状态提示显示'Showing 1 of 6 items'"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Read book",
+              "description": "验证过滤后列表只显示Read book"
+            },
+            {
+              "action": "fill",
+              "target": "name:Search...",
+              "value": "",
+              "description": "清空搜索框，清空后列表恢复显示全部6条，过滤状态提示消失"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待列表恢复"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Total: 6",
+              "description": "验证清空搜索后统计栏仍显示6条（数据未丢失）"
+            }
+          ]
+        },
+        {
+          "name": "标记完成与Urgent更新",
+          "description": "选中Buy milk并标记完成，验证Done计数+1且Urgent计数-1（Buy milk是High优先级）",
           "steps": [
             {
               "action": "click",
               "target": "name:Buy milk",
-              "description": "点击列表区域中包含Buy milk文字的那一行，使其高亮选中"
+              "description": "点击列表区域中包含Buy milk文字的那一行（显示为红色[H]标签），使其高亮选中"
             },
             {
               "action": "click",
               "target": "name:Toggle Done",
-              "description": "点击列表下方左侧的绿色Toggle Done按钮"
+              "description": "点击列表下方第一行左侧的绿色Toggle Done按钮，点击后Buy milk行文字变灰并显示✓标记，Done变为1，Urgent从3变为2"
             },
             {
               "action": "wait",
@@ -92,29 +155,73 @@
               "description": "等待状态刷新"
             },
             {
-              "action": "screenshot",
-              "description": "Buy milk标记完成后的状态"
-            },
-            {
               "action": "assert_text",
               "expected": "Done: 1",
               "description": "验证底部统计栏已完成数变为1"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 2",
+              "description": "验证Urgent从3降为2（Buy milk是High优先级，完成后不计入Urgent）"
+            },
+            {
+              "action": "screenshot",
+              "description": "Buy milk标记完成后，该行变灰带✓，Urgent降为2"
             }
           ]
         },
         {
-          "name": "删除待办",
-          "description": "选中Read book后点Delete删除，验证总数减少",
+          "name": "排序功能",
+          "description": "使用排序下拉框按Priority排序，验证列表重新排序",
           "steps": [
             {
               "action": "click",
-              "target": "name:Read book",
-              "description": "点击列表区域中包含Read book文字的那一行，使其高亮选中"
+              "target": "name:Sort: Default",
+              "description": "点击搜索框右侧的排序下拉框（当前显示Sort: Default），点击后展开排序选项"
+            },
+            {
+              "action": "click",
+              "target": "name:Sort: Priority",
+              "description": "在展开的下拉列表中点击Sort: Priority选项，点击后列表重新排序：High在前，Medium居中，Low在后"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待排序完成"
+            },
+            {
+              "action": "screenshot",
+              "description": "按优先级排序后的列表"
+            }
+          ]
+        },
+        {
+          "name": "删除待办（含确认弹窗）",
+          "description": "选中Exercise后点Delete，弹出确认对话框，点Yes确认删除",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Exercise",
+              "description": "点击列表区域中包含Exercise文字的那一行（绿色[L]标签），使其高亮选中"
             },
             {
               "action": "click",
               "target": "name:Delete",
-              "description": "点击列表下方中间的红色Delete按钮"
+              "description": "点击列表下方第一行右侧的红色Delete按钮，点击后弹出确认对话框询问是否删除"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待确认弹窗出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "删除确认弹窗"
+            },
+            {
+              "action": "click",
+              "target": "name:Yes",
+              "description": "点击确认弹窗中的Yes按钮确认删除，弹窗关闭，Exercise从列表消失，Total从6变为5"
             },
             {
               "action": "wait",
@@ -122,24 +229,76 @@
               "description": "等待列表刷新"
             },
             {
-              "action": "screenshot",
-              "description": "删除Read book后的列表"
-            },
-            {
               "action": "assert_text",
-              "expected": "Total: 3",
-              "description": "验证底部统计栏总数从4变为3"
+              "expected": "Total: 5",
+              "description": "验证总数从6变为5（删除了Exercise）"
             }
           ]
         },
         {
-          "name": "清空已完成",
-          "description": "点Clear Done清除所有已完成项（Buy milk），验证总数和Done计数",
+          "name": "重复添加检测",
+          "description": "尝试添加已存在的待办项，验证弹出重复警告",
+          "steps": [
+            {
+              "action": "fill",
+              "target": "name:输入待办事项...",
+              "value": "Read book",
+              "description": "在输入框中输入已存在的'Read book'，准备测试重复检测"
+            },
+            {
+              "action": "click",
+              "target": "name:Add",
+              "description": "点击蓝色Add按钮，因为Read book已存在，会弹出警告'Duplicate item: Read book'"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待重复警告弹窗出现"
+            },
+            {
+              "action": "screenshot",
+              "description": "重复添加时的警告弹窗"
+            }
+          ]
+        },
+        {
+          "name": "全选标记完成",
+          "description": "点击Select All将所有待办标记为已完成，验证Done等于Total，Urgent变为0",
+          "steps": [
+            {
+              "action": "click",
+              "target": "name:Select All",
+              "description": "点击列表下方第二行右侧的蓝色Select All按钮，点击后所有项变为已完成（显示✓和灰色），Done等于Total，Urgent变为0"
+            },
+            {
+              "action": "wait",
+              "value": "500",
+              "description": "等待状态刷新"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Done: 5",
+              "description": "验证Done数等于总数5（全部已完成）"
+            },
+            {
+              "action": "assert_text",
+              "expected": "Urgent: 0",
+              "description": "验证Urgent变为0（所有High优先级都已完成）"
+            },
+            {
+              "action": "screenshot",
+              "description": "全选完成后，所有项显示✓，Done=5，Urgent=0"
+            }
+          ]
+        },
+        {
+          "name": "清空已完成项",
+          "description": "点Clear Done清除全部已完成项，列表变空",
           "steps": [
             {
               "action": "click",
               "target": "name:Clear Done",
-              "description": "点击列表下方右侧的灰色Clear Done按钮"
+              "description": "点击列表下方第二行左侧的灰色Clear Done按钮，点击后所有已完成项被移除，列表变空，Total变为0"
             },
             {
               "action": "wait",
@@ -147,29 +306,24 @@
               "description": "等待列表刷新"
             },
             {
+              "action": "assert_text",
+              "expected": "Total: 0",
+              "description": "验证清空后总数为0"
+            },
+            {
               "action": "screenshot",
-              "description": "清空已完成项后的列表"
-            },
-            {
-              "action": "assert_text",
-              "expected": "Total: 2",
-              "description": "验证底部统计栏总数从3变为2（清除了已完成的Buy milk）"
-            },
-            {
-              "action": "assert_text",
-              "expected": "Done: 0",
-              "description": "验证底部统计栏已完成数回到0"
+              "description": "清空后的空列表状态"
             }
           ]
         },
         {
           "name": "空输入验证",
-          "description": "不输入任何内容直接点Add，验证弹出警告提示",
+          "description": "列表为空时，不输入内容直接点Add，验证弹出警告",
           "steps": [
             {
               "action": "click",
               "target": "name:Add",
-              "description": "不输入任何内容，直接点击输入框右侧的蓝色Add按钮"
+              "description": "不输入任何内容，直接点击蓝色Add按钮，弹出警告'Please enter a todo item'"
             },
             {
               "action": "wait",
