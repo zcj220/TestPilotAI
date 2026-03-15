@@ -1,0 +1,18 @@
+[Unit]
+Description=TestPilot AI API Server
+After=network.target
+
+[Service]
+Type=simple
+User=testpilot
+Group=testpilot
+WorkingDirectory=/opt/testpilot/app
+EnvironmentFile=/opt/testpilot/app/.env
+ExecStart=/opt/testpilot/app/venv/bin/python -m uvicorn src.app:app --host 127.0.0.1 --port 8900
+Restart=always
+RestartSec=5
+StandardOutput=append:/opt/testpilot/logs/api.log
+StandardError=append:/opt/testpilot/logs/api-error.log
+
+[Install]
+WantedBy=multi-user.target
