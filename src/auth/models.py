@@ -43,6 +43,11 @@ class User(Base):
     max_ai_calls_per_day: Mapped[int] = mapped_column(Integer, default=50)
     storage_limit_mb: Mapped[int] = mapped_column(Integer, default=100)
 
+    # v13.0: 积分系统
+    credits: Mapped[int] = mapped_column(Integer, default=100)
+    credits_used: Mapped[int] = mapped_column(Integer, default=0)
+    plan: Mapped[str] = mapped_column(String(20), default="free")
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

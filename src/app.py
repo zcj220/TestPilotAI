@@ -25,6 +25,9 @@ from src.sandbox.manager import SandboxManager
 from src.auth.database import init_db as init_auth_db
 from src.auth.routes import router as auth_router
 from src.auth.team_routes import router as team_router
+from src.community.routes import router as community_router
+from src.billing.routes import router as billing_router
+from src.admin.routes import router as admin_router
 
 
 def create_app() -> FastAPI:
@@ -90,6 +93,9 @@ def create_app() -> FastAPI:
     app.include_router(router, prefix="/api/v1")
     app.include_router(auth_router, prefix="/api/v1")  # v6.0: 认证+项目+用量
     app.include_router(team_router, prefix="/api/v1")  # v6.1: 团队协作
+    app.include_router(community_router, prefix="/api/v1")  # v13.0: 社区经验库
+    app.include_router(billing_router, prefix="/api/v1")  # v13.0: 积分计费
+    app.include_router(admin_router, prefix="/api/v1")  # v13.0-D: 管理后台
 
     # WebSocket 端点（IDE 插件实时通信）
     from fastapi import WebSocket, WebSocketDisconnect
@@ -171,30 +177,32 @@ def create_app() -> FastAPI:
         for name in sorted(_preview_dirs):
             logger.info("预览服务已挂载: /preview/{}/", name)
 
-    # v2.0：Web仪表盘静态文件服务
-    # desktop/ build后输出到 desktop/dist/，FastAPI直接服务
-    # 用户访问 http://localhost:8900 即看到Web仪表盘
+    # v13.0: 社区门户 / v2.0: Web仪表盘 静态文件服务
+    # 优先使用 web/dist（社区门户），回退到 desktop/dist（旧仪表盘）
+    community_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
     dashboard_dist = Path(__file__).resolve().parent.parent / "desktop" / "dist"
-    if dashboard_dist.is_dir():
+    spa_dist = community_dist if community_dist.is_dir() else dashboard_dist
+
+    if spa_dist.is_dir():
         from fastapi.responses import FileResponse
 
         @app.get("/")
-        async def serve_dashboard():
-            """Web仪表盘首页。"""
-            return FileResponse(dashboard_dist / "index.html")
+        async def serve_spa_index():
+            """社区门户/仪表盘首页。"""
+            return FileResponse(spa_dist / "index.html")
 
-        # SPA路由：非API/ws路径都返回index.html（React Router需要）
         @app.get("/{path:path}")
         async def serve_spa(path: str):
             """SPA回退：静态资源直接返回，其他路径返回index.html。"""
-            file_path = dashboard_dist / path
+            file_path = spa_dist / path
             if file_path.is_file():
                 return FileResponse(file_path)
-            return FileResponse(dashboard_dist / "index.html")
+            return FileResponse(spa_dist / "index.html")
 
-        logger.info("Web仪表盘已启用 | 路径={}", dashboard_dist)
+        label = "社区门户" if spa_dist == community_dist else "Web仪表盘"
+        logger.info("{}已启用 | 路径={}", label, spa_dist)
     else:
-        logger.info("Web仪表盘未构建（desktop/dist/不存在），跳过静态文件服务")
+        logger.info("Web前端未构建（web/dist/ 和 desktop/dist/ 都不存在），跳过静态文件服务")
 
     return app
 

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from loguru import logger
 
 from src.auth.models import Base
+import src.community.models  # noqa: F401 — 确保社区表注册到 Base.metadata
 from src.core.config import PROJECT_ROOT
 
 

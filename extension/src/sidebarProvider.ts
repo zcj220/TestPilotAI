@@ -1996,6 +1996,40 @@ ${commonRules}`;
       if (report.bug_count > 0) {
         addLog("💡 在Cascade聊天窗口说「帮我修复这些Bug」可自动闭环修复", "info");
       }
+
+      if (report.fixed_bug_count > 0) {
+        showSharePrompt(report);
+      }
+    }
+
+    function showSharePrompt(report) {
+      const banner = document.createElement("div");
+      banner.className = "share-prompt";
+      banner.style.cssText = "background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:8px;margin-top:8px;font-size:11px";
+      banner.innerHTML =
+        '<div style="margin-bottom:4px">🎉 成功修复 <b>' + report.fixed_bug_count + '</b> 个Bug！分享你的修复经验帮助其他开发者？</div>' +
+        '<div style="display:flex;gap:4px">' +
+          '<button id="btnAutoShare" class="btn-secondary" style="flex:1;font-size:10px;padding:3px 6px">📤 分享到社区</button>' +
+          '<button id="btnDismissShare" class="btn-secondary" style="font-size:10px;padding:3px 6px;opacity:0.6">不了</button>' +
+        '</div>';
+      resultSection.appendChild(banner);
+
+      document.getElementById("btnDismissShare").onclick = () => banner.remove();
+      document.getElementById("btnAutoShare").onclick = () => {
+        banner.remove();
+        const bugs = report.bugs || [];
+        const firstBug = bugs[0] || {};
+        document.getElementById("shareErrorType").value = firstBug.title || firstBug.category || "test_bug";
+        document.getElementById("shareSolution").value = "修复了 " + report.fixed_bug_count + " 个Bug: " + bugs.map(b => b.title || b.description || "").filter(Boolean).join("; ");
+        document.getElementById("shareRootCause").value = firstBug.description || "";
+
+        const tabs = document.querySelectorAll(".tab-btn");
+        const panels = document.querySelectorAll(".tab-content");
+        tabs.forEach(t => t.classList.remove("active"));
+        panels.forEach(p => p.classList.remove("active"));
+        tabs[2].classList.add("active");
+        document.getElementById("panelCommunity").classList.add("active");
+      };
     }
 
     function renderBugs(bugs) {
@@ -2097,22 +2131,26 @@ ${commonRules}`;
       communityList.innerHTML = '<div class="exp-empty">加载中...</div>';
 
       try {
-        // 加载统计
         const statsResp = await fetch(engineBaseUrl + "/community/stats");
         if (statsResp.ok) {
           const stats = await statsResp.json();
-          communityStats.textContent = "共 " + stats.total_experiences + " 条经验 | 👍 " + stats.total_upvotes + " 次点赞 | ✅ " + stats.total_adoptions + " 次采纳";
+          communityStats.textContent = "共 " + stats.total_experiences + " 条经验 | 👍 " + (stats.total_upvotes || 0) + " 次点赞 | ✅ " + stats.total_adoptions + " 次采纳";
         }
 
-        // 搜索/列表
-        let url = engineBaseUrl + "/community/experiences?limit=20";
-        if (platform) url += "&platform=" + encodeURIComponent(platform);
-        if (search) url = engineBaseUrl + "/community/suggest?error_type=" + encodeURIComponent(search) + "&platform=" + encodeURIComponent(platform) + "&limit=20";
+        let url;
+        if (search) {
+          url = engineBaseUrl + "/community/experiences/suggest?error_type=" + encodeURIComponent(search);
+          if (platform) url += "&platform=" + encodeURIComponent(platform);
+          url += "&limit=20";
+        } else {
+          url = engineBaseUrl + "/community/experiences?per_page=20";
+          if (platform) url += "&platform=" + encodeURIComponent(platform);
+        }
 
         const resp = await fetch(url);
         if (!resp.ok) throw new Error("HTTP " + resp.status);
         const data = await resp.json();
-        renderCommunityExperiences(data.experiences || []);
+        renderCommunityExperiences(data.items || []);
       } catch (e) {
         communityList.innerHTML = '<div class="exp-empty">⚠️ 无法连接到引擎<br><small>确保引擎已启动（poetry run python main.py）</small></div>';
         communityStats.textContent = "未连接";
@@ -2125,34 +2163,30 @@ ${commonRules}`;
         return;
       }
       communityList.innerHTML = "";
-      items.slice(0, 10).forEach((exp, idx) => {
+      items.slice(0, 10).forEach((exp) => {
         const diffClass = exp.difficulty === "hard" ? "badge-hard" : exp.difficulty === "easy" ? "badge-easy" : "badge-medium";
         const diffLabel = exp.difficulty === "hard" ? "⭐⭐⭐" : exp.difficulty === "easy" ? "⭐" : "⭐⭐";
-        const failedHtml = exp.failed_attempts && exp.failed_attempts.length > 0
-          ? '<div class="exp-failed">❌ 踩过的坑: ' + escapeHtml(exp.failed_attempts.slice(0,2).join(" | ")) + '</div>'
-          : "";
-        const tagsHtml = exp.context_tags && exp.context_tags.length > 0
-          ? '<span>' + exp.context_tags.slice(0,3).map(t => '#' + t).join(' ') + '</span>'
+        const tagsHtml = exp.tags && exp.tags.length > 0
+          ? '<span>' + exp.tags.slice(0,3).map(t => '#' + t).join(' ') + '</span>'
           : "";
 
         const div = document.createElement("div");
         div.className = "exp-item";
         div.innerHTML =
           '<div class="exp-header">' +
-            '<span class="exp-title">' + escapeHtml(exp.error_type || "未知错误") + '</span>' +
+            '<span class="exp-title">' + escapeHtml(exp.title || exp.error_type || "未知错误") + '</span>' +
             '<span class="exp-badges">' +
               '<span class="exp-badge badge-platform">' + escapeHtml(exp.platform) + '</span>' +
               '<span class="exp-badge ' + diffClass + '">' + diffLabel + '</span>' +
             '</span>' +
           '</div>' +
-          '<div class="exp-solution">💡 ' + escapeHtml(exp.solution_strategy || "") + '</div>' +
+          '<div class="exp-solution">💡 ' + escapeHtml(exp.solution_desc || "") + '</div>' +
           (exp.root_cause ? '<div class="exp-cause">🔍 根因: ' + escapeHtml(exp.root_cause) + '</div>' : '') +
-          failedHtml +
           '<div class="exp-meta">' +
-            '<span>👍 ' + (exp.upvotes || 0) + '</span>' +
-            '<span>✅ 采纳 ' + (exp.adoptions || 0) + '</span>' +
-            '<span>🔁 ' + (exp.total_attempts || 1) + '次尝试</span>' +
-            (exp.time_spent_minutes > 0 ? '<span>⏱ ' + exp.time_spent_minutes + '分钟</span>' : '') +
+            '<span>👍 ' + (exp.upvote_count || 0) + '</span>' +
+            '<span>✅ 采纳 ' + (exp.adoption_count || 0) + '</span>' +
+            '<span>👁 ' + (exp.view_count || 0) + '</span>' +
+            (exp.share_score > 0 ? '<span>📊 ' + exp.share_score + '分</span>' : '') +
             tagsHtml +
           '</div>' +
           '<div class="exp-actions">' +
@@ -2165,14 +2199,22 @@ ${commonRules}`;
 
     async function voteExp(expId, up) {
       try {
-        const resp = await fetch(engineBaseUrl + "/community/vote/" + expId + "?up=" + up, { method: "POST" });
+        const resp = await fetch(engineBaseUrl + "/community/experiences/" + expId + "/vote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vote_type: up ? "upvote" : "downvote" }),
+        });
         if (resp.ok) { loadCommunityExperiences(); }
       } catch(e) {}
     }
 
     async function adoptExp(expId) {
       try {
-        const resp = await fetch(engineBaseUrl + "/community/adopt/" + expId, { method: "POST" });
+        const resp = await fetch(engineBaseUrl + "/community/experiences/" + expId + "/vote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vote_type: "adopt" }),
+        });
         if (resp.ok) { loadCommunityExperiences(); }
       } catch(e) {}
     }
@@ -2202,41 +2244,86 @@ ${commonRules}`;
         shareResult.textContent = "错误类型和修复方案不能为空";
         return;
       }
+      if (solution.length < 10) {
+        shareResult.style.display = "block";
+        shareResult.style.color = "#f87171";
+        shareResult.textContent = "修复方案描述至少 10 个字符";
+        return;
+      }
 
       btnShareExperience.disabled = true;
-      btnShareExperience.textContent = "上传中...";
+      btnShareExperience.textContent = "预览中...";
       shareResult.style.display = "none";
 
+      const payload = {
+        title: errorType,
+        platform,
+        error_type: errorType,
+        problem_desc: errorType + " - " + solution,
+        solution_desc: solution,
+        root_cause: rootCause,
+        difficulty,
+        tags: [platform, errorType.split(/[\s_]+/)[0]].filter(Boolean),
+      };
+
       try {
-        const resp = await fetch(engineBaseUrl + "/community/share", {
+        const previewResp = await fetch(engineBaseUrl + "/community/share/preview", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            platform,
-            error_type: errorType,
-            solution_strategy: solution,
-            root_cause: rootCause,
-            difficulty,
-          }),
+          body: JSON.stringify(payload),
         });
-        const data = await resp.json();
-        shareResult.style.display = "block";
-        if (data.success) {
-          shareResult.style.color = "#4ade80";
-          shareResult.textContent = "✅ " + data.message;
-          document.getElementById("shareErrorType").value = "";
-          document.getElementById("shareSolution").value = "";
-          document.getElementById("shareRootCause").value = "";
-          loadCommunityExperiences();
-        } else {
-          shareResult.style.color = "#fbbf24";
-          shareResult.textContent = "⚠️ " + data.message + (data.duplicates && data.duplicates.length > 0 ? "（已有 " + data.duplicates.length + " 条相似方案）" : "");
+        const preview = await previewResp.json();
+
+        if (!preview.validation.valid) {
+          shareResult.style.display = "block";
+          shareResult.style.color = "#f87171";
+          shareResult.textContent = "❌ 审核不通过: " + preview.validation.reasons.join("; ");
+          btnShareExperience.disabled = false;
+          btnShareExperience.textContent = "📤 分享到社区";
+          return;
         }
+
+        shareResult.style.display = "block";
+        shareResult.style.color = "var(--muted)";
+        shareResult.innerHTML = "📊 价值评分: <b>" + preview.score + "/10</b> | 匿名化预览: " + escapeHtml((preview.anonymized.solution_desc || "").substring(0, 80)) + "...";
+
+        btnShareExperience.textContent = "✅ 确认分享";
+        btnShareExperience.onclick = async function confirmShare() {
+          btnShareExperience.disabled = true;
+          btnShareExperience.textContent = "上传中...";
+          try {
+            const resp = await fetch(engineBaseUrl + "/community/share/direct", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+            const data = await resp.json();
+            shareResult.style.display = "block";
+            if (data.ok) {
+              shareResult.style.color = "#4ade80";
+              shareResult.textContent = "✅ 分享成功！评分: " + (data.score_breakdown ? data.score_breakdown.total : "-") + "/10";
+              document.getElementById("shareErrorType").value = "";
+              document.getElementById("shareSolution").value = "";
+              document.getElementById("shareRootCause").value = "";
+              loadCommunityExperiences();
+            } else {
+              shareResult.style.color = "#fbbf24";
+              shareResult.textContent = "⚠️ " + (data.error || "分享失败") + (data.reasons ? ": " + data.reasons.join("; ") : "");
+            }
+          } catch(err) {
+            shareResult.style.color = "#f87171";
+            shareResult.textContent = "上传失败: " + err.message;
+          } finally {
+            btnShareExperience.disabled = false;
+            btnShareExperience.textContent = "📤 分享到社区";
+            btnShareExperience.onclick = null;
+          }
+        };
+        btnShareExperience.disabled = false;
       } catch(e) {
         shareResult.style.display = "block";
         shareResult.style.color = "#f87171";
-        shareResult.textContent = "上传失败: " + e.message;
-      } finally {
+        shareResult.textContent = "预览失败: " + e.message;
         btnShareExperience.disabled = false;
         btnShareExperience.textContent = "📤 分享到社区";
       }
