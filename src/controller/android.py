@@ -54,6 +54,8 @@ class MobileConfig:
         no_reset: bool = True,
         timeout_ms: int = 30000,
         screenshot_dir: str = "screenshots",
+        bundle_id: str = "",
+        udid: str = "",
     ):
         self.appium_url = appium_url
         self.platform_name = platform_name
@@ -66,6 +68,8 @@ class MobileConfig:
         self.timeout_ms = timeout_ms
         self.screenshot_dir = Path(screenshot_dir)
         self.screenshot_dir.mkdir(parents=True, exist_ok=True)
+        self.bundle_id = bundle_id
+        self.udid = udid
 
 
 class AndroidController(BaseController):
@@ -288,11 +292,14 @@ class AndroidController(BaseController):
         return {"ok": False, "message": f"Appium Server 启动超时({timeout}秒)。最后状态: {last_err}"}
 
     async def check_device(self) -> dict:
-        """检测是否有 Android 设备连接（通过 adb devices）。
+        """检测是否有设备连接（Android 用 adb devices，iOS 用 idevice_id / xcrun）。
 
         Returns:
             {"ok": True/False, "message": str, "devices": list}
         """
+        if self._config.platform_name == "iOS":
+            return await self._check_ios_device()
+
         loop = asyncio.get_event_loop()
         try:
             result = await loop.run_in_executor(
@@ -311,10 +318,54 @@ class AndroidController(BaseController):
         except Exception as e:
             return {"ok": False, "message": f"设备检测异常: {e}", "devices": []}
 
+    async def _check_ios_device(self) -> dict:
+        """检测 iOS 设备连接状态（优先 idevice_id，回退 xcrun xctrace）。"""
+        loop = asyncio.get_event_loop()
+
+        def _detect():
+            # 方法 1：libimobiledevice idevice_id
+            try:
+                r = subprocess.run(
+                    ["idevice_id", "-l"], capture_output=True, text=True, timeout=5
+                )
+                udids = [u.strip() for u in r.stdout.strip().split("\n") if u.strip()]
+                if udids:
+                    return {"ok": True, "message": f"已连接 {len(udids)} 台 iOS 设备: {', '.join(udids)}", "devices": udids}
+            except FileNotFoundError:
+                pass
+            # 方法 2：xcrun xctrace list devices
+            try:
+                r = subprocess.run(
+                    ["xcrun", "xctrace", "list", "devices"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                lines = r.stdout.strip().split("\n")
+                # 跳过模拟器行（含 Simulator），找含 UDID 括号的真机行
+                real_devices = [
+                    ln.strip() for ln in lines
+                    if "Simulator" not in ln and "(" in ln and ")" in ln
+                    and not ln.strip().startswith("===") and len(ln.strip()) > 20
+                ]
+                if real_devices:
+                    return {"ok": True, "message": f"iOS设备已连接: {real_devices[0]}", "devices": real_devices}
+            except Exception:
+                pass
+            return {
+                "ok": False,
+                "message": "未检测到 iOS 设备。请用 USB 连接 iPhone，在手机上点击【信任此电脑】，并确认开发者模式已开启（设置→隐私与安全→开发者模式）。",
+                "devices": [],
+            }
+
+        return await loop.run_in_executor(None, _detect)
+
     # ── BaseController 实现 ──────────────────────
 
     async def launch(self) -> None:
-        """创建 Appium Session（连接设备）。"""
+        """创建 Appium Session（连接设备）。iOS/Android 分支处理。"""
+        if self._config.platform_name == "iOS":
+            await self._launch_ios()
+            return
+
         capabilities = {
             "platformName": self._config.platform_name,
             "appium:automationName": self._config.automation_name,
@@ -477,10 +528,11 @@ class AndroidController(BaseController):
         await self._restore_screen_settings()
 
     async def navigate(self, url_or_activity: str) -> None:
-        """打开Activity或URL。
+        """打开URL、Activity 或（iOS）重启 app。
 
         如果是URL（http开头），在手机浏览器中打开。
-        如果是Activity名，直接启动对应Activity。
+        如果平台是 iOS，通过 terminateApp + activateApp 重启 app。
+        如果是 Android Activity 名，重建 Session 并启动 Activity。
         """
         step = self._next_step()
 
@@ -490,6 +542,35 @@ class AndroidController(BaseController):
             await loop.run_in_executor(
                 None, lambda: self._session_request("POST", "/url", {"url": url_or_activity})
             )
+        elif self._config.platform_name == "iOS":
+            # iOS：用 mobile: terminateApp + mobile: launchApp（Appium 2 标准方式）
+            # 确保 app 从头冷启动，回到初始登录页
+            bundle = self._config.bundle_id
+            logger.info("[步骤{}] iOS冷启动App: {}", step, bundle)
+            loop = asyncio.get_event_loop()
+            try:
+                await loop.run_in_executor(
+                    None, lambda: self._session_request(
+                        "POST", "/execute/sync",
+                        {"script": "mobile: terminateApp", "args": [{"bundleId": bundle}]},
+                    )
+                )
+                logger.debug("iOS terminateApp 成功")
+            except Exception as e:
+                logger.warning("iOS terminateApp 失败（非致命）: {}", e)
+            await asyncio.sleep(1)
+            try:
+                await loop.run_in_executor(
+                    None, lambda: self._session_request(
+                        "POST", "/execute/sync",
+                        {"script": "mobile: launchApp", "args": [{"bundleId": bundle}]},
+                    )
+                )
+                logger.debug("iOS launchApp 成功")
+            except Exception as e:
+                logger.warning("iOS launchApp 失败，重建 Session: {}", e)
+                await self._launch_ios()
+            await asyncio.sleep(3)
         else:
             # 重启 app 并重建 Appium Session
             # 原因：Flutter app 被 terminate 后，UiAutomator2 Server 内部线程
@@ -604,6 +685,82 @@ class AndroidController(BaseController):
         # 7. 等待 Flutter 引擎重新初始化 + 渲染
         await asyncio.sleep(3)
 
+    async def _launch_ios(self) -> None:
+        """iOS 专用 launch：设置 XCUITest capabilities 并创建 Appium Session。
+
+        与 Android 路径的主要差异：
+        - 使用 XCUITest automationName
+        - 通过 bundleId 定位 app（无需 appPackage/appActivity）
+        - terminate app 后重建Session，而不是 force-stop
+        - 不需要 waitForIdleTimeout（XCUITest 没有 UiAutomator2 的空闲问题）
+        - 不需要 adb 保持亮屏（WDA 连接期间 iOS 屏幕不会自动锁定）
+        """
+        capabilities = {
+            "platformName": "iOS",
+            "appium:automationName": "XCUITest",
+            "appium:bundleId": self._config.bundle_id,
+            "appium:noReset": True,
+            "appium:newCommandTimeout": 300,
+            "appium:autoAcceptAlerts": True,
+            "appium:wdaLocalPort": 8100,
+            # WDA 签名配置（已在 Xcode GUI 中构建完成，直接复用构建产物）
+            "appium:xcodeOrgId": "SS9YJ95QFV",
+            "appium:xcodeSigningId": "Apple Development",
+            "appium:allowProvisioningDeviceRegistration": True,
+            "appium:updatedWDABundleId": "com.wxzao.wda.runner",
+            # 直接使用 Xcode GUI 已构建好的 WDA，跳过 xcodebuild 编译步骤
+            "appium:usePrebuiltWDA": True,
+            "appium:derivedDataPath": "/Users/zcj/Library/Developer/Xcode/DerivedData/WebDriverAgent-cgmjtgwhyundavaoywlwoknvbfhl",
+        }
+        if self._config.device_name:
+            capabilities["appium:deviceName"] = self._config.device_name
+        if self._config.udid:
+            capabilities["appium:udid"] = self._config.udid
+
+        body = {"capabilities": {"alwaysMatch": capabilities}}
+
+        # 先 terminate 旧的 app 进程并删除旧 Session
+        if self._session_id:
+            try:
+                loop0 = asyncio.get_event_loop()
+                await loop0.run_in_executor(
+                    None, lambda: self._session_request(
+                        "POST", "/execute/sync",
+                        {"script": "mobile: terminateApp", "args": [{"bundleId": self._config.bundle_id}]},
+                    )
+                )
+                await asyncio.sleep(1)
+            except Exception:
+                pass
+            # 删除旧 Session
+            try:
+                old_sid = self._session_id
+                self._session_id = None
+                loop0 = asyncio.get_event_loop()
+                await loop0.run_in_executor(
+                    None, lambda: self._request("DELETE", f"/session/{old_sid}", timeout=5)
+                )
+            except Exception:
+                self._session_id = None
+
+        logger.info("正在创建 iOS Appium Session | bundleId={}", self._config.bundle_id)
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(
+            None, lambda: self._request("POST", "/session", body)
+        )
+
+        self._session_id = resp.get("value", {}).get("sessionId")
+        if not self._session_id:
+            raise RuntimeError(f"iOS Appium Session 创建失败: {resp}")
+
+        caps = resp.get("value", {}).get("capabilities", {})
+        self._device.name = caps.get("deviceName", self._device.name)
+        self._device.os_version = caps.get("platformVersion", "")
+        self._device.is_connected = True
+
+        logger.info("iOS Appium Session 创建成功 | ID={} | 设备={} iOS={}",
+                    self._session_id[:8], self._device.name, self._device.os_version)
+
     async def tap(self, selector: str) -> None:
         """点击元素。"""
         step = self._next_step()
@@ -715,7 +872,18 @@ class AndroidController(BaseController):
         await asyncio.sleep(0.5)
 
     async def hide_keyboard(self) -> None:
-        """收起软键盘（用 adb ESCAPE 键，比 Appium API 更可靠）。"""
+        """收起软键盘。Android 用 adb ESCAPE 键；iOS 用 Appium hideKeyboard API。"""
+        if self._config.platform_name == "iOS":
+            loop = asyncio.get_event_loop()
+            try:
+                await loop.run_in_executor(
+                    None, lambda: self._session_request(
+                        "POST", f"/session/{self._session_id}/appium/device/hide_keyboard", {}
+                    )
+                )
+            except Exception:
+                pass
+            return
         loop = asyncio.get_event_loop()
         try:
             await loop.run_in_executor(
@@ -823,11 +991,12 @@ class AndroidController(BaseController):
 
         logger.info("截图 | 文件={}", filename)
 
-        # 优先用adb截图（更快更稳定）
-        try:
-            return await self._adb_screenshot(filepath)
-        except Exception as e:
-            logger.debug("adb截图失败({}), 尝试Appium截图...", e)
+        # iOS 直接用 Appium 截图（无 adb）
+        if self._config.platform_name != "iOS":
+            try:
+                return await self._adb_screenshot(filepath)
+            except Exception as e:
+                logger.debug("adb截图失败({}), 尝试Appium截图...", e)
 
         # 回退到Appium截图
         loop = asyncio.get_event_loop()
@@ -1284,7 +1453,13 @@ class AndroidController(BaseController):
         """设置设备充电时保持亮屏，并将熄屏超时设为最大值。
 
         测试结束后通过 _restore_screen_settings() 恢复原始值。
+        iOS：WDA 连接期间屏幕不会自动锁定，无需 adb 操作；
+             但需用户手动将 iPhone 设置→显示与亮度→自动锁定→从不。
         """
+        if self._config.platform_name == "iOS":
+            logger.info("iOS 测试：请确认 iPhone 已设置「自动锁定→从不」，WDA 连接期间屏幕将保持亮屏")
+            return
+
         loop = asyncio.get_event_loop()
 
         def _setup():
@@ -1308,7 +1483,9 @@ class AndroidController(BaseController):
                     self._original_stay_on, self._original_screen_off_timeout)
 
     async def _restore_screen_settings(self) -> None:
-        """恢复设备屏幕设置到测试前的状态。"""
+        """恢复设备屏幕设置到测试前的状态（iOS 跳过）。"""
+        if self._config.platform_name == "iOS":
+            return
         loop = asyncio.get_event_loop()
 
         def _restore():
@@ -1488,13 +1665,17 @@ class AndroidController(BaseController):
         elif selector.startswith("id:"):
             strategy, value = "id", selector[3:]
         elif selector.startswith("accessibility_id:"):
-            # 转为 UiSelector.descriptionStartsWith() — 避免 accessibility id 策略内部的
-            # waitForIdle() 调用，在 Flutter 等持续动画的 app 上会卡死
-            # 用 StartsWith 而非精确匹配：Flutter Semantics label + child 文本
-            # 会合并为 "label\n子文本"（如 "txt_error\n用户名或密码错误"）
             desc_value = selector[17:]
-            strategy = "-android uiautomator"
-            value = f'new UiSelector().descriptionStartsWith("{desc_value}")'
+            if self._config.platform_name == "iOS":
+                # iOS XCUITest 直接支持 accessibility id 策略（对应 accessibilityIdentifier）
+                strategy, value = "accessibility id", desc_value
+            else:
+                # Android：转为 UiSelector.descriptionStartsWith() — 避免 accessibility id 策略内部的
+                # waitForIdle() 调用，在 Flutter 等持续动画的 app 上会卡死
+                # 用 StartsWith 而非精确匹配：Flutter Semantics label + child 文本
+                # 会合并为 "label\n子文本"（如 "txt_error\n用户名或密码错误"）
+                strategy = "-android uiautomator"
+                value = f'new UiSelector().descriptionStartsWith("{desc_value}")'
         elif selector.startswith("class:"):
             strategy, value = "class name", selector[6:]
         elif selector.startswith("uia:"):

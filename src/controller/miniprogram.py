@@ -51,8 +51,12 @@ class MiniProgramConfig:
 
     @staticmethod
     def _detect_devtools() -> str:
-        """自动检测微信开发者工具路径。"""
+        """自动检测微信开发者工具路径（兼容 Windows 和 macOS）。"""
         candidates = [
+            # macOS
+            "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
+            "/Applications/开发工具/wechatwebdevtools.app/Contents/MacOS/cli",
+            # Windows
             r"C:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat",
             r"C:\Program Files\Tencent\微信web开发者工具\cli.bat",
             r"D:\Program Files (x86)\Tencent\微信web开发者工具\cli.bat",
@@ -69,36 +73,48 @@ class MiniProgramConfig:
         import socket
         import subprocess
         
-        # 方法1：从netstat检测微信开发者工具的WebSocket端口
+        import platform as _platform
+        # 方法1：从系统命令检测微信开发者工具的WebSocket端口
         try:
-            result = subprocess.run(
-                ["netstat", "-ano"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            # 查找微信开发者工具进程的监听端口
-            # 端口通常在 9420-65535 之间
-            for line in result.stdout.split('\n'):
-                if 'LISTENING' in line and '127.0.0.1:' in line:
-                    parts = line.split()
-                    for part in parts:
+            if _platform.system() == "Windows":
+                result = subprocess.run(
+                    ["netstat", "-ano"],
+                    capture_output=True, text=True, timeout=5
+                )
+                lines_to_check = [l for l in result.stdout.split('\n') if 'LISTENING' in l and '127.0.0.1:' in l]
+                def extract_port_win(line):
+                    for part in line.split():
                         if '127.0.0.1:' in part:
-                            try:
-                                port = int(part.split(':')[1])
-                                # 微信开发者工具的自动化端口通常 > 9000
-                                if 9000 <= port <= 65535:
-                                    # 尝试连接验证
-                                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                    sock.settimeout(0.5)
-                                    if sock.connect_ex(('127.0.0.1', port)) == 0:
-                                        sock.close()
-                                        logger.info(f"检测到可能的自动化端口: {port}")
-                                        return port
-                                    sock.close()
-                            except (ValueError, IndexError):
-                                continue
+                            try: return int(part.split(':')[1])
+                            except: pass
+                    return 0
+                ports = [extract_port_win(l) for l in lines_to_check]
+            else:
+                # macOS / Linux：用 lsof 检测
+                result = subprocess.run(
+                    ["lsof", "-iTCP", "-sTCP:LISTEN", "-n", "-P"],
+                    capture_output=True, text=True, timeout=5
+                )
+                ports = []
+                for line in result.stdout.split('\n'):
+                    if '127.0.0.1:' in line or '*:' in line:
+                        parts = line.split()
+                        for part in parts:
+                            if ':' in part:
+                                try:
+                                    port = int(part.split(':')[-1])
+                                    ports.append(port)
+                                except: pass
+
+            for port in ports:
+                if 9000 <= port <= 65535:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(0.5)
+                    if sock.connect_ex(('127.0.0.1', port)) == 0:
+                        sock.close()
+                        logger.info(f"检测到可能的自动化端口: {port}")
+                        return port
+                    sock.close()
         except Exception as e:
             logger.warning(f"端口检测失败: {e}")
         

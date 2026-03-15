@@ -64,6 +64,8 @@ class Blueprint(BaseModel):
     start_cwd: str = Field(default="", description="启动命令的工作目录（相对于蓝本文件所在目录，默认为蓝本所在项目根目录）")
     app_package: str = Field(default="", description="Android应用包名（手机测试时用）")
     app_activity: str = Field(default="", description="Android启动Activity（手机测试时用）")
+    bundle_id: str = Field(default="", description="iOS应用Bundle ID（iOS测试时用，如 com.testpilot.demo）")
+    udid: str = Field(default="", description="iOS设备UDID（多设备时指定，单设备留空自动检测）")
 
     @property
     def total_scenarios(self) -> int:

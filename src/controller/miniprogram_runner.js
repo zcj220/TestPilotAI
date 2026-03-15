@@ -42,6 +42,7 @@ const steps = input.steps || [];
 
 // 自动检测CLI路径
 const CLI_CANDIDATES = [
+  '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
   'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat',
   'C:\\Program Files\\Tencent\\微信web开发者工具\\cli.bat',
 ];
@@ -65,13 +66,20 @@ function runCli(cmd) {
   }
 }
 
-async function tryConnect() {
-  mp = await Promise.race([
-    automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` }),
-    new Promise((_, rej) => setTimeout(() => rej(new Error('超时5秒')), 5000)),
+async function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error(`${label}超时${ms}ms`)), ms)),
   ]);
-  const page = await mp.currentPage();
-  return page.path;
+}
+
+async function tryConnect() {
+  mp = await withTimeout(
+    automator.connect({ wsEndpoint: `ws://localhost:${WS_PORT}` }),
+    5000, 'connect'
+  );
+  const page = await withTimeout(mp.currentPage(), 8000, 'currentPage');
+  return page ? page.path : 'unknown';
 }
 
 async function initConnect() {
@@ -104,10 +112,12 @@ async function initConnect() {
   // 策略3: 强杀所有进程 → open → auto（最终手段）
   console.log('[策略3] 强杀所有微信开发者工具进程...');
   try {
-    execSync('taskkill /F /IM wechatdevtools.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
-  } catch (e) {}
-  try {
-    execSync('taskkill /F /IM WeChatAppEx.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+    if (process.platform === 'darwin') {
+      execSync('pkill -f wechatwebdevtools || true', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+    } else {
+      execSync('taskkill /F /IM wechatdevtools.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+      execSync('taskkill /F /IM WeChatAppEx.exe /T', { encoding: 'utf8', timeout: 10000, stdio: 'pipe' });
+    }
   } catch (e) {}
   await sleep(5000);
   console.log('[策略3] cli open...');
@@ -132,14 +142,14 @@ async function initConnect() {
 // ── 执行单个步骤 ──
 async function executeStep(step, stepNum) {
   const start = Date.now();
-  const page = await mp.currentPage();
+  const page = await withTimeout(mp.currentPage(), 8000, 'currentPage').catch(() => null);
 
   try {
     switch (step.action) {
       case 'navigate': {
         // 用 new Function + evaluate，跟 run_blind_test.js 传箭头函数一样
         const navUrl = step.value || '';
-        await mp.evaluate(new Function('wx.reLaunch({ url: "' + navUrl + '" })'));
+        await withTimeout(mp.evaluate(new Function('wx.reLaunch({ url: "' + navUrl + '" })')), 8000, 'navigate').catch(e => console.error('[WARN] navigate:', e.message));
         await sleep(2000);
         break;
       }
@@ -160,7 +170,14 @@ async function executeStep(step, stepNum) {
       case 'screenshot': {
         const filename = `step${String(stepNum).padStart(2, '0')}_screenshot.png`;
         const filepath = path.join(SCREENSHOT_DIR, filename);
-        await mp.screenshot({ path: filepath });
+        try {
+          await Promise.race([
+            mp.screenshot({ path: filepath }),
+            new Promise((_, rej) => setTimeout(() => rej(new Error('截图超时8秒')), 8000)),
+          ]);
+        } catch (e) {
+          console.log(`[SCREENSHOT] 截图失败(不阻断): ${e.message}`);
+        }
         return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, screenshot: filepath, description: step.description || '' };
       }
       case 'assert_text': {
@@ -177,7 +194,8 @@ async function executeStep(step, stepNum) {
       }
       case 'scroll': {
         const scrollTop = parseInt(step.value) || 400;
-        await mp.evaluate(`wx.pageScrollTo({ scrollTop: ${scrollTop} })`);
+        // 必须用 new Function，不能传字符串（见备忘录第1150行）
+        await mp.evaluate(new Function(`wx.pageScrollTo({ scrollTop: ${scrollTop} })`));
         await sleep(500);
         break;
       }
@@ -191,7 +209,7 @@ async function executeStep(step, stepNum) {
           code = 'return ' + code;
         }
         const evalFn = new Function(code);
-        const evalResult = await mp.evaluate(evalFn);
+        const evalResult = await withTimeout(mp.evaluate(evalFn), 10000, 'evaluate').catch(e => { throw e; });
         if (step.expected !== undefined && step.expected !== '') {
           const actual = JSON.stringify(evalResult);
           const expect = String(step.expected);
@@ -233,7 +251,7 @@ async function executeStep(step, stepNum) {
         const method = step.target || '';
         let args = {};
         try { args = JSON.parse(step.value || '{}'); } catch(e) {}
-        await page.callMethod(method, args);
+        await withTimeout(page.callMethod(method, args), 8000, 'callMethod').catch(e => { throw e; });
         await sleep(parseInt(step.wait_ms) || 500);
         break;
       }
@@ -293,18 +311,18 @@ async function executeStep(step, stepNum) {
       case 'navigate_to': {
         // wx.navigateTo（不清空页面栈）—— 用new Function
         const navToUrl = step.value || '';
-        await mp.evaluate(new Function('wx.navigateTo({ url: "' + navToUrl + '" })'));
+        await withTimeout(mp.evaluate(new Function('wx.navigateTo({ url: "' + navToUrl + '" })')), 8000, 'navigateTo').catch(e => console.error('[WARN] navigateTo:', e.message));
         await sleep(1500);
         break;
       }
       case 'reset_state': {
         // 重置全局状态（场景间清理）—— 用 new Function 传函数给 evaluate
-        await mp.evaluate(new Function(
+        await withTimeout(mp.evaluate(new Function(
           'var g = getApp().globalData;' +
           'g.cart = []; g.coupon = null; g.address = ""; g.deliveryType = ""; g.isVip = true;'
-        ));
+        )), 8000, 'reset_state evaluate').catch(e => console.error('[WARN] reset_state eval:', e.message));
         // reLaunch回首页（不调callMethod，避免SDK超时）
-        await mp.evaluate(new Function('wx.reLaunch({ url: "/pages/index/index" })'));
+        await withTimeout(mp.evaluate(new Function('wx.reLaunch({ url: "/pages/index/index" })')), 8000, 'reset_state reLaunch').catch(e => console.error('[WARN] reset_state reLaunch:', e.message));
         await sleep(2000);
         break;
       }

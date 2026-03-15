@@ -80,3 +80,9 @@ ui_dump*.xml
 ui_tree_debug*.xml
 flutter_*_source.xml
 test_sid.txt
+
+# macOS / Xcode
+nohup.out
+*.xcuserstate
+xcuserdata/
+DerivedData/

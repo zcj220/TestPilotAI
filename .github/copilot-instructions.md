@@ -103,6 +103,131 @@ shop-demo/
 
 支持的 action：`navigate` / `click` / `fill` / `select` / `wait` / `screenshot` / `assert_text` / `assert_visible` / `hover` / `scroll`
 
+## iOS 蓝本编写规范
+
+iOS 蓝本通过 Appium + XCUITest 驱动在真机/模拟器上执行自动化测试。**仅 macOS 环境支持**。
+
+### 基本字段
+
+1. **`platform` 字段必须设为 `"ios"`**
+2. **必须包含 `bundle_id`**：如 `"com.testpilot.demo"`（应用的 Bundle Identifier）
+3. **`udid` 可选**：指定设备 UDID（多设备时必填），单设备可省略由 Appium 自动检测
+4. **`base_url` 留空**：原生 iOS 应用不需要 URL
+5. **页面 `url` 留空**：原生应用没有 HTTP URL，页面区分靠 `title`
+6. **引擎会自动处理 WDA（WebDriverAgent）**：使用预构建的 WDA，无需蓝本关心签名/编译
+
+### SwiftUI accessibilityIdentifier → XCUITest 选择器映射（核心规则）
+
+SwiftUI 的 `.accessibilityIdentifier()` 修饰符在 XCUITest 端映射为 `accessibility id` 属性。**选择器必须基于这些映射规则**：
+
+| SwiftUI 用法 | XCUITest 属性 | 蓝本选择器格式 |
+|---|---|---|
+| `.accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+| `TextField("placeholder", text: $val).accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+| `SecureField("placeholder", text: $val).accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+| `Button("文字").accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+| `Text("文字").accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+| `Image(systemName: "icon").accessibilityIdentifier("xxx")` | `accessibility id = "xxx"` | `accessibility_id:xxx` |
+
+> ⚠️ **必须在 SwiftUI 代码中显式添加 `.accessibilityIdentifier()`**，否则 XCUITest 无法通过 accessibility_id 定位元素。
+
+### 选择器优先级（从高到低）
+
+1. **`accessibility_id:xxx`** — 唯一推荐方式，基于 `.accessibilityIdentifier("xxx")`
+2. **`//XCUIElementType*[@name='xxx']`** — XCUITest XPath，兜底方案（性能差）
+3. **`-ios predicate string:name == 'xxx'`** — iOS Predicate 查询（高级场景）
+
+### 绝对禁止的选择器
+
+- ❌ `//XCUIElementTypeCell[N]` — 索引定位，UI 变化即失效
+- ❌ 不带属性约束的纯类型选择器（如 `//XCUIElementTypeButton`）
+- ❌ CSS 选择器（`#id`、`.class`）— 这是 Web 选择器，不适用于原生 iOS
+- ❌ Android 格式选择器（`resource-id:xxx`、`uia:xxx`）— 不适用于 iOS
+
+### iOS 蓝本模板
+
+```json
+{
+  "app_name": "你的应用名",
+  "description": "50-200字功能描述",
+  "base_url": "",
+  "version": "1.0",
+  "platform": "ios",
+  "bundle_id": "com.example.app",
+  "udid": "",
+  "pages": [
+    {
+      "url": "",
+      "title": "页面标题",
+      "elements": {
+        "用户名输入框": "accessibility_id:tf_username",
+        "密码输入框": "accessibility_id:tf_password",
+        "登录按钮": "accessibility_id:btn_login",
+        "错误提示": "accessibility_id:lbl_error"
+      },
+      "scenarios": [
+        {
+          "name": "场景名",
+          "steps": [
+            {"action": "navigate", "value": "com.example.app", "description": "冷启动应用"},
+            {"action": "wait", "value": "3000", "description": "等待应用启动完成"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "123456"},
+            {"action": "click", "target": "accessibility_id:btn_login"},
+            {"action": "wait", "value": "1000"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_welcome", "expected": "你好，admin"},
+            {"action": "screenshot", "value": "登录成功截图"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### iOS 蓝本注意事项
+
+- **场景间重置**：`navigate` 的 `value` 填 Bundle ID（如 `com.example.app`），引擎会自动执行 `mobile: terminateApp` → `mobile: launchApp` 冷启动回初始页面
+- **`@Published` 状态重置**：SwiftUI 中 `@Published` 属性在 App 被 terminateApp 后自动重置；`@AppStorage` 不会重置（持久化到 UserDefaults）
+- **等待应用启动**：每次 `navigate` 冷启动后必须 `wait 3000`（iOS App 首次渲染需要 2-3 秒）
+- **每个操作必须验证**：`click` 后必须有 `assert_text` 或 `screenshot`
+- **选择器命名规范**：建议前缀 `btn_`（按钮）、`tf_`（输入框）、`lbl_`（标签）、`list_`（列表）、`todo_`（列表项）
+- **Bug 标记**：已知 Bug 的断言加 `description: "【预期失败-Bug-N】原因说明"`
+- **Sheet/Alert 动画**：SwiftUI 的 `.sheet()` / `.alert()` 弹出后需要 `wait 800` 等动画完成
+- **仅 macOS 可用**：iOS 测试需要 Xcode + 已签名的 WDA，Windows/Linux 下不可运行
+
+### wait 动作两种格式
+
+| 格式 | 用法 | 说明 |
+|------|------|------|
+| 简单等待 | `{"action": "wait", "value": "3000"}` | 固定等待毫秒数 |
+| 等待元素 | `{"action": "wait", "target": "accessibility_id:xxx", "timeout_ms": 15000}` | 轮询等元素出现 |
+
+> iOS 每次 `navigate` 冷启动后的标准流程：先 `wait 3000`，再操作关键元素。
+
+### SwiftUI 代码侧要求
+
+为了让蓝本能准确定位元素，SwiftUI 代码中**必须**为所有可操作元素添加 `.accessibilityIdentifier()`：
+
+```swift
+// ✅ 正确：每个可操作元素都有 accessibilityIdentifier
+TextField("用户名", text: $username)
+    .accessibilityIdentifier("tf_username")
+
+SecureField("密码", text: $password)
+    .accessibilityIdentifier("tf_password")
+
+Button("登录") { login() }
+    .accessibilityIdentifier("btn_login")
+
+Text(errorMessage)
+    .accessibilityIdentifier("lbl_error")
+
+// ❌ 错误：没有 accessibilityIdentifier，蓝本无法定位
+TextField("用户名", text: $username)
+Button("登录") { login() }
+```
+
 ## 小程序蓝本编写规范
 
 小程序蓝本与Web蓝本的关键区别：

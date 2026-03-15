@@ -21,10 +21,16 @@ const PROJECT_PATH = process.argv[2] || '';
 const WS_PORT = parseInt(process.argv[3] || '9420');
 const HTTP_PORT = parseInt(process.argv[4] || '9421');
 
-// 自动检测CLI路径
+// 自动检测CLI路径（兼容 Windows 和 macOS）
 const CLI_CANDIDATES = [
+  // macOS
+  '/Applications/wechatwebdevtools.app/Contents/MacOS/cli',
+  '/Applications/开发工具/wechatwebdevtools.app/Contents/MacOS/cli',
+  // Windows
   'C:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat',
   'C:\\Program Files\\Tencent\\微信web开发者工具\\cli.bat',
+  'D:\\Program Files (x86)\\Tencent\\微信web开发者工具\\cli.bat',
+  'D:\\微信web开发者工具\\cli.bat',
 ];
 let CLI_PATH = '';
 const fs = require('fs');

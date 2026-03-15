@@ -4,6 +4,7 @@
 > - Web：`docs/blueprint-prompt-web.md`
 > - 微信小程序：`docs/blueprint-prompt-miniprogram.md`（含7条铁律）
 > - Android：`docs/blueprint-prompt-android.md`
+> - iOS：`docs/blueprint-prompt-ios.md`（SwiftUI + XCUITest）
 > - Windows桌面：`docs/blueprint-prompt-desktop.md`
 
 ---

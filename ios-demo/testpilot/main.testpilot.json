@@ -1,0 +1,113 @@
+{
+  "app_name": "TestPilot Demo (iOS)",
+  "description": "iOS 原生 SwiftUI 待办应用的自动化测试蓝本，覆盖登录（正常/错误）、待办增删改查、退出登录等核心功能。Bundle ID: com.testpilot.demo，测试账号 admin/123456。",
+  "base_url": "",
+  "version": "1.0",
+  "platform": "ios",
+  "bundle_id": "com.testpilot.demo",
+  "udid": "00008020-000339A42ED8003A",
+  "pages": [
+    {
+      "url": "",
+      "title": "登录 & 首页",
+      "description": "应用主流程：登录验证 → 待办管理 → 退出",
+      "elements": {
+        "标题": "accessibility_id:lbl_title",
+        "用户名输入框": "accessibility_id:tf_username",
+        "密码输入框": "accessibility_id:tf_password",
+        "登录按钮": "accessibility_id:btn_login",
+        "错误提示": "accessibility_id:lbl_error",
+        "欢迎语": "accessibility_id:lbl_welcome",
+        "进度计数": "accessibility_id:lbl_progress",
+        "新增按钮": "accessibility_id:btn_add",
+        "退出按钮": "accessibility_id:btn_logout",
+        "待办列表": "accessibility_id:list_todos",
+        "待办文本0": "accessibility_id:todo_text_0",
+        "待办文本1": "accessibility_id:todo_text_1",
+        "勾选按钮0": "accessibility_id:todo_toggle_0",
+        "新增输入框": "accessibility_id:tf_new_item",
+        "保存按钮": "accessibility_id:btn_save",
+        "取消按钮": "accessibility_id:btn_cancel"
+      },
+      "scenarios": [
+        {
+          "name": "错误密码显示错误提示",
+          "steps": [
+            {"action": "navigate", "value": "com.testpilot.demo", "description": "重启应用到初始状态"},
+            {"action": "wait", "value": "3000", "description": "等待应用启动完成"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_title", "expected": "TestPilot Demo", "description": "验证登录页标题"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "wronguser", "description": "输入错误用户名"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "wrongpass", "description": "输入错误密码"},
+            {"action": "click", "target": "accessibility_id:btn_login", "description": "点击登录"},
+            {"action": "wait", "value": "500"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_error", "expected": "用户名或密码错误", "description": "【验证】显示错误提示"},
+            {"action": "screenshot", "value": "错误密码提示截图"}
+          ]
+        },
+        {
+          "name": "正常登录进入首页",
+          "steps": [
+            {"action": "navigate", "value": "com.testpilot.demo", "description": "重启应用"},
+            {"action": "wait", "value": "3000"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin", "description": "输入正确用户名"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "123456", "description": "输入正确密码"},
+            {"action": "click", "target": "accessibility_id:btn_login", "description": "点击登录"},
+            {"action": "wait", "value": "1000", "description": "等待页面跳转"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_welcome", "expected": "你好，admin", "description": "【验证】欢迎语包含用户名"},
+            {"action": "assert_text", "target": "accessibility_id:todo_text_0", "expected": "完成第一个iOS测试", "description": "【验证】默认待办第一条"},
+            {"action": "screenshot", "value": "登录成功首页截图"}
+          ]
+        },
+        {
+          "name": "添加新待办事项",
+          "steps": [
+            {"action": "navigate", "value": "com.testpilot.demo", "description": "重启应用"},
+            {"action": "wait", "value": "3000"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "123456"},
+            {"action": "click", "target": "accessibility_id:btn_login"},
+            {"action": "wait", "value": "1000"},
+            {"action": "click", "target": "accessibility_id:btn_add", "description": "点击新增按钮"},
+            {"action": "wait", "value": "800", "description": "等待 Sheet 弹出动画"},
+            {"action": "fill", "target": "accessibility_id:tf_new_item", "value": "学习XCUITest自动化", "description": "输入待办内容"},
+            {"action": "click", "target": "accessibility_id:btn_save", "description": "点击保存"},
+            {"action": "wait", "value": "800", "description": "等待 Sheet 收起动画"},
+            {"action": "assert_text", "target": "accessibility_id:todo_text_2", "expected": "学习XCUITest自动化", "description": "【验证】新增的第三条待办"},
+            {"action": "screenshot", "value": "新增待办截图"}
+          ]
+        },
+        {
+          "name": "标记待办完成",
+          "steps": [
+            {"action": "navigate", "value": "com.testpilot.demo", "description": "重启应用"},
+            {"action": "wait", "value": "3000"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "123456"},
+            {"action": "click", "target": "accessibility_id:btn_login"},
+            {"action": "wait", "value": "1000"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_progress", "expected": "0/2 完成", "description": "【验证】初始进度 0/2"},
+            {"action": "click", "target": "accessibility_id:todo_toggle_0", "description": "点击第一个待办的勾选圆圈"},
+            {"action": "wait", "value": "500"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_progress", "expected": "1/2 完成", "description": "【验证】进度变为 1/2"},
+            {"action": "screenshot", "value": "标记完成截图"}
+          ]
+        },
+        {
+          "name": "退出登录返回登录页",
+          "steps": [
+            {"action": "navigate", "value": "com.testpilot.demo", "description": "重启应用"},
+            {"action": "wait", "value": "3000"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "123456"},
+            {"action": "click", "target": "accessibility_id:btn_login"},
+            {"action": "wait", "value": "1000"},
+            {"action": "click", "target": "accessibility_id:btn_logout", "description": "点击退出登录"},
+            {"action": "wait", "value": "500"},
+            {"action": "assert_text", "target": "accessibility_id:lbl_title", "expected": "TestPilot Demo", "description": "【验证】回到登录页"},
+            {"action": "screenshot", "value": "退出登录截图"}
+          ]
+        }
+      ]
+    }
+  ]
+}

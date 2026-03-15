@@ -1756,7 +1756,7 @@ description = "Python X Library"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "platform_system == \"Linux\""
+markers = "sys_platform == \"win32\" and platform_system == \"Linux\""
 files = [
     {file = "python-xlib-0.33.tar.gz", hash = "sha256:55af7906a2c75ce6cb280a584776080602444f75815a7aff4d287bb2d7018b32"},
     {file = "python_xlib-0.33-py2.py3-none-any.whl", hash = "sha256:c3534038d42e0df2f1392a1b30a15a4ff5fdc2b86cfa94f072bf11b10a164398"},
@@ -1803,6 +1803,7 @@ description = "A set of Python modules to automate the Microsoft Windows GUI"
 optional = false
 python-versions = "*"
 groups = ["main"]
+markers = "sys_platform == \"win32\""
 files = [
     {file = "pywinauto-0.6.9-py2.py3-none-any.whl", hash = "sha256:5924b3072864a1d730c5546bbeb17cf4063ba518b618dbc5e43c18276c7c9356"},
     {file = "pywinauto-0.6.9.tar.gz", hash = "sha256:94d710bfa796df245250f952ffa65d97233d9807bcd42e052b71b81af469b6de"},
@@ -2672,4 +2673,4 @@ dev = ["black (>=19.3b0) ; python_version >= \"3.6\"", "pytest (>=4.6.2)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "a58f043878c8422eb0d653735f075e85295a462605d46fa0fbd5527a64e85b53"
+content-hash = "a675911a0bac5bc5468b2c5f1fd437a656b22d8983a7d892e7f2aadb571d7b0a"

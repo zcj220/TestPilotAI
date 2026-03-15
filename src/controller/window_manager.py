@@ -6,15 +6,20 @@ Windows 窗口管理器（v7.0）
 """
 
 import ctypes
-import ctypes.wintypes
+import platform
 import struct
 from pathlib import Path
 from typing import Optional
 
 from loguru import logger
 
-user32 = ctypes.windll.user32
-gdi32 = ctypes.windll.gdi32
+if platform.system() == "Windows":
+    import ctypes.wintypes
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+else:
+    user32 = None
+    gdi32 = None
 
 SW_RESTORE = 9
 SRCCOPY = 0x00CC0020

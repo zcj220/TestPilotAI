@@ -100,7 +100,18 @@ class MobileBlueprintRunner:
         # 导致 XPath 看不到 @hint 等属性，所有元素查找都 404。
         # 必须用 launch()（内含 force-stop + 带 appPackage 的 Session 创建）
         # 来确保 Appium 正确绑定到被测 APP。
-        if blueprint.app_package:
+        if blueprint.platform == "ios" and blueprint.bundle_id:
+            # iOS：更新 config 并重建 Session（带 bundleId 的 XCUITest Session）
+            logger.info("iOS蓝本，重建 Appium Session | bundleId={}", blueprint.bundle_id)
+            self._ctrl._config.bundle_id = blueprint.bundle_id
+            if blueprint.udid:
+                self._ctrl._config.udid = blueprint.udid
+            try:
+                await self._ctrl.launch()
+                await asyncio.sleep(2)
+            except Exception as e:
+                logger.error("iOS 重建 Appium Session 失败: {}", e)
+        elif blueprint.app_package:
             logger.info("蓝本指定了 appPackage={}, 重建 Appium Session...", blueprint.app_package)
             # 临时禁用 auto_dismiss，防止 launch() 重启 dismisser
             old_auto_dismiss = self._ctrl._auto_dismiss
@@ -134,23 +145,24 @@ class MobileBlueprintRunner:
             self._ctrl._dialog_dismisser.stop()
             self._ctrl._dialog_dismisser = None
 
-        # 提前切换输入法（必须在键盘未弹出时执行，避免ime set产生残留字符）
-        try:
-            import subprocess as _sp
-            _loop = asyncio.get_event_loop()
-            _serial = self._ctrl._device.extra.get("serial", "") or self._ctrl._config.device_name
-            _adb_base = ["adb"]
-            if _serial:
-                _adb_base.extend(["-s", _serial])
+        # 提前切换输入法（Android only，iOS 不需要）
+        if blueprint.platform != "ios":
+            try:
+                import subprocess as _sp
+                _loop = asyncio.get_event_loop()
+                _serial = self._ctrl._device.extra.get("serial", "") or self._ctrl._config.device_name
+                _adb_base = ["adb"]
+                if _serial:
+                    _adb_base.extend(["-s", _serial])
 
-            async def _adb_run(args, timeout=5):
-                await _loop.run_in_executor(
-                    None, lambda: _sp.run(_adb_base + args, capture_output=True, timeout=timeout))
+                async def _adb_run(args, timeout=5):
+                    await _loop.run_in_executor(
+                        None, lambda: _sp.run(_adb_base + args, capture_output=True, timeout=timeout))
 
-            await self._ctrl._ensure_latin_ime(_adb_base, _loop, _adb_run)
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            logger.debug("提前切换输入法失败（非致命）: {}", str(e)[:60])
+                await self._ctrl._ensure_latin_ime(_adb_base, _loop, _adb_run)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                logger.debug("提前切换输入法失败（非致命）: {}", str(e)[:60])
 
         # 将取消信号注入AndroidController，使 _find_element_with_wait 能及时中断
         if self._test_controller:
@@ -414,10 +426,13 @@ class MobileBlueprintRunner:
                         await self._ctrl.switch_to_webview(timeout_s=15)
                     except Exception:
                         pass
+                elif blueprint.platform == "ios":
+                    # iOS：任何 navigate 动作都通过 terminateApp + activateApp 重启
+                    await self._ctrl.navigate(blueprint.bundle_id or url)
                 elif url and ("/" in url or url.startswith(".")):
                     await self._ctrl.navigate(url)
                 else:
-                    # 重启应用到初始 Activity
+                    # 重启应用到初始 Activity（Android）
                     activity = blueprint.app_activity or ".MainActivity"
                     pkg = blueprint.app_package
                     if pkg:

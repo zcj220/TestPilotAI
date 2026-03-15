@@ -15,7 +15,7 @@ description: 生成或修改 TestPilot AI 测试蓝本（testpilot.json）时必
   "app_name": "应用名称",
   "description": "测试目标的完整描述",
   "base_url": "应用URL（web必填，其他平台可空）",
-  "platform": "web | desktop | android | miniprogram",
+  "platform": "web | desktop | android | ios | miniprogram",
   "pages": [
     {
       "url": "页面路径",
@@ -38,6 +38,7 @@ description: 生成或修改 TestPilot AI 测试蓝本（testpilot.json）时必
 |------|-------------|
 | `desktop` | `window_title`（窗口标题），`app_exe`（启动命令，可选） |
 | `android` | `app_package`，`app_activity` |
+| `ios` | `bundle_id`（必填），`udid`（可选） |
 | `miniprogram` | `base_url` 格式为 `miniprogram://项目绝对路径` |
 | `web` | `base_url` 为完整URL |
 
@@ -105,6 +106,7 @@ description: 生成或修改 TestPilot AI 测试蓝本（testpilot.json）时必
 | **desktop** | `name:屏幕可见原文` | `name:Login`、`name:Add` |
 | **web** | CSS选择器 | `#loginBtn`、`.submit-btn` |
 | **android** | `accessibility_id:xxx` 或 `id:xxx` | `accessibility_id:btn_login` |
+| **ios** | `accessibility_id:xxx` | `accessibility_id:btn_login` |
 | **miniprogram** | CSS选择器 | `#price-1`、`.btn-primary` |
 
 > Web和小程序用CSS选择器，不受"屏幕原文"铁律限制。
@@ -280,5 +282,5 @@ description: 生成或修改 TestPilot AI 测试蓝本（testpilot.json）时必
 3. [ ] **expected是精确文本**：断言的expected是界面上实际显示的文字片段
 4. [ ] **页面切换后有wait**：每个导致页面/状态变化的操作后都加了wait
 5. [ ] **场景状态连贯**：场景间状态正确衔接，没有跳跃
-6. [ ] **平台字段完整**：desktop有window_title，android有app_package，web有base_url
+6. [ ] **平台字段完整**：desktop有window_title，android有app_package，ios有bundle_id，web有base_url
 7. [ ] **截图不过量**：每个场景最多1-2个screenshot，不是每步都截

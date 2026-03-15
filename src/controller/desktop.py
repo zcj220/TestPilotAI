@@ -16,7 +16,7 @@ Win32 API 负责截图和窗口管理。
 
 import asyncio
 import ctypes
-import ctypes.wintypes
+import platform
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -30,7 +30,11 @@ from src.controller.window_manager import (
     WindowManager, WindowInfo, DesktopConfig,
 )
 
-user32 = ctypes.windll.user32
+if platform.system() == "Windows":
+    import ctypes.wintypes
+    user32 = ctypes.windll.user32
+else:
+    user32 = None
 
 # SendInput 常量
 INPUT_MOUSE = 0

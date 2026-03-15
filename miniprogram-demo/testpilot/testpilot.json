@@ -1,7 +1,7 @@
 {
   "app_name": "FreshMart 生鲜超市",
   "description": "生鲜电商小程序完整盲测：12个场景覆盖会员价格、库存限制、搜索排序、售罄商品、购物车精度、优惠券满减、配送费、浮点精度、列表完整性、空购物车、搜索功能、分类筛选",
-  "base_url": "miniprogram://D:/projects/TestPilotAI/miniprogram-demo",
+  "base_url": "miniprogram:///Users/zcj/Desktop/Projects/TestPilotAi/miniprogram-demo",
   "version": "3.1",
   "platform": "miniprogram",
   "pages": [

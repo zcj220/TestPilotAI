@@ -378,10 +378,18 @@ def create_router(
             from src.controller.android import AndroidController, MobileConfig
             from src.testing.mobile_blueprint_runner import MobileBlueprintRunner
 
-            config = MobileConfig(
-                app_package=blueprint.app_package or "",
-                app_activity=blueprint.app_activity or "",
-            )
+            if blueprint.platform == "ios":
+                config = MobileConfig(
+                    platform_name="iOS",
+                    automation_name="XCUITest",
+                    bundle_id=blueprint.bundle_id or "",
+                    udid=blueprint.udid or "",
+                )
+            else:
+                config = MobileConfig(
+                    app_package=blueprint.app_package or "",
+                    app_activity=blueprint.app_activity or "",
+                )
             android_ctrl = AndroidController(config)
 
             # 握手：设备检测 → 自动启动 Appium → 创建 Session
@@ -584,11 +592,19 @@ def create_router(
             android_ctrl = _mobile_sessions[req.mobile_session_id]
         else:
             # ── 握手检测：在 launch 之前先确认环境就绪 ──
-            config = MobileConfig(
-                device_name="",  # 自动检测
-                app_package=blueprint.app_package or "",
-                app_activity=blueprint.app_activity or "",
-            )
+            if blueprint.platform == "ios":
+                config = MobileConfig(
+                    platform_name="iOS",
+                    automation_name="XCUITest",
+                    bundle_id=blueprint.bundle_id or "",
+                    udid=blueprint.udid or "",
+                )
+            else:
+                config = MobileConfig(
+                    device_name="",  # 自动检测
+                    app_package=blueprint.app_package or "",
+                    app_activity=blueprint.app_activity or "",
+                )
             android_ctrl = AndroidController(config)
 
             # 第1步：检测设备连接
@@ -769,7 +785,7 @@ def create_router(
                 None,
                 lambda: sp.run(
                     ["node", str(runner_script), str(tmp_file)],
-                    capture_output=True, timeout=120,
+                    capture_output=True, timeout=600,
                     encoding="utf-8", errors="replace",
                 )
             )
@@ -1641,12 +1657,22 @@ def create_router(
         """
         from src.controller.android import AndroidController, MobileConfig
 
-        config = MobileConfig(
-            device_name=req.get("device_name", ""),
-            app_package=req.get("app_package", ""),
-            app_activity=req.get("app_activity", ""),
-            app_path=req.get("app_path", ""),
-        )
+        platform = req.get("platform", "Android")
+        if platform.lower() == "ios":
+            config = MobileConfig(
+                platform_name="iOS",
+                automation_name="XCUITest",
+                bundle_id=req.get("bundle_id", ""),
+                udid=req.get("udid", ""),
+                device_name=req.get("device_name", ""),
+            )
+        else:
+            config = MobileConfig(
+                device_name=req.get("device_name", ""),
+                app_package=req.get("app_package", ""),
+                app_activity=req.get("app_activity", ""),
+                app_path=req.get("app_path", ""),
+            )
 
         controller = AndroidController(config)
         try:
