@@ -325,6 +325,7 @@ export class EngineClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(600_000),
     });
     if (!resp.ok) {
       const text = await resp.text();

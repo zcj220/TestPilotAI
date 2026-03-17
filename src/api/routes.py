@@ -792,10 +792,12 @@ def create_router(
                 )
             )
 
-            # 实时读stderr推送步骤进度（线程读取 + 协程推送）
+            # 同时读stdout和stderr（避免管道缓冲区满导致死锁）
             import threading
             _stderr_buf = []
+            _stdout_chunks = []
             _stderr_done = threading.Event()
+            _stdout_done = threading.Event()
             loop = asyncio.get_event_loop()
 
             def _stream_stderr():
@@ -803,8 +805,12 @@ def create_router(
                     _stderr_buf.append(line.rstrip())
                 _stderr_done.set()
 
-            stderr_thread = threading.Thread(target=_stream_stderr, daemon=True)
-            stderr_thread.start()
+            def _stream_stdout():
+                _stdout_chunks.append(proc.stdout.read())
+                _stdout_done.set()
+
+            threading.Thread(target=_stream_stderr, daemon=True).start()
+            threading.Thread(target=_stream_stdout, daemon=True).start()
 
             _last_pushed = 0
             while not _stderr_done.is_set() or _last_pushed < len(_stderr_buf):
@@ -819,9 +825,10 @@ def create_router(
                         parts = line[len("[STEP]"):].strip()
                         await ws_manager.send_log(parts)
 
-            # 等Node进程结束，读取stdout
-            stdout_data = await loop.run_in_executor(None, proc.stdout.read)
+            # 等stdout线程和进程结束
+            _stdout_done.wait(timeout=30)
             await loop.run_in_executor(None, proc.wait)
+            stdout_data = "".join(_stdout_chunks)
 
             # 清理临时文件
             try:
