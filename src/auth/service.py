@@ -25,6 +25,11 @@ SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "testpilot-dev-secret-change-in-pr
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))  # 默认24小时
 
+# 登录失败锁定配置（内存级，重启后重置；生产环境应换 Redis）
+_MAX_FAILURES = 5          # 最多允许失败次数
+_LOCK_SECONDS = 900        # 锁定时长（秒）：15分钟
+_login_failures: dict[str, list[datetime]] = {}  # {key: [失败时间戳...]}
+
 
 def hash_password(password: str) -> str:
     """生成密码哈希。"""
@@ -90,9 +95,47 @@ def register_user(db: Session, email: str, username: str, password: str) -> User
     return user
 
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    """验证用户凭据，成功返回 User，失败返回 None。"""
-    user = db.query(User).filter(User.email == email).first()
+# ── 登录失败锁定 ──
+
+def _lock_key(identifier: str) -> str:
+    return identifier.lower().strip()
+
+def is_account_locked(identifier: str) -> tuple[bool, int]:
+    """检查账号是否被锁定。返回 (是否锁定, 剩余秒数)。"""
+    key = _lock_key(identifier)
+    failures = _login_failures.get(key, [])
+    if len(failures) < _MAX_FAILURES:
+        return False, 0
+    latest = failures[-1]
+    elapsed = (datetime.now(timezone.utc) - latest).total_seconds()
+    if elapsed < _LOCK_SECONDS:
+        return True, int(_LOCK_SECONDS - elapsed)
+    # 锁定已过期，清除记录
+    _login_failures.pop(key, None)
+    return False, 0
+
+def record_login_failure(identifier: str) -> int:
+    """记录一次登录失败，返回当前失败次数。"""
+    key = _lock_key(identifier)
+    now = datetime.now(timezone.utc)
+    # 只保留最近窗口内的失败（避免无限积累）
+    window_start = now - timedelta(seconds=_LOCK_SECONDS)
+    recent = [t for t in _login_failures.get(key, []) if t > window_start]
+    recent.append(now)
+    _login_failures[key] = recent
+    return len(recent)
+
+def clear_login_failures(identifier: str) -> None:
+    """登录成功后清除失败记录。"""
+    _login_failures.pop(_lock_key(identifier), None)
+
+
+def authenticate_user(db: Session, email_or_username: str, password: str) -> Optional[User]:
+    """验证用户凭据，支持邮箱或用户名登录，成功返回 User，失败返回 None。"""
+    # 优先按邮箱查，其次按用户名查
+    user = db.query(User).filter(User.email == email_or_username).first()
+    if not user:
+        user = db.query(User).filter(User.username == email_or_username).first()
     if not user or not user.is_active:
         return None
     if not verify_password(password, user.hashed_password):

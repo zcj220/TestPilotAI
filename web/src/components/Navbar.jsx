@@ -13,13 +13,16 @@ export default function Navbar() {
         <div className="flex items-center h-12 gap-4">
           <Link to="/" className="flex items-center gap-2 text-[#24292f] no-underline hover:no-underline shrink-0">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="1.5"/><path d="M8 12l2.5 2.5L16 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            <span className="font-semibold text-base">TestPilot</span>
+            <span className="font-semibold text-base">
+              {locale === 'zh' ? '测试领航员 AI' : 'TestPilot AI'}
+            </span>
           </Link>
 
           <div className="hidden md:flex items-center gap-4 text-sm">
             <Link to="/explore" className="text-[#24292f] hover:text-black no-underline hover:no-underline">{t('nav.explore')}</Link>
             <Link to="/leaderboard" className="text-[#24292f] hover:text-black no-underline hover:no-underline">{t('nav.leaderboard')}</Link>
             <Link to="/pricing" className="text-[#24292f] hover:text-black no-underline hover:no-underline">{t('nav.pricing')}</Link>
+            <Link to="/download" className="text-[#24292f] hover:text-black no-underline hover:no-underline">{t('nav.download')}</Link>
           </div>
 
           <div className="flex-1" />

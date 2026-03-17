@@ -5,6 +5,8 @@ import { useLocale } from '../context/LocaleContext';
 import ExperienceCard from '../components/ExperienceCard';
 
 const STATS_INITIAL = { total_experiences: 0, total_contributors: 0, total_adoptions: 0 };
+const PLUGIN_VERSION = '1.0.0';
+const DESKTOP_VERSION = '1.0.0';
 
 export default function HomePage() {
   const { t } = useLocale();
@@ -22,7 +24,7 @@ export default function HomePage() {
         <div className="max-w-[1280px] mx-auto px-4 lg:px-8 py-12 lg:py-16 text-center">
           <h1 className="text-2xl lg:text-4xl font-bold tracking-tight text-[#24292f]">{t('home.title')}</h1>
           <p className="mt-3 text-sm text-gray-500 max-w-2xl mx-auto">{t('home.subtitle')}</p>
-          <div className="mt-6 flex gap-3 justify-center">
+          <div className="mt-6 flex gap-3 justify-center flex-wrap">
             <Link to="/explore" className="btn-primary no-underline hover:no-underline">{t('home.browse')}</Link>
             <Link to="/login?tab=register" className="btn-secondary no-underline hover:no-underline">{t('home.join')}</Link>
           </div>

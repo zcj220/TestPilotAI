@@ -30,7 +30,7 @@ export const api = {
 };
 
 export const auth = {
-  login: (email, password) => api.post('/auth/login', { email, password }),
+  login: (emailOrUsername, password) => api.post('/auth/login', { email_or_username: emailOrUsername, password }),
   register: (email, username, password) => api.post('/auth/register', { email, username, password }),
 };
 

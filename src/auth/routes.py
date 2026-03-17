@@ -22,7 +22,7 @@ class RegisterRequest(BaseModel):
     password: str = Field(..., min_length=6, max_length=100)
 
 class LoginRequest(BaseModel):
-    email: str = Field(...)
+    email_or_username: str = Field(..., description="邮箱或用户名")
     password: str = Field(...)
 
 class TokenResponse(BaseModel):
@@ -78,9 +78,30 @@ async def register(req: RegisterRequest, db: Session = Depends(get_db)) -> Token
 
 @router.post("/auth/login", tags=["认证"])
 async def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    user = service.authenticate_user(db, req.email, req.password)
+    # 锁定检查
+    locked, remaining = service.is_account_locked(req.email_or_username)
+    if locked:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"账号已暂时锁定，请 {remaining // 60} 分 {remaining % 60} 秒后再试"
+        )
+
+    user = service.authenticate_user(db, req.email_or_username, req.password)
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="邮箱或密码错误")
+        failures = service.record_login_failure(req.email_or_username)
+        remain_chances = max(0, service._MAX_FAILURES - failures)
+        if remain_chances > 0:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"账号或密码错误，还可以尝试 {remain_chances} 次"
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"连续失败次数过多，账号已锁定 {service._LOCK_SECONDS // 60} 分钟"
+            )
+
+    service.clear_login_failures(req.email_or_username)
     token = service.create_access_token(user.id, user.username, user.role)
     return TokenResponse(access_token=token, user=_user_dict(user))
 
