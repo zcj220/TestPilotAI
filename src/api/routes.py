@@ -781,14 +781,47 @@ def create_router(
             logger.info("启动Node.js执行器: {}", runner_script.name)
             start = time.time()
 
+            # 用Popen实时读取stderr进度并推送WebSocket
+            await ws_manager.send_log(f"小程序蓝本测试开始: {blueprint.app_name} | {len(all_steps)}步")
             proc = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: sp.run(
+                lambda: sp.Popen(
                     ["node", str(runner_script), str(tmp_file)],
-                    capture_output=True, timeout=600,
+                    stdout=sp.PIPE, stderr=sp.PIPE,
                     encoding="utf-8", errors="replace",
                 )
             )
+
+            # 实时读stderr推送步骤进度（线程读取 + 协程推送）
+            import threading
+            _stderr_buf = []
+            _stderr_done = threading.Event()
+            loop = asyncio.get_event_loop()
+
+            def _stream_stderr():
+                for line in proc.stderr:
+                    _stderr_buf.append(line.rstrip())
+                _stderr_done.set()
+
+            stderr_thread = threading.Thread(target=_stream_stderr, daemon=True)
+            stderr_thread.start()
+
+            _last_pushed = 0
+            while not _stderr_done.is_set() or _last_pushed < len(_stderr_buf):
+                await asyncio.sleep(0.3)
+                while _last_pushed < len(_stderr_buf):
+                    line = _stderr_buf[_last_pushed]
+                    _last_pushed += 1
+                    if line.startswith("[PROGRESS]"):
+                        parts = line[len("[PROGRESS]"):].strip()
+                        await ws_manager.send_step_start(0, f"🔄 {parts}")
+                    elif line.startswith("[STEP]"):
+                        parts = line[len("[STEP]"):].strip()
+                        await ws_manager.send_log(parts)
+
+            # 等Node进程结束，读取stdout
+            stdout_data = await loop.run_in_executor(None, proc.stdout.read)
+            await loop.run_in_executor(None, proc.wait)
 
             # 清理临时文件
             try:
@@ -800,8 +833,10 @@ def create_router(
             logger.info("Node.js执行器完成 | 耗时:{:.1f}秒 | rc:{}", duration, proc.returncode)
 
             # 解析结果
-            stdout = proc.stdout or ""
-            stderr = proc.stderr or ""
+            stdout = stdout_data or ""
+            stderr = "\n".join(_stderr_buf)
+
+            await ws_manager.send_log(f"小程序蓝本测试完成 | 耗时:{duration:.1f}秒")
 
             # 从stdout找JSON（最后一行）
             result_data = None
@@ -816,8 +851,8 @@ def create_router(
 
             if not result_data:
                 logger.error("执行器无JSON输出:\nstdout:{}\nstderr:{}", stdout[-300:], stderr[-300:])
-                # crash时返回友好错误报告，不抛500
                 hint = ""
+                rc = proc.returncode
                 if rc and rc != 0:
                     hint = f"执行器异常退出(rc={rc})。可能原因：小程序代码修改后未重新编译，或模拟器状态异常。请在微信开发者工具中点击'编译'后重试。"
                 else:
@@ -878,6 +913,7 @@ def create_router(
             )
 
             pass_rate = passed / total * 100 if total > 0 else 0
+            await ws_manager.send_test_done(pass_rate, len(bugs))
 
             from src.api.models import StepDetail, BugDetail
             return TestReportResponse(

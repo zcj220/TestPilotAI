@@ -1155,7 +1155,8 @@ ${commonRules}`;
       </div>
     </div>
     <div style="display:flex;gap:4px;margin-top:6px">
-      <button id="btnLaunchEngine" style="background:#22c55e;flex:1">� 一键连接</button>
+      <button id="btnLaunchEngine" style="background:#22c55e;flex:1">🚀 一键启动引擎</button>
+      <button id="btnStopEngine" class="hidden" style="background:#ef4444;flex:1">⏹ 断开引擎</button>
     </div>
   </div>
 
@@ -1528,67 +1529,54 @@ ${commonRules}`;
 
     // 检查引擎
     const btnLaunchEngine = document.getElementById("btnLaunchEngine");
+    const btnStopEngine = document.getElementById("btnStopEngine");
     let isStarting = false;  // 是否处于「正在启动中」状态
     let engineFound = false;   // 引擎是否已连接成功（防止重复检查）
-    let engineConnected = false;  // 当前是否已连接
     let launchTimeoutId = null;  // 防止多次点击导致旧 timer 覆盖按钮状态
     document.getElementById("btnCheckEngine").addEventListener("click", () => {
       vscode.postMessage({ command: "checkEngine" });
     });
 
-    // 单按钮：连接时点击=断开，断开时点击=连接
+    // 一键启动引擎
     btnLaunchEngine.addEventListener("click", () => {
-      if (engineConnected) {
-        // 已连接 → 断开
-        isStarting = false;
-        wasConnected = false;
-        engineFound = false;
-        engineConnected = false;
-        vscode.postMessage({ command: "stopEngine" });
-        btnLaunchEngine.textContent = "⏳ 断开中...";
-        btnLaunchEngine.style.background = "#6b7280";
-        btnLaunchEngine.disabled = true;
-        addLog("正在断开引擎...", "info");
-        setTimeout(() => {
-          btnLaunchEngine.textContent = "🔗 一键连接";
-          btnLaunchEngine.style.background = "#22c55e";
-          btnLaunchEngine.disabled = false;
-        }, 2000);
-      } else {
-        // 未连接 → 启动
-        isStarting = true;
-        engineFound = false;
-        vscode.postMessage({ command: "launchEngine" });
-        btnLaunchEngine.textContent = "⏳ 启动中...";
-        btnLaunchEngine.style.background = "#6b7280";
-        btnLaunchEngine.disabled = true;
-        addLog("正在启动引擎，请稍候...", "info");
+      isStarting = true;
+      engineFound = false;
+      vscode.postMessage({ command: "launchEngine" });
+      btnLaunchEngine.classList.add("hidden");
+      btnStopEngine.classList.remove("hidden");
+      btnStopEngine.textContent = "⏹ 断开引擎";
+      btnStopEngine.disabled = false;
+      addLog("正在启动引擎，请稍候（最长约25秒）...", "info");
 
-        // 清除旧 timer，防止多次点击互相干扰
-        if (launchTimeoutId) { clearTimeout(launchTimeoutId); launchTimeoutId = null; }
+      // 清除旧 timer，防止多次点击互相干扰
+      if (launchTimeoutId) { clearTimeout(launchTimeoutId); launchTimeoutId = null; }
 
-        // 每 3s 检查一次，最多 8 次（24s）
-        let checkCount = 0;
-        function doCheck() {
-          if (engineFound || !isStarting) { return; }
-          checkCount++;
+      // 分别在 8s / 16s / 25s 重试检查连接，连接成功后停止后续检查
+      const delays = [8000, 16000, 25000];
+      function scheduleCheck(idx) {
+        if (idx >= delays.length || engineFound) { return; }
+        launchTimeoutId = setTimeout(() => {
+          if (engineFound) { return; }
           vscode.postMessage({ command: "checkEngine" });
-          if (checkCount < 8) {
-            launchTimeoutId = setTimeout(doCheck, 3000);
-          } else {
-            launchTimeoutId = setTimeout(() => {
-              if (!engineFound) {
-                isStarting = false;
-                btnLaunchEngine.textContent = "🔗 一键连接";
-                btnLaunchEngine.style.background = "#22c55e";
-                btnLaunchEngine.disabled = false;
-                addLog("引擎启动超时，请检查环境后重试", "error");
-              }
-            }, 1000);
-          }
-        }
-        launchTimeoutId = setTimeout(doCheck, 3000);
+          scheduleCheck(idx + 1);
+        }, delays[idx] - (idx > 0 ? delays[idx - 1] : 0));
       }
+      scheduleCheck(0);
+    });
+
+    // 断开引擎
+    btnStopEngine.addEventListener("click", () => {
+      isStarting = false;
+      wasConnected = false;
+      engineFound = false;
+      vscode.postMessage({ command: "stopEngine" });
+      btnStopEngine.textContent = "⏳ 断开中...";
+      btnStopEngine.disabled = true;
+      addLog("正在断开引擎...", "info");
+      setTimeout(() => {
+        btnLaunchEngine.classList.remove("hidden");
+        btnStopEngine.classList.add("hidden");
+      }, 2000);
     });
 
     let pendingBlueprintRun = null;
@@ -1935,28 +1923,26 @@ ${commonRules}`;
       if (data.connected) {
         isStarting = false;
         engineFound = true;
-        engineConnected = true;
         statusDot.className = "status-dot connected";
         engineStatus.textContent = "v" + (data.version || "?");
-        btnLaunchEngine.textContent = "⏹ 断开";
-        btnLaunchEngine.style.background = "#ef4444";
-        btnLaunchEngine.disabled = false;
+        btnLaunchEngine.classList.add("hidden");
+        btnStopEngine.classList.remove("hidden");
+        btnStopEngine.textContent = "⏹ 断开引擎";
+        btnStopEngine.disabled = false;
         if (!wasConnected) {
           wasConnected = true;
           addLog("引擎连接成功 | v" + data.version, "success");
           vscode.postMessage({ command: "scanBlueprints" });
         }
       } else {
-        engineConnected = false;
         statusDot.className = "status-dot disconnected";
         engineStatus.textContent = isStarting ? "启动中..." : "未连接";
-        btnLaunchEngine.textContent = isStarting ? "⏳ 启动中..." : "🔗 一键连接";
-        btnLaunchEngine.style.background = isStarting ? "#6b7280" : "#22c55e";
-        btnLaunchEngine.disabled = isStarting;
         if (!isStarting) {
+          btnLaunchEngine.classList.remove("hidden");
+          btnStopEngine.classList.add("hidden");
           wasConnected = false;
         }
-        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接，点击「一键连接」按钮启动", isStarting ? "warn" : "error");
+        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接，点击「🚀 一键启动引擎」按钮启动", isStarting ? "warn" : "error");
       }
     }
 
