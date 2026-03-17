@@ -347,7 +347,21 @@ async function main() {
   for (let i = 0; i < steps.length; i++) {
     const stepDesc = steps[i].description || steps[i].action;
     process.stderr.write(`[PROGRESS] ${i+1}/${steps.length} ${stepDesc}\n`);
-    const result = await executeStep(steps[i], i + 1);
+
+    // 每步加15秒整体超时，超时后重试1次（解决automator偶发卡住）
+    let result;
+    try {
+      result = await withTimeout(executeStep(steps[i], i + 1), 15000, `step${i+1}`);
+    } catch (e) {
+      process.stderr.write(`[WARN] 步骤${i+1}超时(15s)，重试一次...\n`);
+      await sleep(1000);
+      try {
+        result = await withTimeout(executeStep(steps[i], i + 1), 20000, `step${i+1}_retry`);
+      } catch (e2) {
+        result = { step: i + 1, action: steps[i].action, status: 'failed', duration: 0, error: `超时: ${e2.message}`, description: stepDesc };
+      }
+    }
+
     results.push(result);
     const icon = result.status === 'passed' ? '✅' : '❌';
     process.stderr.write(`[STEP] ${icon} #${i+1} ${result.status} ${stepDesc} (${result.duration.toFixed(1)}s)\n`);
