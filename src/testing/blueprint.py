@@ -161,7 +161,7 @@ class BlueprintParser:
                             f"页面{i+1}场景'{scenario.name}'步骤{k+1}："
                             f"未知操作类型'{step.action}'"
                         )
-                    needs_target = step.action in ("click", "fill", "select", "assert_text", "assert_visible")
+                    needs_target = step.action in ("click", "fill", "select", "assert_visible")
                     # wait 有两种用法: wait+target=等元素, wait+value=延时
                     if step.action == "wait" and not step.target and not step.value:
                         needs_target = True
