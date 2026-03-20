@@ -638,55 +638,63 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     if (platform === "miniprogram") {
       prompt = `请帮我为当前【微信小程序】项目生成测试蓝本文件 testpilot/testpilot.json。
 
-⚠️ 小程序蓝本与Web蓝本完全不同！必须严格遵守以下铁律：
+⚠️ 小程序蓝本与Web蓝本完全不同！WXML不是HTML！必须严格遵守以下规则：
 
-【铁律1】evaluate 的 value 必须是可被 new Function(code) 包裹的纯JS代码字符串
-  ✅ "value": "(() => { const app = getApp(); return app.globalData.cart.length; })()"
-  ❌ "value": "() => getApp().globalData.cart.length"（箭头函数不能被new Function直接执行）
+══════ 小程序选择器铁律（最最重要！写错=全部失败） ══════
 
-【铁律2】小程序没有 document 对象！evaluate 里只能用：
-  ✅ getApp() / getCurrentPages() / wx.xxx / Page方法
-  ❌ document.querySelector / window.location（这些在小程序里不存在）
+以下Web选择器在小程序中【全部无效】：
+  ❌ #login-btn（WXML不支持id选择器！）
+  ❌ button:contains('登录')（不支持:contains伪类！）
+  ❌ input[type="text"]（WXML的input没有type attribute！）
+  ❌ div > span（WXML里是view/text，不是div/span！）
+  ❌ picker:first / picker:nth(1)（不支持这类伪类！）
 
-【铁律3】每个场景的第一步必须是 reset_state（清空购物车等全局状态+reLaunch回首页）
-  {"action": "reset_state", "description": "重置状态回首页"}
+正确的小程序选择器写法（按优先级）：
+  1. 用placeholder区分input：input[placeholder*='用户名']、input[placeholder*='密码']
+  2. 用class区分按钮：button.btn-primary（配合description说明按钮文字）
+  3. 用class组合定位：.card .form-input（结合父容器缩小范围）
+  4. 用data-属性：view[data-tab='profit']、button[data-tab='balance']
+  5. 用bindtap确认按钮：找到wxml中bindtap="handleLogin"的button，用它的class
 
-【铁律4】跨页面导航必须用 navigate_to，不能用 navigate
-  {"action": "navigate_to", "value": "/pages/cart/cart", "description": "跳转到购物车页"}
+══════ 小程序特有组件操作规则 ══════
 
-【铁律5】call_method 的参数必须用 JSON 格式
-  {"action": "call_method", "target": "onCategoryTap", "value": "{\\"detail\\": {\\"dataset\\": {\\"cat\\": \\"水果\\"}}}"}
+【picker组件】不能用click！必须用select动作：
+  ✅ {"action": "select", "target": "picker", "value": "收入", "description": "选择交易类型为收入"}
+  ❌ {"action": "click", "target": "picker:first"}（picker是原生组件不能click）
 
-【铁律6】assert_compare 的 value 格式为 "操作符 期望值"
-  {"action": "assert_compare", "target": "#cartCount", "value": "> 0"}
-  {"action": "assert_compare", "target": "#total", "value": "== 100"}
+【wx.showModal弹窗】蓝本无法操作！（原生弹窗不在DOM中）
+  - 删除确认、退出确认等用showModal的功能，蓝本中跳过这些步骤
+  - 或建议开发者改用页面内自定义弹窗组件
 
-【铁律7】page_query 读取DOM文本/数量时用 value 指定返回类型
-  {"action": "page_query", "target": ".product", "value": "count"}  → 返回元素数量
-  {"action": "page_query", "target": "#price", "value": "text"}    → 返回文本内容
+【wx.showToast提示】短暂显示后自动消失
+  - 不要对toast内容做assert_text，用wait后断言页面数据变化
 
-支持的 action（15种）：
-reset_state / navigate_to / click / fill / call_method / evaluate / read_text / assert_text / assert_compare / page_query / tap_multiple / screenshot / wait / select / scroll
+【TabBar页面切换】不能click TabBar！用navigate直接跳转：
+  ✅ {"action": "navigate", "value": "pages/reports/reports", "description": "跳转到报表页"}
+  ❌ {"action": "click", "target": "text:contains('报表')"}
 
-蓝本格式：
+══════ 小程序蓝本格式 ══════
+
 {
   "app_name": "小程序名称",
-  "description": "功能说明",
-  "base_url": "miniprogram://项目绝对路径",
-  "version": "1.0",
+  "description": "功能说明（50-200字）",
+  "base_url": "miniprogram://D:/projects/项目绝对路径",
   "platform": "miniprogram",
   "pages": [
     {
-      "url": "/pages/index/index",
-      "title": "首页",
-      "elements": { "元素描述": "CSS选择器（来自wxml）" },
+      "url": "pages/login/login",
+      "name": "登录页",
       "scenarios": [
         {
-          "name": "场景名",
+          "name": "正确登录",
           "steps": [
-            {"action": "reset_state", "description": "重置状态回首页"},
-            {"action": "read_text", "target": "#price", "description": "读取价格"},
-            {"action": "evaluate", "value": "(() => { return getApp().globalData.isVip; })()", "expected": "true", "description": "验证会员状态"}
+            {"action": "navigate", "value": "pages/login/login", "description": "打开登录页"},
+            {"action": "fill", "target": "input[placeholder*='用户名']", "value": "admin", "description": "在用户名输入框输入admin"},
+            {"action": "fill", "target": "input[placeholder*='密码']", "value": "admin123", "description": "在密码输入框输入admin123"},
+            {"action": "click", "target": "button.btn-primary", "description": "点击登录按钮，按钮文字为'登录'，bindtap='handleLogin'"},
+            {"action": "wait", "value": "2000", "description": "等待登录处理和页面跳转"},
+            {"action": "assert_text", "expected": "记账台", "description": "验证成功跳转到记账台页面"},
+            {"action": "screenshot", "description": "登录成功后的页面"}
           ]
         }
       ]
@@ -694,7 +702,24 @@ reset_state / navigate_to / click / fill / call_method / evaluate / read_text / 
   ]
 }
 
-请先阅读项目中所有 .wxml 和 .js 文件，提取选择器和业务逻辑，再生成蓝本。
+══════ 小程序蓝本编写流程 ══════
+
+1. 先读所有 .wxml 文件，列出每个页面的所有可操作元素（input/button/picker/switch等）
+2. 记录每个元素的 class、placeholder、bindtap/bindchange 等属性
+3. 再读对应 .js 文件，理解业务逻辑（登录验证规则、表单校验、页面跳转等）
+4. 读 app.json 确认页面路由和tabBar配置
+5. 用上面提取的真实选择器写蓝本，禁止凭想象编造选择器
+
+══════ 小程序蓝本自检 ══════
+
+- [ ] 所有target都不含 #id（WXML不支持）
+- [ ] 所有target都不含 :contains()（不支持）
+- [ ] input用placeholder属性区分，不用id
+- [ ] picker用select动作，不用click
+- [ ] base_url是 miniprogram://绝对路径
+- [ ] TabBar跳转用navigate，不用click
+- [ ] 没有操作wx.showModal/wx.showToast等原生弹窗
+- [ ] 每个选择器都能在wxml中找到对应元素
 
 ${commonRules}`;
     } else if (platform === "android") {

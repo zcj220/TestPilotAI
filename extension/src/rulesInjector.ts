@@ -257,6 +257,79 @@ function getTemplateContent(): string {
 | 两个项目共用一个蓝本 | 选择器/路由不同导致全部失败 | 每个项目独立蓝本 |
 | 蓝本里写死了注册的用户名 | 第二次测试时"用户已存在" | 用带时间戳的用户名或每次清数据 |
 | 没有断言就结束场景 | 什么Bug都检测不到 | 每个操作后跟assert验证 |
+| 小程序用 \`#id\` 选择器 | WXML不支持id选择器，全部找不到 | 用 \`input.form-input[placeholder*='用户名']\` |
+| 小程序用 \`button:contains('登录')\` | 小程序不支持:contains伪类 | 用 \`button.btn-primary\` 或带bindtap的class |
+| 小程序picker用click操作 | picker是原生组件，不能直接click | 用 \`select\` 动作操作picker |
+| 小程序wx.showModal用click确认 | Modal是原生弹窗，不在DOM中 | 蓝本无法操作原生弹窗，需改用页面内确认 |
+
+---
+
+## 七、微信小程序蓝本专属规则（platform=miniprogram时必读）
+
+### 选择器铁律（最重要！与Web完全不同！）
+
+小程序WXML**不是HTML**，以下Web选择器在小程序中全部无效：
+- ❌ \`#login-btn\`（WXML不支持id选择器）
+- ❌ \`button:contains('登录')\`（不支持:contains伪类）
+- ❌ \`input[type="text"]\`（WXML的input没有type attribute）
+- ❌ \`div > span\`（WXML里是view/text，不是div/span）
+
+**正确的小程序选择器写法**（按优先级排列）：
+1. **用placeholder区分input**：\`input[placeholder*='用户名']\`、\`input[placeholder*='密码']\`
+2. **用class区分按钮**：\`button.btn-primary\`（配合bindtap确认是哪个按钮）
+3. **用class组合定位**：\`.card .form-input\`（结合父容器缩小范围）
+4. **用data-属性**：\`view[data-tab='profit']\`（小程序常用data-xxx传参）
+5. **用文本内容辅助**：在description中描述元素文字，帮助引擎AI定位
+
+### 小程序特有组件的操作方式
+
+| 组件 | 错误写法 | 正确写法 |
+|------|---------|---------|
+| \`<picker>\` | click然后选选项 | \`{"action": "select", "target": "picker.type-picker", "value": "收入"}\` |
+| \`<switch>\` | click | \`{"action": "click", "target": "switch.my-switch"}\` |
+| \`wx.showModal\` | 无法操作（原生弹窗不在DOM中） | 蓝本里跳过modal确认步骤，或建议开发者改用页面内弹窗 |
+| \`wx.showToast\` | assert_text | 短暂显示后消失，用wait等待后再断言页面变化 |
+| TabBar | click底部tab | \`{"action": "navigate", "value": "/pages/reports/reports"}\` 直接导航 |
+
+### 小程序蓝本结构模板
+
+\`\`\`json
+{
+  "app_name": "小程序名称",
+  "description": "功能说明",
+  "base_url": "miniprogram://D:/projects/项目绝对路径",
+  "platform": "miniprogram",
+  "pages": [
+    {
+      "url": "pages/login/login",
+      "name": "登录页",
+      "scenarios": [
+        {
+          "name": "正确登录",
+          "steps": [
+            {"action": "navigate", "value": "pages/login/login", "description": "打开登录页"},
+            {"action": "fill", "target": "input[placeholder*='用户名']", "value": "admin", "description": "输入用户名"},
+            {"action": "fill", "target": "input[placeholder*='密码']", "value": "admin123", "description": "输入密码"},
+            {"action": "click", "target": "button.btn-primary", "description": "点击登录按钮，按钮文字为'登录'"},
+            {"action": "wait", "value": "2000", "description": "等待登录跳转"},
+            {"action": "assert_text", "expected": "记账台", "description": "验证跳转到记账台页面"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+### 小程序蓝本自检追加项
+
+- [ ] 所有选择器都不含 \`#id\`（WXML不支持）
+- [ ] 所有选择器都不含 \`:contains()\`（不支持）
+- [ ] input用 \`placeholder\` 属性区分，不用 \`id\` 或 \`name\`
+- [ ] picker用 \`select\` 动作，不用 \`click\`
+- [ ] \`base_url\` 是 \`miniprogram://绝对路径\`（不是相对路径）
+- [ ] TabBar页面跳转用 \`navigate\` 动作（不能click TabBar）
+- [ ] 没有操作 \`wx.showModal\` / \`wx.showToast\` 等原生弹窗
 `;
 }
 
