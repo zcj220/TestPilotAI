@@ -427,7 +427,7 @@ class AIHub:
             response = await loop.run_in_executor(
                 None, lambda: self._ai.analyze_screenshot(
                     str(screenshot_path), prompt,
-                    reasoning_effort="low", timeout=25,
+                    reasoning_effort="low", timeout=40,
                 )
             )
 
