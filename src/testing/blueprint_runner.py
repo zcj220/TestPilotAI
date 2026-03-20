@@ -171,6 +171,13 @@ class BlueprintRunner:
                 logger.info("── 场景: {} ──", scenario.name)
                 self._hub.on_scenario_start()
 
+                # 预扫描场景中所有assert_text的expected文本，提前注册到异常检测器的suppress列表
+                # 避免时序问题：click触发错误提示 → 异常检测器立刻扫描报Bug → assert_text还没执行
+                if self._anomaly_detector:
+                    for s in scenario.steps:
+                        if s.action == "assert_text" and s.expected:
+                            self._anomaly_detector.suppress_error_text(s.expected)
+
                 for step_def in scenario.steps:
                     step_num += 1
                     desc = step_def.description or step_def.action
