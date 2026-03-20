@@ -417,8 +417,12 @@ class BlueprintRunner:
                 await self._browser.select_option(target, resolved_value)
 
             elif step_def.action == "wait":
-                timeout = step_def.timeout_ms or 5000
-                await self._browser.wait_for_selector(target, timeout_ms=timeout)
+                if target:
+                    timeout = step_def.timeout_ms or 5000
+                    await self._browser.wait_for_selector(target, timeout_ms=timeout)
+                else:
+                    ms = int(resolved_value) if resolved_value and resolved_value.isdigit() else (step_def.timeout_ms or 1000)
+                    await asyncio.sleep(ms / 1000)
 
             elif step_def.action == "screenshot":
                 pass  # 截图在下面统一做
@@ -427,8 +431,8 @@ class BlueprintRunner:
                 await self._browser.page.evaluate("window.scrollBy(0, 400)")
 
             elif step_def.action == "assert_text":
-                text = await self._browser.get_text(target)
-                expected_value = resolved_value
+                text = await self._browser.get_text(target or "body")
+                expected_value = step_def.expected or resolved_value
 
                 if is_formula(expected_value):
                     # v1.4 公式验证：零AI成本，精确数值校验
