@@ -98,6 +98,7 @@ class HubDecision:
     fault: FaultType = FaultType.UNKNOWN  # 失败归因
     popup_closed: bool = False           # 是否关闭了弹窗
     ai_cost_ms: float = 0               # 本次决策的AI调用耗时
+    recover_selector: Optional[str] = None  # L2恢复动作：先点击这个选择器再重试
 
 
 # ═══════════════════════════════════════════════════════════
@@ -397,8 +398,13 @@ class AIHub:
                 "- test = 测试脚本的问题：选择器找不到元素（但页面看起来正常）、\n"
                 "         页面还在加载、弹窗遮挡、动画没播完、时序太快\n\n"
                 "返回JSON：\n"
-                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"none"}\n'
-                "suggestion含义：retry=再试一次可能好/skip=跳过/none=不确定\n\n"
+                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"recover"或"none", "recover_selector": "可选，CSS选择器"}\n'
+                "suggestion含义：\n"
+                "  retry=再试一次可能好（如页面还在加载）\n"
+                "  skip=跳过这一步\n"
+                "  recover=页面状态不对，先点击recover_selector指定的元素恢复再重试\n"
+                "    例如：页面已登录但需要登录表单→recover_selector填退出按钮的CSS选择器\n"
+                "  none=不确定\n\n"
                 "只返回JSON。"
             )
 
@@ -434,7 +440,25 @@ class AIHub:
 
             logger.info("  🧠 AI中枢L2诊断: {} | 归因={} | 建议={}", diagnosis, fault.value, suggestion)
 
-            if suggestion == "retry":
+            if suggestion == "recover" and result.get("recover_selector"):
+                # L2恢复：先执行恢复动作再重试
+                recover_sel = result["recover_selector"]
+                logger.info("  🔧 AI中枢L2恢复: 先点击[{}]再重试", recover_sel)
+                if ctx.click_fn:
+                    try:
+                        # Web平台：click_fn接受归一化坐标，这里改用selector
+                        # 直接通过Runner的浏览器点击
+                        pass  # 恢复动作在Runner中执行
+                    except Exception as click_err:
+                        logger.warning("  L2恢复点击失败: {}", str(click_err)[:80])
+                return HubDecision(
+                    action=HubAction.RETRY,
+                    reason=f"L2恢复: {diagnosis}",
+                    fault=fault,
+                    ai_cost_ms=cost_ms,
+                    recover_selector=recover_sel,
+                )
+            elif suggestion == "retry":
                 return HubDecision(
                     action=HubAction.RETRY,
                     reason=f"L2诊断建议重试: {diagnosis}",

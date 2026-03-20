@@ -204,6 +204,14 @@ class BlueprintRunner:
                         decision = await self._hub.on_step_failed(ctx)
 
                         if decision.action == HubAction.RETRY:
+                            # L2恢复：如果AI中枢返回了恢复选择器，先执行恢复动作
+                            if decision.recover_selector:
+                                logger.info("  🔧 AI中枢L2恢复：先点击[{}]", decision.recover_selector)
+                                try:
+                                    await self._browser.click(decision.recover_selector)
+                                    await asyncio.sleep(1)  # 等待恢复动作生效
+                                except Exception as recover_err:
+                                    logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
                             logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
                             result, bug = await self._execute_step(
                                 step_num, step_def, page, blueprint
@@ -564,6 +572,19 @@ class BlueprintRunner:
         except (BrowserActionError, BrowserNavigationError) as e:
             elapsed = time.time() - start
             logger.info("  ⚠ 步骤{} error | {:.1f}秒 | {}", step_num, elapsed, str(e)[:80])
+            # 操作类步骤失败（选择器找不到/超时）生成Bug，让AI中枢有机会介入恢复
+            err_bug = None
+            if step_def.action in ("click", "fill", "select"):
+                err_bug = BugReport(
+                    severity=BugSeverity.MEDIUM,
+                    category="操作失败",
+                    title=f"步骤{step_num}操作失败: {step_def.action} {target or ''}",
+                    description=str(e),
+                    location=target or "",
+                    reproduction=desc,
+                    screenshot_path=None,
+                    step_number=step_num,
+                )
             return StepResult(
                 step=step_num,
                 action=action_type,
@@ -571,7 +592,7 @@ class BlueprintRunner:
                 status=StepStatus.ERROR,
                 duration_seconds=elapsed,
                 error_message=str(e),
-            ), None
+            ), err_bug
 
         except Exception as e:
             elapsed = time.time() - start
