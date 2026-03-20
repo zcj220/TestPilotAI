@@ -497,6 +497,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async _handleCopyBlueprintPrompt(platform: string): Promise<void> {
     const commonRules = `══════ 测试设计黄金规则（必须严格遵守） ══════
 
+【铁律0：每个项目必须有独立蓝本】
+- 蓝本文件必须放在当前项目根目录下，不同项目绝对不能共用蓝本
+- 不同平台（Web/小程序/Android/桌面）必须各自独立蓝本，platform字段不同
+- <select>下拉框必须用 select 动作，不能用 fill（否则引擎报错"Element is not an input"）
+
+【铁律00：场景自包含原则（极其重要）】
+- 每个 scenario 必须能独立运行，不依赖前一个场景的状态
+- 每个场景的第一步必须是 navigate 到起始页面
+- 引擎会在每个场景开始前自动清除 cookie/storage，确保干净状态
+- 禁止场景间传递状态（如场景1登录后场景2直接操作已登录页面）
+- 正确：场景2需要登录态？那场景2自己从navigate→登录→操作，不要依赖场景1的登录
+
 【核心哲学：绝对正向验证（最最重要！这是蓝本的灵魂）】
 - 蓝本 = 假设一切功能完全正确的测试路线图
 - 你不知道哪里有Bug，你认为所有功能都是对的，写出"正确时应该是什么样"的断言
