@@ -352,14 +352,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const step = bug.step_number ? ` (步骤#${bug.step_number})` : "";
         lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${cat ? cat + " " : ""}${bug.title}${step}`);
         if (bug.description) {
-          // 包含修复建议时多显示几行
           const desc = bug.description as string;
-          const firstLine = desc.split("\n")[0].substring(0, 150);
+          const firstLine = desc.split("\n")[0].substring(0, 200);
           lines.push(`   ${firstLine}`);
-          if (desc.includes("💡 修复建议")) {
+          // 显示根因分析（关键！编程AI需要看到Playwright的真正报错原因）
+          if (desc.includes("🔍 根因分析")) {
+            const rootCause = desc.split("� 根因分析: ")[1];
+            if (rootCause) {
+              lines.push(`   🔍 根因分析: ${rootCause.split("\n")[0].substring(0, 200)}`);
+            }
+          }
+          // 显示修复建议
+          if (desc.includes("�💡 修复建议")) {
             const suggestion = desc.split("💡 修复建议")[1];
             if (suggestion) {
-              lines.push(`   💡 修复建议${suggestion.split("\n")[0].substring(0, 150)}`);
+              lines.push(`   💡 修复建议${suggestion.split("\n")[0].substring(0, 200)}`);
             }
           }
         }

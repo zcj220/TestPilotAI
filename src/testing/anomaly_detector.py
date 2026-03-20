@@ -98,6 +98,16 @@ class AnomalyDetector:
         self._network_errors: list[dict] = []
         self._monitoring = False
         self._reported_errors: set[str] = set()  # 已报告的异常指纹，避免重复
+        self._suppress_error_texts: set[str] = set()  # 蓝本故意验证的错误文本，检测时跳过
+
+    def suppress_error_text(self, text: str) -> None:
+        """标记某段文本为蓝本预期的错误提示，异常检测时跳过。
+
+        当assert_text步骤故意验证错误提示（如'用户名或密码错误'）并通过时，
+        调用此方法避免异常检测器误报。
+        """
+        if text:
+            self._suppress_error_texts.add(text.strip())
 
     def start_monitoring(self) -> None:
         """开始监控控制台错误和网络失败。在测试开始前调用一次。"""
@@ -264,6 +274,9 @@ class AnomalyDetector:
                         continue
                     text = (await el.text_content() or "").strip()[:200]
                     if not text:
+                        continue
+                    # 跳过蓝本故意验证的错误文本（如assert_text验证'用户名或密码错误'）
+                    if any(suppress in text for suppress in self._suppress_error_texts):
                         continue
                     report.anomalies.append(Anomaly(
                         anomaly_type=AnomalyType.ERROR_ELEMENT,

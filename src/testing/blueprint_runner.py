@@ -520,6 +520,11 @@ class BlueprintRunner:
                         duration_seconds=elapsed,
                         error_message=f"文本断言失败: 预期'{expected_value}'，实际'{text}'",
                     ), bug
+                else:
+                    # assert_text通过：告诉异常检测器这个文本是蓝本预期的，
+                    # 避免异常检测器看到.error元素就误报（如故意测试登录失败场景）
+                    if self._anomaly_detector and expected_value:
+                        self._anomaly_detector.suppress_error_text(expected_value)
 
             elif step_def.action == "assert_visible":
                 try:
@@ -608,15 +613,25 @@ class BlueprintRunner:
 
         except (BrowserActionError, BrowserNavigationError) as e:
             elapsed = time.time() - start
-            logger.info("  ⚠ 步骤{} error | {:.1f}秒 | {}", step_num, elapsed, str(e)[:80])
+            # 提取Playwright关键根因（如"intercepts pointer events"、"element is not visible"）
+            err_detail = str(e)
+            root_cause = self._extract_playwright_root_cause(err_detail)
+            if root_cause:
+                logger.info("  ⚠ 步骤{} error | {:.1f}秒 | {} | 根因: {}", step_num, elapsed, str(e)[:80], root_cause)
+            else:
+                logger.info("  ⚠ 步骤{} error | {:.1f}秒 | {}", step_num, elapsed, str(e)[:80])
             # 操作类步骤失败（选择器找不到/超时）生成Bug，让AI中枢有机会介入恢复
             err_bug = None
             if step_def.action in ("click", "fill", "select"):
+                # 构建完整描述：基本错误 + 根因（如果有）
+                bug_desc = err_detail
+                if root_cause:
+                    bug_desc += f"\n\n🔍 根因分析: {root_cause}"
                 err_bug = BugReport(
                     severity=BugSeverity.MEDIUM,
                     category="操作失败",
                     title=f"步骤{step_num}操作失败: {step_def.action} {target or ''}",
-                    description=str(e),
+                    description=bug_desc,
                     location=target or "",
                     reproduction=desc,
                     screenshot_path=None,
@@ -642,6 +657,33 @@ class BlueprintRunner:
                 duration_seconds=elapsed,
                 error_message=str(e),
             ), None
+
+    @staticmethod
+    def _extract_playwright_root_cause(error_text: str) -> Optional[str]:
+        """从Playwright错误信息中提取关键根因，让编程AI能看到真正问题。
+
+        Playwright的错误信息很长（含Call log），关键线索藏在后面。
+        例如 "intercepts pointer events" 说明有元素遮挡了点击目标。
+        """
+        import re
+        # 已知的Playwright关键根因模式
+        patterns = [
+            (r"<([^>]+)>\s*intercepts pointer events", "CSS层级遮挡: <{0}>元素挡住了点击目标，检查z-index或position"),
+            (r"element is not visible", "目标元素不可见（display:none或visibility:hidden）"),
+            (r"element is outside of the viewport", "目标元素在视口外，需要先滚动到可见区域"),
+            (r"element is not enabled", "目标元素被禁用（disabled属性）"),
+            (r"waiting for selector.*did not resolve to any element", "选择器在页面中找不到任何匹配元素"),
+            (r"Element is not an <input>", "目标元素不是输入框，不能用fill操作（可能是<select>下拉框，应用select操作）"),
+            (r"strict mode violation.*resolved to (\d+) elements", "选择器匹配到多个元素（{0}个），需要更精确的选择器"),
+        ]
+        for pattern, template in patterns:
+            match = re.search(pattern, error_text, re.IGNORECASE)
+            if match:
+                try:
+                    return template.format(*match.groups()) if match.groups() else template
+                except (IndexError, KeyError):
+                    return template
+        return None
 
     async def _check_anomalies(self, step_num: int, page_url: str) -> list[BugReport]:
         """执行蓝本外异常检测，将发现的异常转为BugReport。"""
