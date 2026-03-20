@@ -136,6 +136,18 @@ function getTemplateContent(): string {
 - 正确：click登录按钮 → assert_text验证"欢迎回来"
 - 没有断言的操作等于没测
 
+### 断言必须严格基于代码逻辑（极其重要！禁止凭常识猜测）
+- 每个assert_text的expected值必须能在代码中找到出处（哪个变量、哪行代码会输出这个文本）
+- 禁止凭"常识"或"应该这样"写断言。例：
+  * 代码只验证非空就跳转 → 蓝本不能写"错误密码→登录失败"（代码根本不验证密码！）
+  * 代码catch里写'登录失败' → 要看什么条件触发catch，不是所有错误都走这条路
+- 必须追踪完整调用链：按钮点击→调用哪个函数→函数做了什么判断→跳转去哪→路由是否注册
+  * 例：登录→pushReplacementNamed('/dashboard') → 检查main.dart是否注册了/dashboard路由
+  * 路由未注册=应用Bug，蓝本正向写"记账台"断言，引擎会自动发现这个Bug
+- 必须检查输入框是否有默认值（如TextEditingController(text:'admin')、value属性、defaultValue）
+  * 有默认值时：蓝本的fill值会追加到默认值后面，而非替换！
+  * 如果默认值已满足测试需求，可以跳过fill步骤直接点击提交
+
 ### 功能全覆盖
 - 先通读全部源代码，列出所有功能点
 - 每个按钮、表单、Tab、弹窗、下拉框必须至少有一个测试场景
@@ -288,6 +300,9 @@ function getTemplateContent(): string {
 | 小程序用 \`button:contains('登录')\` | 小程序不支持:contains伪类 | 用 \`button.btn-primary\` 或带bindtap的class |
 | 小程序picker用click操作 | picker是原生组件，不能直接click | 用 \`select\` 动作操作picker |
 | 小程序wx.showModal用click确认 | Modal是原生弹窗，不在DOM中 | 蓝本无法操作原生弹窗，需改用页面内确认 |
+| 凭常识写"错误密码→登录失败" | 代码不验证密码时断言永远不触发 | 必须读代码确认验证逻辑再写断言 |
+| 没检查输入框默认值就fill | fill是追加不是替换，admin变成adminadmin | 有默认值时跳过fill或先清空 |
+| 没检查路由是否注册就写跳转断言 | 路由未注册→异常→永远到不了目标页 | 追踪完整调用链：函数→路由→目标页 |
 
 ---
 
