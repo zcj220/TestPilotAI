@@ -491,14 +491,17 @@ class MobileBlueprintRunner:
             elif step_def.action == "assert_text":
                 # assert_text 的预期值在 expected 字段（不是 value 字段）
                 expected = step_def.expected or value or ""
-                # 优先用UI树验证（Appium findElement在Flutter上会超时）
-                text = await self._get_text_from_ui_tree(target)
-                if text is None:
-                    # UI树找不到，回退Appium
-                    try:
-                        text = await self._ctrl.get_text(target)
-                    except Exception:
-                        text = ""
+                if target:
+                    # 有target：定位特定元素取文本
+                    text = await self._get_text_from_ui_tree(target)
+                    if text is None:
+                        try:
+                            text = await self._ctrl.get_text(target)
+                        except Exception:
+                            text = ""
+                else:
+                    # 无target：从UI树提取全页面可见文本
+                    text = await self._get_all_text_from_ui_tree()
                 if is_formula(expected):
                     formula_result = validate_formula(expected, text)
                     if not formula_result.passed:
@@ -836,6 +839,27 @@ class MobileBlueprintRunner:
             await self._ctrl.tap_xy(coords[0], coords[1])
         else:
             raise RuntimeError(f"元素找不到（Appium+视觉均失败）: {target} | {desc}")
+
+    async def _get_all_text_from_ui_tree(self) -> str:
+        """从UI树提取全页面所有可见文本（用于无target的assert_text）。"""
+        import xml.etree.ElementTree as ET
+
+        xml_str = await self._ctrl.dump_ui_tree()
+        if not xml_str:
+            return ""
+
+        try:
+            root = ET.fromstring(xml_str)
+        except ET.ParseError:
+            return ""
+
+        texts = []
+        for node in root.iter():
+            for attr in ("text", "content-desc"):
+                val = node.get(attr, "")
+                if val and val.strip():
+                    texts.append(val.strip())
+        return " ".join(texts)
 
     async def _get_text_from_ui_tree(self, selector: str) -> Optional[str]:
         """从UI树中查找元素并返回其文本（content-desc或text属性）。
