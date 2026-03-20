@@ -201,13 +201,36 @@ class DesktopBlueprintRunner:
                         decision = await self._hub.on_step_failed(ctx)
 
                         if decision.action == HubAction.RETRY:
+                            # 恢复选择器
+                            if decision.recover_selector:
+                                logger.info("  � AI中枢L2恢复：先点击[{}]", decision.recover_selector)
+                                try:
+                                    await self._desktop.click_element(decision.recover_selector)
+                                    await asyncio.sleep(1)
+                                except Exception as recover_err:
+                                    logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
+
+                            # 动作替换
+                            retry_step = step_def
+                            if decision.override_action and decision.override_action != step_def.action:
+                                logger.info("  �🔄 AI中枢动作替换: {} → {}", step_def.action, decision.override_action)
+                                retry_step = BlueprintStep(
+                                    action=decision.override_action,
+                                    target=step_def.target,
+                                    value=step_def.value,
+                                    expected=step_def.expected,
+                                    description=step_def.description,
+                                    timeout_ms=step_def.timeout_ms,
+                                    wait_after_ms=step_def.wait_after_ms,
+                                )
+
                             logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
                             # 弹窗关闭后清缓存
                             self._ocr_hash = ""
                             self._ocr_text_cache = ""
                             self._invalidate_coord_cache()
                             result, bug = await self._execute_step(
-                                step_num, step_def, page, blueprint, scene_coords
+                                step_num, retry_step, page, blueprint, scene_coords
                             )
                             if not bug:
                                 logger.info("  ✅ AI中枢自愈成功，步骤{}重试通过", step_num)

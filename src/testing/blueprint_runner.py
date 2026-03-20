@@ -220,9 +220,24 @@ class BlueprintRunner:
                                     await asyncio.sleep(1)  # 等待恢复动作生效
                                 except Exception as recover_err:
                                     logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
+
+                            # 动作替换：AI中枢建议用不同动作重试（如 fill→select）
+                            retry_step = step_def
+                            if decision.override_action and decision.override_action != step_def.action:
+                                logger.info("  🔄 AI中枢动作替换: {} → {}", step_def.action, decision.override_action)
+                                retry_step = BlueprintStep(
+                                    action=decision.override_action,
+                                    target=step_def.target,
+                                    value=step_def.value,
+                                    expected=step_def.expected,
+                                    description=step_def.description,
+                                    timeout_ms=step_def.timeout_ms,
+                                    wait_after_ms=step_def.wait_after_ms,
+                                )
+
                             logger.info("  🔄 AI中枢：{}，重试步骤{}", decision.reason, step_num)
                             result, bug = await self._execute_step(
-                                step_num, step_def, page, blueprint
+                                step_num, retry_step, page, blueprint
                             )
 
                         elif decision.action == HubAction.SKIP_STEP:
@@ -361,11 +376,23 @@ class BlueprintRunner:
     # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
     @staticmethod
     def _label_bug_fault(bug: BugReport, fault: FaultType) -> None:
-        """根据归因给Bug打标签，让编程AI知道谁的锅。"""
-        if fault == FaultType.APP and not bug.category.startswith("["):
+        """根据归因给Bug打标签，让编程AI知道谁的锅。
+
+        标签含义（编程AI需理解）：
+        - [应用Bug]：被测应用的代码有问题，需要修复应用代码
+        - [蓝本问题]：testpilot.json蓝本写错了（选择器错、动作类型错等），需要修正蓝本
+        """
+        if bug.category.startswith("["):
+            return  # 已打标
+        if fault == FaultType.APP:
             bug.category = f"[应用Bug]{bug.category}"
-        elif fault == FaultType.TEST and not bug.category.startswith("["):
-            bug.category = f"[测试问题]{bug.category}"
+        elif fault == FaultType.TEST:
+            bug.category = f"[蓝本问题]{bug.category}"
+            # 蓝本问题追加修正提示
+            if "Element is not an <input>" in (bug.description or ""):
+                bug.description += "\n\n💡 修复建议：蓝本中该步骤的action应从'fill'改为'select'，因为目标元素是<select>下拉框。"
+            elif "Timeout" in (bug.description or "") and bug.location:
+                bug.description += f"\n\n💡 修复建议：检查蓝本中选择器'{bug.location}'是否与应用实际DOM匹配，或应用是否缺少该元素。"
     async def _hub_screenshot(self, tag: str):
         """AIHub 截图回调。"""
         try:

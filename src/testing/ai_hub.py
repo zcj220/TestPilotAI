@@ -99,6 +99,7 @@ class HubDecision:
     popup_closed: bool = False           # 是否关闭了弹窗
     ai_cost_ms: float = 0               # 本次决策的AI调用耗时
     recover_selector: Optional[str] = None  # L2恢复动作：先点击这个选择器再重试
+    override_action: Optional[str] = None   # L2动作替换：重试时改用此动作（如 fill→select）
 
 
 # ═══════════════════════════════════════════════════════════
@@ -261,6 +262,17 @@ class AIHub:
                 action=HubAction.NONE,
                 fault=FaultType.APP,
                 reason=f"规则预判: {err[:120]}",
+            )
+
+        # fill 对 <select> 元素 → 蓝本写错了动作，自动改用 select 重试
+        if ctx.action == "fill" and "Element is not an <input>" in err:
+            self._total_rule_judgments += 1
+            logger.info("  📋 AI中枢规则修正: fill对<select>元素 → 自动改用select重试（零AI成本）")
+            return HubDecision(
+                action=HubAction.RETRY,
+                fault=FaultType.TEST,
+                reason=f"规则修正: <select>元素不能fill，自动改用select",
+                override_action="select",
             )
 
         return None
