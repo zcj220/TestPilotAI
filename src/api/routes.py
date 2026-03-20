@@ -849,7 +849,7 @@ def create_router(
                     _last_pushed += 1
                     if line.startswith("[PROGRESS]"):
                         parts = line[len("[PROGRESS]"):].strip()
-                        await ws_manager.send_step_start(0, f"🔄 {parts}")
+                        await ws_manager.send_log(f"🔄 {parts}")
                     elif line.startswith("[STEP]"):
                         parts = line[len("[STEP]"):].strip()
                         await ws_manager.send_log(parts)

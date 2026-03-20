@@ -35,6 +35,17 @@
    - 由你根据项目实际代码结构自主决定如何拆分和命名
 5. 每个蓝本必须包含 `app_name`、`description`、`platform`、`base_url` 字段
 
+### 蓝本管理规则（极其重要！）
+
+- **每个被测应用目录下只允许一个 `testpilot.json`**（或 `testpilot/` 目录下按模块拆分）
+- **若已存在 `testpilot.json`，直接覆盖更新，禁止创建 `_v2`/`_new`/`_backup` 等变体**
+- 功能较多时，按功能模块拆分到 `testpilot/` 目录下：
+  - 如 `testpilot/auth.testpilot.json`、`testpilot/dashboard.testpilot.json`
+  - 更新某模块时**只替换该模块文件**，不影响其他模块
+  - 不要在 `testpilot/` 目录下堆积多个版本（如 auth_v1、auth_v2）
+- 拆分判断标准：页面≤3个用单个 `testpilot.json`；页面>3个按功能模块拆分到 `testpilot/`
+- 蓝本文件必须放在被测应用的根目录，不要放到其他项目目录下
+
 ---
 
 ## 二、测试设计黄金规则（必须严格遵守）

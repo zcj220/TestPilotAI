@@ -607,14 +607,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 - 每个蓝本独立可运行，非首页场景开头要从 navigate 开始
 - 全量测试时通过 run_blueprint_batch 批量运行所有蓝本
 
-【规则13：蓝本增量修改（省Token）】
+【规则13：蓝本管理（必须遵守！）】
+- 每个被测应用目录下只允许一个 testpilot.json（或 testpilot/ 目录下按模块拆分）
+- 若已存在 testpilot.json，直接覆盖更新，禁止创建 _v2/_new/_backup 等变体
+- 功能较多时（页面>3个），按功能模块拆分到 testpilot/ 目录下：
+  * testpilot/auth.testpilot.json（登录/注册）
+  * testpilot/dashboard.testpilot.json（主功能）
+  * testpilot/reports.testpilot.json（报表）
+- 更新某模块时只替换该模块文件，不影响其他模块
+- 不要在 testpilot/ 目录下堆积多个版本（如 auth_v1、auth_v2）
+
+【规则14：蓝本增量修改（省Token）】
 - 已有蓝本时，只修改/新增变更涉及的场景，不要重写整个文件
 - 新增功能 → 新增场景追加到对应模块蓝本
 - 修改功能 → 更新对应场景的步骤和断言
 - 删除功能 → 删除对应场景
 - 禁止每次都从零生成全新蓝本覆盖旧文件
 
-【规则14：蓝本备忘录（testpilot/CHANGELOG.md）】
+【规则15：蓝本备忘录（testpilot/CHANGELOG.md）】
 - 首次生成蓝本时，必须同时创建 testpilot/CHANGELOG.md
 - 格式如下：
   # 蓝本备忘录
