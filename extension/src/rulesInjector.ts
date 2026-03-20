@@ -20,18 +20,32 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
 
-/** 需要注入的规则文件相对路径列表 */
-const RULES_FILES: string[] = [
-  "AGENTS.md",
-  "CLAUDE.md",
-  ".github/copilot-instructions.md",
-  ".cursor/rules/testpilot.md",
-  ".windsurf/rules/testpilot.md",
-  ".trae/rules/testpilot.md",
-  ".clinerules/testpilot.md",
-  ".aiassistant/rules/testpilot.md",
-  ".augment/rules/testpilot.md",
-];
+/** IDE类型到规则文件的映射 */
+const IDE_RULES_MAP: Record<string, string> = {
+  cursor: ".cursor/rules/testpilot.md",
+  windsurf: ".windsurf/rules/testpilot.md",
+  vscode: ".github/copilot-instructions.md",
+  vscodium: ".github/copilot-instructions.md",
+  cline: ".clinerules/testpilot.md",
+  jetbrains: ".aiassistant/rules/testpilot.md",
+  trae: ".trae/rules/testpilot.md",
+  augment: ".augment/rules/testpilot.md",
+  claude: "CLAUDE.md",
+};
+
+/**
+ * 检测当前运行的IDE类型
+ * @returns IDE类型标识符（小写）
+ */
+function detectCurrentIDE(): string {
+  const appName = (vscode.env.appName || "").toLowerCase();
+
+  if (appName.includes("windsurf")) return "windsurf";
+  if (appName.includes("cursor")) return "cursor";
+  if (appName.includes("vscodium")) return "vscodium";
+  // 默认是 VS Code
+  return "vscode";
+}
 
 /** 规则模板内容（内嵌，避免依赖外部文件） */
 function getTemplateContent(): string {
@@ -189,20 +203,42 @@ function getTemplateContent(): string {
 }
 
 /**
- * 在指定工作区目录中注入规则文件
+ * 智能注入规则文件（只注入当前IDE对应的文件）
  * @param workspaceRoot 工作区根目录绝对路径
  * @param outputChannel 日志输出通道
+ * @param forceAll 是否强制注入所有IDE规则（手动触发时用）
  * @returns 注入结果 { created: string[], skipped: string[] }
  */
 export function injectRules(
   workspaceRoot: string,
   outputChannel?: vscode.OutputChannel,
+  forceAll = false,
 ): { created: string[]; skipped: string[] } {
   const template = getTemplateContent();
   const created: string[] = [];
   const skipped: string[] = [];
 
-  for (const relPath of RULES_FILES) {
+  // 确定要注入的文件列表
+  let filesToInject: string[];
+  
+  if (forceAll) {
+    // 强制注入所有IDE规则（手动触发时）
+    filesToInject = ["AGENTS.md", ...Object.values(IDE_RULES_MAP)];
+  } else {
+    // 智能注入：AGENTS.md + 当前IDE专用文件
+    const currentIDE = detectCurrentIDE();
+    filesToInject = ["AGENTS.md"];
+    
+    const ideRuleFile = IDE_RULES_MAP[currentIDE];
+    if (ideRuleFile) {
+      filesToInject.push(ideRuleFile);
+    }
+    
+    outputChannel?.appendLine(`[TestPilot AI] 检测到当前IDE: ${currentIDE}`);
+  }
+
+  // 注入文件
+  for (const relPath of filesToInject) {
     const fullPath = path.join(workspaceRoot, relPath);
 
     // 已存在则跳过（不覆盖用户自定义内容）
@@ -242,12 +278,11 @@ export function injectRules(
 }
 
 /**
- * 检查工作区是否需要注入规则（没有任何规则文件时才需要）
+ * 检查工作区是否需要注入规则（没有AGENTS.md时才需要）
  */
 export function needsInjection(workspaceRoot: string): boolean {
-  return !RULES_FILES.some((relPath) =>
-    fs.existsSync(path.join(workspaceRoot, relPath)),
-  );
+  // 只检查 AGENTS.md 是否存在（跨工具通用文件）
+  return !fs.existsSync(path.join(workspaceRoot, "AGENTS.md"));
 }
 
 /**
