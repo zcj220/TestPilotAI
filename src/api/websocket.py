@@ -146,6 +146,10 @@ class ConnectionManager:
             "message": f"修复{status_text}: {bug_title}",
         })
 
+    async def send_test_started(self) -> None:
+        """发送测试开始通知，让插件显示控制按钮。"""
+        await self.broadcast("test_started", {"message": "测试已开始"})
+
     async def send_test_done(
         self, pass_rate: float, bug_count: int,
         full_report: dict[str, Any] | None = None,

@@ -2187,10 +2187,16 @@ ${commonRules}`;
 
     function onProgress(wsMsg) {
       const typeMap = {
+        test_started: "info",
         step_start: "info", step_done: "success", bug_found: "warn",
         repair_start: "info", repair_done: "success", test_done: "success",
         error: "error", log: "info", state_change: "info", terminal_log: "info",
       };
+      // 后端推送test_started时，显示控制按钮（Android/iOS测试）
+      if (wsMsg.type === "test_started") {
+        onTestStarted();
+        return;
+      }
       // 截图推送
       if (wsMsg.type === "screenshot" && wsMsg.data?.image) {
         screenshotSection.classList.remove("hidden");
