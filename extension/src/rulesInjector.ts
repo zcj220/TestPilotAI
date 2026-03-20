@@ -73,10 +73,10 @@ function getTemplateContent(): string {
 1. 蓝本文件固定命名 \`testpilot.json\`，放在项目根目录或 \`testpilot/\` 子目录下
 2. 必须覆盖项目的**所有用户可交互功能**，不允许遗漏
 3. 每个功能模块对应一个 \`page\`，每个用户场景对应一个 \`scenario\`
-4. 如果项目功能较多，按模块拆分为多个蓝本文件放在 \`testpilot/\` 目录下：
-   - \`testpilot/auth.testpilot.json\` — 登录注册
-   - \`testpilot/product.testpilot.json\` — 商品管理
-   - \`testpilot/order.testpilot.json\` — 订单流程
+4. 如果项目功能较多，按功能模块拆分为多个蓝本文件放在 \`testpilot/\` 目录下，命名格式 \`模块名.testpilot.json\`，根据项目实际功能命名，例如：
+   - 电商项目：\`testpilot/auth.testpilot.json\`、\`testpilot/product.testpilot.json\`、\`testpilot/order.testpilot.json\`
+   - 游戏项目：\`testpilot/lobby.testpilot.json\`、\`testpilot/battle.testpilot.json\`、\`testpilot/inventory.testpilot.json\`
+   - 工具项目：\`testpilot/editor.testpilot.json\`、\`testpilot/settings.testpilot.json\`、\`testpilot/export.testpilot.json\`
 5. 每个蓝本必须包含 \`app_name\`、\`description\`、\`platform\`、\`base_url\` 字段
 
 ---
