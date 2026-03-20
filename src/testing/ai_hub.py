@@ -310,11 +310,14 @@ class AIHub:
             logger.debug("AI中枢L1弹窗检测返回(前300字): {}", response[:300])
 
             # 3. 解析 JSON
-            json_match = re.search(r"\{.*?\}", response, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if not json_match:
                 return HubDecision(action=HubAction.NONE, reason="AI返回无JSON", ai_cost_ms=cost_ms)
 
-            result = json.loads(json_match.group().replace("'", '"'))
+            raw_json = json_match.group()
+            raw_json = raw_json.replace("\u201c", '"').replace("\u201d", '"')
+            raw_json = raw_json.replace("\u2018", "'").replace("\u2019", "'")
+            result = json.loads(raw_json)
             if not result.get("popup"):
                 return HubDecision(action=HubAction.NONE, reason="未检测到弹窗", ai_cost_ms=cost_ms)
 
@@ -419,14 +422,14 @@ class AIHub:
             cost_ms = (time.time() - start) * 1000
             logger.info("  🧠 AI中枢L2诊断返回(前400字): {}", response[:400])
 
-            json_match = re.search(r"\{.*?\}", response, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if not json_match:
                 return HubDecision(action=HubAction.NONE, reason="L2返回无JSON", ai_cost_ms=cost_ms)
 
             # 容错：去掉中文引号、修复常见JSON格式问题
             raw_json = json_match.group()
             raw_json = raw_json.replace("\u201c", '"').replace("\u201d", '"')  # 中文引号
-            raw_json = raw_json.replace("'", '"')
+            raw_json = raw_json.replace("\u2018", "'").replace("\u2019", "'")  # 中文单引号→英文单引号
             result = json.loads(raw_json)
             diagnosis = result.get("diagnosis", "")
             suggestion = result.get("suggestion", "none")

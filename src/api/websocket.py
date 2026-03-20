@@ -146,13 +146,19 @@ class ConnectionManager:
             "message": f"修复{status_text}: {bug_title}",
         })
 
-    async def send_test_done(self, pass_rate: float, bug_count: int) -> None:
-        """发送测试完成通知。"""
-        await self.broadcast("test_done", {
+    async def send_test_done(
+        self, pass_rate: float, bug_count: int,
+        full_report: dict[str, Any] | None = None,
+    ) -> None:
+        """发送测试完成通知（含完整报告作为HTTP后备）。"""
+        data: dict[str, Any] = {
             "pass_rate": pass_rate,
             "bug_count": bug_count,
             "message": f"测试完成 | 通过率 {pass_rate:.0f}% | Bug {bug_count} 个",
-        })
+        }
+        if full_report is not None:
+            data["report"] = full_report
+        await self.broadcast("test_done", data)
 
     # ── v2.0 新增推送 ────────────────────────────────
 

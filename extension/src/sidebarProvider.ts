@@ -132,6 +132,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     projectPath: string;
   }): Promise<void> {
     try {
+      this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
 
       const config = vscode.workspace.getConfiguration("testpilotAI");
@@ -160,6 +161,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     mobile_session_id?: string;
   }): Promise<void> {
     try {
+      // 测试前确保 WebSocket 已连接，保证步骤进度能实时推送到 WebView
+      this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
 
       const platform = (msg.platform || "web").toLowerCase();
@@ -209,6 +212,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     mobile_session_id?: string;
   }): Promise<void> {
     try {
+      this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
 
       // 依次执行每个蓝本，汇总结果（用户停止时中断后续蓝本）
@@ -2106,6 +2110,12 @@ ${commonRules}`;
       if (wsMsg.type === "screenshot" && wsMsg.data?.image) {
         screenshotSection.classList.remove("hidden");
         screenshotImg.src = "data:image/png;base64," + wsMsg.data.image;
+        return;
+      }
+      // test_done 含完整报告时，直接渲染结果（HTTP后备）
+      // 即使 HTTP fetch failed，WebView 也能通过 WS 拿到完整结果
+      if (wsMsg.type === "test_done" && wsMsg.data?.report) {
+        onTestResult(wsMsg.data.report);
         return;
       }
       const level = typeMap[wsMsg.type] || "info";

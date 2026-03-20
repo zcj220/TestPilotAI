@@ -244,6 +244,11 @@ export class EngineClient {
     if (this._ws && this._ws.readyState === WebSocket.OPEN) {
       return;
     }
+    // 清理残留连接
+    if (this._ws) {
+      try { this._ws.close(); } catch { /* ignore */ }
+      this._ws = null;
+    }
 
     try {
       this._ws = new WebSocket(this.wsUrl);
@@ -265,15 +270,31 @@ export class EngineClient {
 
       this._ws.on("close", () => {
         console.log("[TestPilot AI] WebSocket 断开，5秒后重连");
+        this._ws = null;
         this._scheduleReconnect();
       });
 
       this._ws.on("error", (err) => {
         console.error("[TestPilot AI] WebSocket 错误:", err.message);
+        // error后通常会触发close，但保险起见也清理
       });
     } catch {
+      this._ws = null;
       this._scheduleReconnect();
     }
+  }
+
+  /** 确保 WebSocket 已连接（测试开始前调用） */
+  ensureWsConnected(): void {
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) {
+      return;
+    }
+    // 取消定时重连，立即重连
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    this.connectWs();
   }
 
   /** 断开 WebSocket */
@@ -321,16 +342,54 @@ export class EngineClient {
 
   private async _post<T>(path: string, body: unknown): Promise<T> {
     const url = `${this.httpUrl}${path}`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(600_000),
+    const payload = JSON.stringify(body);
+
+    // 使用 Node.js http 模块替代 fetch，避免 undici 的 bodyTimeout (300s)
+    // 导致长时间测试（6分钟+）中途 "fetch failed"
+    return new Promise<T>((resolve, reject) => {
+      const parsed = new URL(url);
+      const http = require("http");
+      const req = http.request(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port,
+          path: parsed.pathname + parsed.search,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": Buffer.byteLength(payload),
+          },
+          timeout: 900_000, // 15分钟连接超时
+        },
+        (res: any) => {
+          const chunks: Buffer[] = [];
+          res.on("data", (chunk: Buffer) => chunks.push(chunk));
+          res.on("end", () => {
+            const text = Buffer.concat(chunks).toString("utf-8");
+            if (res.statusCode && res.statusCode >= 400) {
+              reject(new Error(`HTTP ${res.statusCode}: ${text}`));
+            } else {
+              try {
+                resolve(JSON.parse(text) as T);
+              } catch {
+                reject(new Error(`JSON解析失败: ${text.substring(0, 200)}`));
+              }
+            }
+          });
+        },
+      );
+      req.on("timeout", () => {
+        req.destroy();
+        reject(new Error("请求超时（15分钟）"));
+      });
+      req.on("error", (err: Error) => reject(err));
+      // 禁用 socket 空闲超时，防止长测试期间连接被断开
+      req.on("socket", (socket: any) => {
+        socket.setTimeout(0);
+        socket.setKeepAlive(true, 30_000);
+      });
+      req.write(payload);
+      req.end();
     });
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`HTTP ${resp.status}: ${text}`);
-    }
-    return resp.json() as Promise<T>;
   }
 }

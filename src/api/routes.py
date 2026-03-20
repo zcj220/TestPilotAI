@@ -506,10 +506,6 @@ def create_router(
         try:
             await ws_manager.send_log(f"蓝本测试开始: {blueprint.app_name}")
             report = await runner.run(blueprint)
-            await ws_manager.send_test_done(
-                report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
-                len(report.bugs),
-            )
 
             # v1.3：保存记忆（Bug模式提取）
             if memory_store and report.bugs:
@@ -524,14 +520,15 @@ def create_router(
             stopped = test_controller.was_stopped
             if stopped:
                 test_controller.reset()
-            return TestReportResponse(
+            pass_rate = report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0
+            response = TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
                 total_steps=report.total_steps,
                 passed_steps=report.passed_steps,
                 failed_steps=report.failed_steps,
                 bug_count=len(report.bugs),
-                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
                 stopped=stopped,
@@ -560,6 +557,16 @@ def create_router(
                     for b in report.bugs
                 ],
             )
+
+            # 通过 WebSocket 推送完整报告（作为 HTTP response 的后备）
+            # 即使 HTTP 连接中途断开，WebView 也能通过 WS 拿到结果
+            try:
+                report_dict = response.model_dump()
+            except AttributeError:
+                report_dict = response.dict()
+            await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+
+            return response
         except Exception as e:
             logger.error("蓝本测试执行失败: {}", e)
             raise HTTPException(status_code=500, detail=f"蓝本测试执行失败: {e}")
