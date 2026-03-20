@@ -142,8 +142,12 @@ class BlueprintRunner:
             self._anomaly_detector = None
 
         cancelled = False
+        consecutive_scene_failures = 0  # 连续场景失败计数
+        MAX_CONSECUTIVE_FAILURES = 3    # 连续N个场景失败则判定为阻塞性Bug
+        blocking_bug_detected = False
+
         for page_idx, page in enumerate(blueprint.pages):
-            if cancelled:
+            if cancelled or blocking_bug_detected:
                 break
 
             # v2.0：多页面自动导航（同一browser context，Cookie/Session自动保持）
@@ -158,7 +162,7 @@ class BlueprintRunner:
                     logger.error("页面导航失败: {} | {}", page_url, str(e)[:80])
 
             for scenario in page.scenarios:
-                if cancelled:
+                if cancelled or blocking_bug_detected:
                     break
 
                 # 场景间隔离：清除cookie/storage，确保每个场景从干净状态开始
@@ -341,6 +345,34 @@ class BlueprintRunner:
                                     repair_decider.on_immediate_repair_done(False)
                             else:
                                 deferred_bugs.append(ab)
+
+                # ── 场景结束：检测连续失败（阻塞性Bug自动止损） ──
+                scene_has_bug = any(
+                    r.status in (StepStatus.FAILED, StepStatus.ERROR)
+                    for r in all_results[-len(scenario.steps):]
+                    if r.step > step_num - len(scenario.steps)
+                )
+                if scene_has_bug:
+                    consecutive_scene_failures += 1
+                    if consecutive_scene_failures >= MAX_CONSECUTIVE_FAILURES:
+                        remaining_scenarios = sum(
+                            len(s.scenarios) for s in blueprint.pages
+                        ) - (sum(len(p.scenarios) for p in blueprint.pages[:page_idx])
+                             + page.scenarios.index(scenario) + 1)
+                        logger.warning(
+                            "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
+                            "建议先修复阻塞问题再重测",
+                            MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
+                        )
+                        if self._on_step:
+                            await self._on_step(
+                                step_num, "error",
+                                f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+                            )
+                        blocking_bug_detected = True
+                else:
+                    consecutive_scene_failures = 0  # 有场景通过，重置计数
 
         # 停止异常监控
         if self._anomaly_detector:

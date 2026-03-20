@@ -169,8 +169,12 @@ class MobileBlueprintRunner:
             self._ctrl._is_cancelled_fn = lambda: self._test_controller.is_cancelled
 
         cancelled = False
+        consecutive_scene_failures = 0  # 连续场景失败计数
+        MAX_CONSECUTIVE_FAILURES = 3    # 连续N个场景失败则判定为阻塞性Bug
+        blocking_bug_detected = False
+
         for page_idx, page in enumerate(blueprint.pages):
-            if cancelled:
+            if cancelled or blocking_bug_detected:
                 break
             if page.url:
                 logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page.url)
@@ -186,7 +190,7 @@ class MobileBlueprintRunner:
                     logger.error("手机页面导航失败: {} | {}", page.url, nav_err)
 
             for scenario in page.scenarios:
-                if cancelled:
+                if cancelled or blocking_bug_detected:
                     break
                 logger.info("── 场景: {} ──", scenario.name)
                 self._hub.on_scenario_start()
@@ -323,6 +327,34 @@ class MobileBlueprintRunner:
 
                     if self._on_step:
                         await self._on_step(step_num, result.status.value, desc)
+
+                # ── 场景结束：检测连续失败（阻塞性Bug自动止损） ──
+                scene_has_bug = any(
+                    r.status in (StepStatus.FAILED, StepStatus.ERROR)
+                    for r in all_results[-len(scenario.steps):]
+                    if r.step > step_num - len(scenario.steps)
+                )
+                if scene_has_bug:
+                    consecutive_scene_failures += 1
+                    if consecutive_scene_failures >= MAX_CONSECUTIVE_FAILURES:
+                        remaining_scenarios = sum(
+                            len(s.scenarios) for s in blueprint.pages
+                        ) - (sum(len(p.scenarios) for p in blueprint.pages[:page_idx])
+                             + page.scenarios.index(scenario) + 1)
+                        logger.warning(
+                            "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
+                            "建议先修复阻塞问题再重测",
+                            MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
+                        )
+                        if self._on_step:
+                            await self._on_step(
+                                step_num, "error",
+                                f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+                            )
+                        blocking_bug_detected = True
+                else:
+                    consecutive_scene_failures = 0  # 有场景通过，重置计数
 
         # 汇总
         report.step_results = all_results
