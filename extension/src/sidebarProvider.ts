@@ -348,16 +348,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const bugs = (report.bugs as Array<Record<string, unknown>>) || [];
     if (bugs.length > 0) {
       bugs.forEach((bug, i) => {
+        const cat = (bug.category as string) || "";
         const step = bug.step_number ? ` (步骤#${bug.step_number})` : "";
-        lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${bug.title}${step}`);
+        lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${cat ? cat + " " : ""}${bug.title}${step}`);
         if (bug.description) {
-          lines.push(`   ${(bug.description as string).split("\n")[0].substring(0, 150)}`);
+          // 包含修复建议时多显示几行
+          const desc = bug.description as string;
+          const firstLine = desc.split("\n")[0].substring(0, 150);
+          lines.push(`   ${firstLine}`);
+          if (desc.includes("💡 修复建议")) {
+            const suggestion = desc.split("💡 修复建议")[1];
+            if (suggestion) {
+              lines.push(`   💡 修复建议${suggestion.split("\n")[0].substring(0, 150)}`);
+            }
+          }
         }
       });
     } else {
       lines.push((report.report_markdown as string || "").substring(0, 1000));
     }
-    lines.push("", "请根据以上Bug修复代码，修复后调用 run_blueprint_test 重新测试验证。");
+    lines.push(
+      "",
+      "⚠️ 重要：每个Bug的category标签说明了错误归因：",
+      "- [应用Bug]：被测应用代码有问题，请修复应用代码",
+      "- [蓝本问题]：testpilot.json蓝本写错了（选择器错、动作类型错等），请修正蓝本文件",
+      "- 无标签：需要你自行判断是应用问题还是蓝本问题",
+      "",
+      "请逐个修复以上Bug（蓝本错改蓝本，应用错改应用），修复后调用 run_blueprint_test 重新测试，直到全部通过为止。",
+    );
     return lines.join("\n");
   }
 
