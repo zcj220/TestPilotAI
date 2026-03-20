@@ -244,7 +244,7 @@ class AIClient:
             client = self._client
             if timeout is not None:
                 kwargs["timeout"] = timeout
-                client = self._client.with_options(max_retries=1)
+                client = self._client.with_options(max_retries=0)
             response = client.chat.completions.create(**kwargs)
 
             # 提取响应文本

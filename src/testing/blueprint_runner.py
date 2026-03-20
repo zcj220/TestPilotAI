@@ -160,6 +160,14 @@ class BlueprintRunner:
             for scenario in page.scenarios:
                 if cancelled:
                     break
+
+                # 场景间隔离：清除cookie/storage，确保每个场景从干净状态开始
+                try:
+                    await self._browser._context.clear_cookies()
+                    await self._browser.page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
+                except Exception as e:
+                    logger.debug("场景隔离清理失败（非致命）: {}", str(e)[:60])
+
                 logger.info("── 场景: {} ──", scenario.name)
                 self._hub.on_scenario_start()
 

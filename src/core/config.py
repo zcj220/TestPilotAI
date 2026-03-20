@@ -91,7 +91,7 @@ class BrowserConfig(BaseSettings):
         description="是否使用无头模式",
     )
     default_timeout_ms: int = Field(
-        default=30000,
+        default=10000,
         description="默认操作超时时间（毫秒）",
     )
     screenshot_dir: Path = Field(
