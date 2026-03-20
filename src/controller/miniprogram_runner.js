@@ -27,6 +27,63 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * 诊断选择器问题，返回具体原因提示
+ */
+async function diagnoseSelector(page, selector) {
+  const hints = [];
+  
+  // 检测1：是否用了小程序不支持的属性选择器
+  const unsupportedAttrs = ['bindinput', 'bindtap', 'catchtap', 'bindchange', 'bindfocus', 'bindblur'];
+  for (const attr of unsupportedAttrs) {
+    if (selector.includes(`[${attr}`)) {
+      hints.push(`\n❌ 小程序不支持事件绑定属性选择器 [${attr}=...]`);
+      hints.push(`\n✅ 改用 placeholder 或 class 选择器，如: input[placeholder*='用户名'] 或 button.btn-primary`);
+      break;
+    }
+  }
+  
+  // 检测2：是否用了 #id 选择器
+  if (selector.startsWith('#') || selector.includes(' #')) {
+    hints.push(`\n❌ 小程序WXML不支持 #id 选择器`);
+    hints.push(`\n✅ 改用 class 或 placeholder 属性选择器`);
+  }
+  
+  // 检测3：是否用了 :contains() 伪类
+  if (selector.includes(':contains(')) {
+    hints.push(`\n❌ 小程序不支持 :contains() 伪类`);
+    hints.push(`\n✅ 改用 class 选择器或在 description 中描述元素文字`);
+  }
+  
+  // 检测4：列出页面上实际存在的元素（前10个）
+  try {
+    const allEls = await page.$$('view, button, input, text, picker, switch');
+    if (allEls && allEls.length > 0) {
+      const sample = allEls.slice(0, 10);
+      const tags = [];
+      for (const el of sample) {
+        const tagName = await el.tagName().catch(() => 'unknown');
+        const className = await el.attribute('class').catch(() => '');
+        const placeholder = await el.attribute('placeholder').catch(() => '');
+        if (placeholder) {
+          tags.push(`${tagName}[placeholder="${placeholder}"]`);
+        } else if (className) {
+          tags.push(`${tagName}.${className.split(' ')[0]}`);
+        } else {
+          tags.push(tagName);
+        }
+      }
+      if (tags.length > 0) {
+        hints.push(`\n📋 页面实际元素示例: ${tags.slice(0, 5).join(', ')}`);
+      }
+    }
+  } catch (e) {
+    // 获取元素列表失败不影响主流程
+  }
+  
+  return hints.join('');
+}
+
 // ── 读取输入 ──
 const stepsFile = process.argv[2];
 if (!stepsFile || !fs.existsSync(stepsFile)) {
@@ -155,14 +212,20 @@ async function executeStep(step, stepNum) {
       }
       case 'click': {
         const el = await page.$(step.target);
-        if (!el) throw new Error(`元素未找到: ${step.target}`);
+        if (!el) {
+          const hint = await diagnoseSelector(page, step.target);
+          throw new Error(`元素未找到: ${step.target}${hint}`);
+        }
         await el.tap();
         await sleep(500);
         break;
       }
       case 'fill': {
         const el = await page.$(step.target);
-        if (!el) throw new Error(`元素未找到: ${step.target}`);
+        if (!el) {
+          const hint = await diagnoseSelector(page, step.target);
+          throw new Error(`元素未找到: ${step.target}${hint}`);
+        }
         await el.input(step.value || '');
         await sleep(300);
         break;
@@ -277,7 +340,10 @@ async function executeStep(step, stepNum) {
         const times = parseInt(step.value) || 1;
         const interval = parseInt(step.wait_ms) || 150;
         const els = await page.$$(selector);
-        if (!els || els.length === 0) throw new Error(`元素未找到: ${selector}`);
+        if (!els || els.length === 0) {
+          const hint = await diagnoseSelector(page, selector);
+          throw new Error(`元素未找到: ${selector}${hint}`);
+        }
         for (let t = 0; t < times; t++) {
           await els[0].tap();
           await sleep(interval);
