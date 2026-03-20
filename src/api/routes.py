@@ -418,6 +418,7 @@ def create_router(
 
             try:
                 await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+                await ws_manager.send_test_started()  # 通知插件显示控制按钮
                 report = await runner.run(blueprint)
                 await ws_manager.send_test_done(
                     report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
@@ -693,6 +694,7 @@ def create_router(
 
         try:
             await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+            await ws_manager.send_test_started()  # 通知插件显示控制按钮
             report = await runner.run(blueprint)
             await ws_manager.send_test_done(
                 report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
