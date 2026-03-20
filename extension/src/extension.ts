@@ -11,6 +11,7 @@
 import * as vscode from "vscode";
 import { EngineClient } from "./engineClient";
 import { SidebarProvider } from "./sidebarProvider";
+import { autoInjectOnActivate, injectRules } from "./rulesInjector";
 
 let client: EngineClient;
 let outputChannel: vscode.OutputChannel;
@@ -506,6 +507,7 @@ export function activate(context: vscode.ExtensionContext): void {
     ["testpilot-ai.launchEngine.en", "testpilot-ai.launchEngine"],
     ["testpilot-ai.stopEngine.en", "testpilot-ai.stopEngine"],
     ["testpilot-ai.connectDevice.en", "testpilot-ai.connectDevice"],
+    ["testpilot-ai.injectRules.en", "testpilot-ai.injectRules"],
   ];
 
   for (const [alias, target] of commandAliases) {
@@ -513,6 +515,42 @@ export function activate(context: vscode.ExtensionContext): void {
       vscode.commands.registerCommand(alias, () => vscode.commands.executeCommand(target)),
     );
   }
+
+  // ── 手动注入规则命令 ──
+  context.subscriptions.push(
+    vscode.commands.registerCommand("testpilot-ai.injectRules", async () => {
+      const folders = vscode.workspace.workspaceFolders;
+      if (!folders || folders.length === 0) {
+        vscode.window.showWarningMessage("请先打开一个项目文件夹");
+        return;
+      }
+
+      let targetFolder: vscode.WorkspaceFolder;
+      if (folders.length === 1) {
+        targetFolder = folders[0];
+      } else {
+        const picked = await vscode.window.showWorkspaceFolderPick({
+          placeHolder: "选择要注入规则的项目",
+        });
+        if (!picked) { return; }
+        targetFolder = picked;
+      }
+
+      const result = injectRules(targetFolder.uri.fsPath, outputChannel);
+      if (result.created.length > 0) {
+        vscode.window.showInformationMessage(
+          `✅ 已注入 ${result.created.length} 个规则文件到 ${targetFolder.name}`,
+        );
+      } else {
+        vscode.window.showInformationMessage(
+          `${targetFolder.name} 已有所有规则文件，无需重复注入`,
+        );
+      }
+    }),
+  );
+
+  // ── 插件激活时自动注入规则到工作区 ──
+  autoInjectOnActivate(outputChannel);
 
   outputChannel.appendLine("[TestPilot AI] 所有命令已注册（中文+英文）");
   outputChannel.appendLine("[TestPilot AI] 💡 Tip: Search 'TestPilot AI' in Command Palette (Ctrl+Shift+P) for all commands");

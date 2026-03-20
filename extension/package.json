@@ -142,6 +142,16 @@
         "command": "testpilot-ai.connectDevice.en",
         "title": "TestPilot AI: Connect Mobile Device",
         "icon": "$(device-mobile)"
+      },
+      {
+        "command": "testpilot-ai.injectRules",
+        "title": "TestPilot AI: 注入蓝本规则到项目",
+        "icon": "$(file-symlink-directory)"
+      },
+      {
+        "command": "testpilot-ai.injectRules.en",
+        "title": "TestPilot AI: Inject Blueprint Rules",
+        "icon": "$(file-symlink-directory)"
       }
     ],
     "menus": {
@@ -212,6 +222,12 @@
         },
         {
           "command": "testpilot-ai.connectDevice.en"
+        },
+        {
+          "command": "testpilot-ai.injectRules"
+        },
+        {
+          "command": "testpilot-ai.injectRules.en"
         }
       ]
     },
