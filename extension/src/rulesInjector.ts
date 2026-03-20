@@ -197,6 +197,8 @@ function getTemplateContent(): string {
 
 ### 步骤动作
 
+**基础动作**（所有平台通用）：
+
 | 动作 | 必填参数 | 说明 |
 |------|---------|------|
 | \`click\` | \`target\`, \`description\` | 点击元素 |
@@ -205,7 +207,21 @@ function getTemplateContent(): string {
 | \`screenshot\` | \`description\` | 截图 |
 | \`assert_text\` | \`expected\`, \`description\` | 断言页面包含文本 |
 | \`wait\` | \`description\` | 等待（可用 \`value\` 指定毫秒） |
-| \`navigate\` | \`value\`(URL), \`description\` | 页面跳转 |
+| \`navigate\` | \`value\`(URL), \`description\` | 页面跳转（清空页面栈） |
+
+**小程序专用动作**（platform=miniprogram时可用）：
+
+| 动作 | 必填参数 | 说明 |
+|------|---------|------|
+| \`navigate_to\` | \`value\`(URL), \`description\` | 小程序页面跳转（不清空页面栈，用wx.navigateTo） |
+| \`evaluate\` | \`value\`(JS代码), \`description\` | 在小程序端执行JS代码（可访问wx/getApp等） |
+| \`page_query\` | \`target\`(选择器), \`value\`(操作), \`description\` | 查询元素（value可为text/count/texts） |
+| \`call_method\` | \`target\`(方法名), \`value\`(JSON参数), \`description\` | 调用页面方法 |
+| \`read_text\` | \`target\`, \`expected\`, \`description\` | 读取元素文本并可选断言 |
+| \`tap_multiple\` | \`target\`, \`value\`(次数), \`wait_ms\`, \`description\` | 连续点击多次 |
+| \`scroll\` | \`value\`(scrollTop), \`description\` | 滚动页面 |
+| \`assert_compare\` | \`target\`, \`value\`(比较表达式), \`description\` | 数值比较断言（如">=100"） |
+| \`reset_state\` | \`description\` | 重置全局状态（场景间清理，一般不需要手动调用） |
 
 ### target 写法
 
