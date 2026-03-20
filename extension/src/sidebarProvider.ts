@@ -62,7 +62,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           await this._handleGetHistory();
           break;
         case "copyBugs":
-          await this._handleCopyBugs(msg.report);
+          await this._handleCopyBugs(msg.report, msg.blueprintPath || "");
           break;
         case "launchEngine":
           vscode.commands.executeCommand("testpilot-ai.launchEngine");
@@ -338,7 +338,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _formatBugText(report: Record<string, unknown>): string {
+  private _formatBugText(report: Record<string, unknown>, blueprintPath: string = ""): string {
     const bugCount = report.bug_count as number || 0;
     const lines: string[] = [
       `TestPilot AI 发现 ${bugCount} 个Bug，请修复：`,
@@ -381,13 +381,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       "- [蓝本问题]：testpilot.json蓝本写错了（选择器错、动作类型错等），请修正蓝本文件",
       "- 无标签：需要你自行判断是应用问题还是蓝本问题",
       "",
-      "请逐个修复以上Bug（蓝本错改蓝本，应用错改应用），修复后调用 run_blueprint_test 重新测试，直到全部通过为止。",
     );
+    // 闭环指令：包含蓝本路径，让编程AI能直接调用MCP工具重测
+    if (blueprintPath) {
+      lines.push(
+        `请逐个修复以上Bug（蓝本错改蓝本，应用错改应用），修复后调用 run_blueprint_test 重新测试：`,
+        `  blueprint_path: "${blueprintPath}"`,
+        `重复修复+测试，直到全部通过为止。`,
+      );
+    } else {
+      lines.push(
+        "请逐个修复以上Bug（蓝本错改蓝本，应用错改应用），修复后调用 run_blueprint_test 重新测试，直到全部通过为止。",
+      );
+    }
     return lines.join("\n");
   }
 
-  private async _handleCopyBugs(report: Record<string, unknown>): Promise<void> {
-    const bugText = this._formatBugText(report);
+  private async _handleCopyBugs(report: Record<string, unknown>, blueprintPath: string = ""): Promise<void> {
+    const bugText = this._formatBugText(report, blueprintPath);
 
     // 尝试直接发送到 Cascade/Copilot 聊天
     try {
@@ -1520,7 +1531,9 @@ ${commonRules}`;
     // 复制Bug给AI
     document.getElementById("btnCopyBugs").addEventListener("click", () => {
       if (!lastReport) { addLog("暂无测试报告", "error"); return; }
-      vscode.postMessage({ command: "copyBugs", report: lastReport });
+      // 附带蓝本路径，让编程AI知道调run_blueprint_test时传什么路径
+      var bpPath = document.getElementById("inputBlueprintPath").value.trim();
+      vscode.postMessage({ command: "copyBugs", report: lastReport, blueprintPath: bpPath });
     });
 
     // 重测按钮
