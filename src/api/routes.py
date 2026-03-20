@@ -503,73 +503,95 @@ def create_router(
             on_step=_on_step,
         )
 
-        try:
-            await ws_manager.send_log(f"蓝本测试开始: {blueprint.app_name}")
-            report = await runner.run(blueprint)
+        # 使用 StreamingResponse + 心跳保活，防止 HTTP 连接在长测试中断开
+        # 每 20 秒发送一个空格作为心跳，测试完成后发送完整 JSON 结果
+        import asyncio as _asyncio
+        from fastapi.responses import StreamingResponse as _StreamingResponse
 
-            # v1.3：保存记忆（Bug模式提取）
-            if memory_store and report.bugs:
-                try:
-                    from src.memory.compressor import MemoryCompressor
-                    compressor = MemoryCompressor(memory_store)
-                    compressor.extract_from_report(report)
-                except Exception as mem_err:
-                    logger.warning("蓝本测试记忆提取失败: {}", mem_err)
+        result_holder: dict = {}
 
-            from src.api.models import StepDetail, BugDetail
-            stopped = test_controller.was_stopped
-            if stopped:
-                test_controller.reset()
-            pass_rate = report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0
-            response = TestReportResponse(
-                test_name=report.test_name,
-                url=report.url,
-                total_steps=report.total_steps,
-                passed_steps=report.passed_steps,
-                failed_steps=report.failed_steps,
-                bug_count=len(report.bugs),
-                pass_rate=pass_rate,
-                duration_seconds=report.duration_seconds,
-                report_markdown=report.report_markdown,
-                stopped=stopped,
-                steps=[
-                    StepDetail(
-                        step=r.step,
-                        action=r.action.value if hasattr(r.action, 'value') else str(r.action),
-                        description=r.description,
-                        status=r.status.value if hasattr(r.status, 'value') else str(r.status),
-                        duration_seconds=r.duration_seconds,
-                        error_message=r.error_message,
-                        screenshot_path=r.screenshot_path,
-                    )
-                    for r in report.step_results
-                ],
-                bugs=[
-                    BugDetail(
-                        severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
-                        title=b.title,
-                        description=b.description,
-                        category=b.category,
-                        location=b.location,
-                        step_number=b.step_number,
-                        screenshot_path=b.screenshot_path,
-                    )
-                    for b in report.bugs
-                ],
-            )
-
-            # 通过 WebSocket 推送完整报告（作为 HTTP response 的后备）
-            # 即使 HTTP 连接中途断开，WebView 也能通过 WS 拿到结果
+        async def _run_test():
             try:
-                report_dict = response.model_dump()
-            except AttributeError:
-                report_dict = response.dict()
-            await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+                await ws_manager.send_log(f"蓝本测试开始: {blueprint.app_name}")
+                report = await runner.run(blueprint)
 
-            return response
-        except Exception as e:
-            logger.error("蓝本测试执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"蓝本测试执行失败: {e}")
+                if memory_store and report.bugs:
+                    try:
+                        from src.memory.compressor import MemoryCompressor
+                        compressor = MemoryCompressor(memory_store)
+                        compressor.extract_from_report(report)
+                    except Exception as mem_err:
+                        logger.warning("蓝本测试记忆提取失败: {}", mem_err)
+
+                from src.api.models import StepDetail, BugDetail
+                stopped = test_controller.was_stopped
+                if stopped:
+                    test_controller.reset()
+                pass_rate = report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0
+                response = TestReportResponse(
+                    test_name=report.test_name,
+                    url=report.url,
+                    total_steps=report.total_steps,
+                    passed_steps=report.passed_steps,
+                    failed_steps=report.failed_steps,
+                    bug_count=len(report.bugs),
+                    pass_rate=pass_rate,
+                    duration_seconds=report.duration_seconds,
+                    report_markdown=report.report_markdown,
+                    stopped=stopped,
+                    steps=[
+                        StepDetail(
+                            step=r.step,
+                            action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                            description=r.description,
+                            status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                            duration_seconds=r.duration_seconds,
+                            error_message=r.error_message,
+                            screenshot_path=r.screenshot_path,
+                        )
+                        for r in report.step_results
+                    ],
+                    bugs=[
+                        BugDetail(
+                            severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                            title=b.title,
+                            description=b.description,
+                            category=b.category,
+                            location=b.location,
+                            step_number=b.step_number,
+                            screenshot_path=b.screenshot_path,
+                        )
+                        for b in report.bugs
+                    ],
+                )
+                try:
+                    report_dict = response.model_dump()
+                except AttributeError:
+                    report_dict = response.dict()
+                await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+                result_holder["data"] = report_dict
+            except Exception as e:
+                logger.error("蓝本测试执行失败: {}", e)
+                result_holder["error"] = str(e)
+
+        async def _stream_with_heartbeat():
+            task = _asyncio.create_task(_run_test())
+            while not task.done():
+                await _asyncio.sleep(20)
+                if not task.done():
+                    yield b" "  # 心跳空格，保持HTTP连接活跃
+            await task  # 确保异常被传播
+            if "error" in result_holder:
+                import json as _json
+                yield _json.dumps({"detail": result_holder["error"]}).encode("utf-8")
+            else:
+                import json as _json
+                yield _json.dumps(result_holder.get("data", {})).encode("utf-8")
+
+        return _StreamingResponse(
+            _stream_with_heartbeat(),
+            media_type="application/json",
+        )
 
     @router.post("/test/mobile-blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_mobile_blueprint_test(req: RunMobileBlueprintRequest) -> TestReportResponse:

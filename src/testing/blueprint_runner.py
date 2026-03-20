@@ -523,7 +523,9 @@ class BlueprintRunner:
                 await asyncio.sleep(step_def.wait_after_ms / 1000.0)
 
             # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
-            need_screenshot = (step_def.action == "screenshot") or (step_def.expected and self._ai)
+            # assert_text 已经用纯文本匹配验证过了，不需要再调AI浪费tokens
+            need_ai_verify = (step_def.expected and self._ai and step_def.action != "assert_text")
+            need_screenshot = (step_def.action == "screenshot") or need_ai_verify
             if need_screenshot:
                 screenshot_path_obj = await self._browser.screenshot(f"step{step_num}_{step_def.action}")
                 screenshot_path = str(screenshot_path_obj)
@@ -537,10 +539,10 @@ class BlueprintRunner:
                     except Exception as e:
                         logger.debug("截图推送失败: {}", e)
 
-            # AI视觉验证（如果有预期结果描述）
+            # AI视觉验证（如果有预期结果描述，但 assert_text 已用文本匹配，跳过）
             ai_verdict = "passed"
             ai_detail = ""
-            if step_def.expected and self._ai and screenshot_path:
+            if need_ai_verify and screenshot_path:
                 ai_verdict, ai_detail = await self._ai_verify(screenshot_path, step_def.expected)
 
             elapsed = time.time() - start
