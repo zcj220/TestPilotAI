@@ -196,7 +196,12 @@ class MobileBlueprintRunner:
                 self._hub.on_scenario_start()
 
                 # 场景开始前截图+AI分析当前页面，预拿所有元素坐标
-                scene_coords = await self._analyze_page_elements(scenario)
+                # 如果场景第一步是 reset_state，跳过初始预分析（冷启动后页面会变，白分析）
+                first_action = scenario.steps[0].action if scenario.steps else ""
+                if first_action == "reset_state":
+                    scene_coords = {}
+                else:
+                    scene_coords = await self._analyze_page_elements(scenario)
 
                 for step_def in scenario.steps:
                     step_num += 1
