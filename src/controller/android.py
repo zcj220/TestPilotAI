@@ -414,6 +414,17 @@ class AndroidController(BaseController):
             await self._launch_ios()
             return
 
+        # 多设备环境自动检测：如果没有指定device_name，先获取设备列表并锁定第一台
+        if not self._config.device_name:
+            try:
+                dev_result = await self.check_device()
+                if dev_result.get("ok") and dev_result.get("devices"):
+                    self._config.device_name = dev_result["devices"][0]
+                    self._device.extra["serial"] = self._config.device_name
+                    logger.info("自动锁定设备: {}", self._config.device_name)
+            except Exception:
+                pass
+
         capabilities = {
             "platformName": self._config.platform_name,
             "appium:automationName": self._config.automation_name,
@@ -1499,10 +1510,7 @@ class AndroidController(BaseController):
 
     def _adb_cmd(self, *args: str) -> str:
         """执行adb命令并返回stdout。"""
-        cmd = ["adb"]
-        serial = self._config.device_name
-        if serial:
-            cmd.extend(["-s", serial])
+        cmd = self._adb_args()
         cmd.extend(args)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
