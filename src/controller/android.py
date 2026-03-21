@@ -310,13 +310,61 @@ class AndroidController(BaseController):
             lines = result.stdout.strip().split("\n")[1:]
             devices = [l.split()[0] for l in lines if "device" in l and "offline" not in l]
             if devices:
-                return {"ok": True, "message": f"已连接 {len(devices)} 台设备: {', '.join(devices)}", "devices": devices}
+                # 获取设备详情（型号、分辨率、Android版本）—— 握手时就拿到，用户友好
+                device_info = await self._get_device_info(devices[0])
+                info_str = ""
+                if device_info:
+                    parts = []
+                    if device_info.get("model"):
+                        parts.append(device_info["model"])
+                    if device_info.get("resolution"):
+                        parts.append(device_info["resolution"])
+                    if device_info.get("android_version"):
+                        parts.append(f"Android {device_info['android_version']}")
+                    if parts:
+                        info_str = f" ({', '.join(parts)})"
+                return {
+                    "ok": True,
+                    "message": f"已连接 {len(devices)} 台设备: {devices[0]}{info_str}",
+                    "devices": devices,
+                    "device_info": device_info,
+                }
             else:
                 return {"ok": False, "message": "未检测到已连接的 Android 设备。请用 USB 连接手机并启用 USB 调试。", "devices": []}
         except FileNotFoundError:
             return {"ok": False, "message": "adb 未安装或不在 PATH 中。请安装 Android SDK Platform Tools。", "devices": []}
         except Exception as e:
             return {"ok": False, "message": f"设备检测异常: {e}", "devices": []}
+
+    async def _get_device_info(self, device_serial: str) -> dict:
+        """通过adb获取设备详情（型号、分辨率、Android版本）。握手时调用，用户友好。"""
+        info: dict[str, str] = {}
+        loop = asyncio.get_event_loop()
+        adb_prefix = ["adb", "-s", device_serial, "shell"]
+
+        def _run(cmd_suffix: list[str]) -> str:
+            try:
+                r = subprocess.run(
+                    adb_prefix + cmd_suffix,
+                    capture_output=True, text=True, timeout=5,
+                )
+                return r.stdout.strip()
+            except Exception:
+                return ""
+
+        try:
+            model = await loop.run_in_executor(None, lambda: _run(["getprop", "ro.product.model"]))
+            if model:
+                info["model"] = model
+            resolution = await loop.run_in_executor(None, lambda: _run(["wm", "size"]))
+            if resolution and ":" in resolution:
+                info["resolution"] = resolution.split(":")[-1].strip()
+            version = await loop.run_in_executor(None, lambda: _run(["getprop", "ro.build.version.release"]))
+            if version:
+                info["android_version"] = version
+        except Exception:
+            pass
+        return info
 
     async def _check_ios_device(self) -> dict:
         """检测 iOS 设备连接状态（优先 idevice_id，回退 xcrun xctrace）。"""
