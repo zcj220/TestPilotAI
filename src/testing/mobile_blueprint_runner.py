@@ -172,6 +172,9 @@ class MobileBlueprintRunner:
         consecutive_scene_failures = 0  # 连续场景失败计数
         MAX_CONSECUTIVE_FAILURES = 3    # 连续N个场景失败则判定为阻塞性Bug
         blocking_bug_detected = False
+        # 页面坐标缓存：同一页面只截图+AI分析一次，后续场景复用
+        # key=页面URL（如'/login'）, value={选择器: (x,y)} 坐标映射
+        page_coords_cache: dict[str, dict[str, tuple[int, int]]] = {}
 
         for page_idx, page in enumerate(blueprint.pages):
             if cancelled or blocking_bug_detected:
@@ -201,7 +204,18 @@ class MobileBlueprintRunner:
                 if first_action == "reset_state":
                     scene_coords = {}
                 else:
-                    scene_coords = await self._analyze_page_elements(scenario)
+                    # 尝试从页面坐标缓存中复用（同一页面不重复截图+AI分析）
+                    cache_key = page.url or "_default"
+                    cached = page_coords_cache.get(cache_key, {})
+                    # 检查缓存是否覆盖当前场景需要的所有目标
+                    needed = {s.target for s in scenario.steps if s.action in ("click", "fill") and s.target}
+                    if needed and needed.issubset(cached.keys()):
+                        scene_coords = dict(cached)
+                        logger.info("  页面坐标缓存命中 | 复用{}/{}个元素坐标（跳过截图+AI分析）", len(needed), len(cached))
+                    else:
+                        scene_coords = await self._analyze_page_elements(scenario)
+                        if scene_coords:
+                            page_coords_cache[cache_key] = dict(scene_coords)
 
                 for step_def in scenario.steps:
                     step_num += 1
@@ -228,13 +242,23 @@ class MobileBlueprintRunner:
                         step_num, step_def, page, blueprint, scene_coords
                     )
 
-                    # reset_state 后重新预分析剩余步骤的元素坐标
+                    # reset_state 后重新预分析剩余步骤的元素坐标（优先用缓存）
                     if step_def.action == "reset_state" and scene_coords is not None and not scene_coords:
                         remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
-                        if any(s.action in ("click", "fill") for s in remaining_steps):
+                        needed = {s.target for s in remaining_steps if s.action in ("click", "fill") and s.target}
+                        # reset_state回到初始页，用页面URL作为缓存key
+                        cache_key = page.url or "_default"
+                        cached = page_coords_cache.get(cache_key, {})
+                        if needed and needed.issubset(cached.keys()):
+                            scene_coords.update(cached)
+                            logger.info("  reset_state后缓存命中 | 复用{}个元素坐标（跳过截图+AI分析）", len(needed))
+                        elif needed:
                             from types import SimpleNamespace
                             fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
-                            scene_coords.update(await self._analyze_page_elements(fake_scenario))
+                            new_coords = await self._analyze_page_elements(fake_scenario)
+                            scene_coords.update(new_coords)
+                            if new_coords:
+                                page_coords_cache[cache_key] = dict(new_coords)
 
                     # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
                     if bug:
