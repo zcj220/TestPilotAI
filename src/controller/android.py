@@ -443,10 +443,13 @@ class AndroidController(BaseController):
         # 先杀掉可能残留的 APP 和 U2 进程
         # Flutter app 如果已在运行且有活跃动画，XPath 策略会因 waitForIdle 卡死
         loop = asyncio.get_event_loop()
+        adb_pre = ["adb"]
+        if self._config.device_name:
+            adb_pre.extend(["-s", self._config.device_name])
         if self._config.app_package:
             await loop.run_in_executor(
                 None, lambda: subprocess.run(
-                    ["adb", "shell", "am", "force-stop", self._config.app_package],
+                    adb_pre + ["shell", "am", "force-stop", self._config.app_package],
                     capture_output=True, timeout=5,
                 )
             )
@@ -454,7 +457,7 @@ class AndroidController(BaseController):
                         "io.appium.uiautomator2.server.test"):
             await loop.run_in_executor(
                 None, lambda pkg=u2_pkg: subprocess.run(
-                    ["adb", "shell", "am", "force-stop", pkg],
+                    adb_pre + ["shell", "am", "force-stop", pkg],
                     capture_output=True, timeout=5,
                 )
             )
@@ -483,6 +486,12 @@ class AndroidController(BaseController):
             self._device.screen_width = int(parts[0])
             self._device.screen_height = int(parts[1])
         self._device.is_connected = True
+        # 保存设备序列号到extra，供adb命令（截图/点击/输入等）使用-s参数
+        device_udid = caps.get("deviceUDID", "") or caps.get("udid", "")
+        if device_udid:
+            self._device.extra["serial"] = device_udid
+        elif self._config.device_name:
+            self._device.extra["serial"] = self._config.device_name
 
         logger.info("Appium Session 创建成功 | ID={} | 设备={}",
                      self._session_id[:8], self._device.name)
@@ -518,9 +527,10 @@ class AndroidController(BaseController):
             component = f"{self._config.app_package}/{self._config.app_activity}"
             try:
                 loop2 = asyncio.get_event_loop()
+                _adb_fg = self._adb_args()
                 await loop2.run_in_executor(
                     None, lambda: subprocess.run(
-                        ["adb", "shell", "am", "start", "-n", component],
+                        _adb_fg + ["shell", "am", "start", "-n", component],
                         capture_output=True, timeout=10,
                     )
                 )
@@ -644,9 +654,10 @@ class AndroidController(BaseController):
         解决 Flutter app 重启后 UiAutomator2 Server 死锁的问题。
         """
         # 1. adb force-stop 杀掉 app
+        _adb = self._adb_args()
         await loop.run_in_executor(
             None, lambda: subprocess.run(
-                ["adb", "shell", "am", "force-stop", pkg],
+                _adb + ["shell", "am", "force-stop", pkg],
                 capture_output=True, timeout=10,
             )
         )
@@ -669,12 +680,12 @@ class AndroidController(BaseController):
         #    新Session会复用死锁的Server，所以必须手动杀掉
         def _kill_uia2():
             subprocess.run(
-                ["adb", "shell", "am", "force-stop",
+                _adb + ["shell", "am", "force-stop",
                  "io.appium.uiautomator2.server"],
                 capture_output=True, timeout=5,
             )
             subprocess.run(
-                ["adb", "shell", "am", "force-stop",
+                _adb + ["shell", "am", "force-stop",
                  "io.appium.uiautomator2.server.test"],
                 capture_output=True, timeout=5,
             )
@@ -723,9 +734,10 @@ class AndroidController(BaseController):
             logger.warning("设置waitForIdleTimeout失败: {}", e)
 
         # 6. 确保 APP 在前台
+        _adb2 = self._adb_args()
         await loop.run_in_executor(
             None, lambda: subprocess.run(
-                ["adb", "shell", "am", "start", "-n", component],
+                _adb2 + ["shell", "am", "start", "-n", component],
                 capture_output=True, timeout=10,
             )
         )
@@ -934,9 +946,10 @@ class AndroidController(BaseController):
             return
         loop = asyncio.get_event_loop()
         try:
+            _adb_kb = self._adb_args()
             await loop.run_in_executor(
                 None, lambda: subprocess.run(
-                    ["adb", "shell", "input", "keyevent", "111"],
+                    _adb_kb + ["shell", "input", "keyevent", "111"],
                     capture_output=True, timeout=5,
                 )
             )
@@ -1094,9 +1107,9 @@ class AndroidController(BaseController):
     # ── Logcat 日志收集 ──────────────────────────────────
 
     def _adb_args(self) -> list[str]:
-        """构建带设备序列号的 adb 命令前缀。"""
+        """构建带设备序列号的 adb 命令前缀。多设备环境必须带 -s。"""
         cmd = ["adb"]
-        serial = self._config.device_name
+        serial = self._device.extra.get("serial", "") or self._config.device_name
         if serial:
             cmd.extend(["-s", serial])
         return cmd
@@ -1556,7 +1569,7 @@ class AndroidController(BaseController):
         """同步检测设备上 UiAutomator2 Server 进程是否存活。"""
         try:
             r = subprocess.run(
-                ["adb", "shell", "ps", "-A"],
+                self._adb_args() + ["shell", "ps", "-A"],
                 capture_output=True, text=True, timeout=5,
             )
             return "uiautomator" in r.stdout
@@ -1582,11 +1595,12 @@ class AndroidController(BaseController):
         self._session_id = None
 
         # 2. 清理残留的 U2 进程
+        _adb_r = self._adb_args()
         def _kill_uia2():
             for pkg in ("io.appium.uiautomator2.server",
                         "io.appium.uiautomator2.server.test"):
                 subprocess.run(
-                    ["adb", "shell", "am", "force-stop", pkg],
+                    _adb_r + ["shell", "am", "force-stop", pkg],
                     capture_output=True, timeout=5,
                 )
         await loop.run_in_executor(None, _kill_uia2)

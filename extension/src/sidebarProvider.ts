@@ -1057,9 +1057,13 @@ ${commonRules}`;
       }
       const serial = lines[0].split("\t")[0];
       const model = (await run(`adb -s ${serial} shell getprop ro.product.model`)).trim() || serial;
+      const resRaw = (await run(`adb -s ${serial} shell wm size`)).trim();
+      const resolution = resRaw.includes(":") ? resRaw.split(":").pop()!.trim() : "";
+      const androidVer = (await run(`adb -s ${serial} shell getprop ro.build.version.release`)).trim();
+      const infoParts = [model, resolution, androidVer ? `Android ${androidVer}` : ""].filter(Boolean);
       this._postMessage({
         command: "deviceStatusResult",
-        data: { connected: true, message: `设备已连接：${model}`, deviceName: model },
+        data: { connected: true, message: `${infoParts.join("，")}`, deviceName: model },
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
