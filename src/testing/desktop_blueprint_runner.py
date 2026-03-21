@@ -99,6 +99,49 @@ class DesktopBlueprintRunner:
         self._ocr_text_cache: str = ""
         # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
         self._hub = AIHub(ai_client)
+        # 多页面指纹库：记录测试过程中遇到的每个页面的文本指纹和坐标
+        # 用途：步骤失败时快速识别当前在哪个页面，直接用缓存坐标（不截图不调AI）
+        self._page_library: dict[str, tuple[set[str], dict[str, tuple[int, int]]]] = {}
+
+    @staticmethod
+    def _extract_desktop_fingerprint(ui_tree: str) -> set[str]:
+        """从桌面UI树提取页面文本指纹（用于快速识别当前在哪个页面）。"""
+        texts: set[str] = set()
+        for m in re.findall(r"Name='([^']+)'", ui_tree):
+            val = m.strip()
+            if val and len(val) >= 2:
+                texts.add(val)
+        return texts
+
+    def _register_page(self, page_tag: str, fingerprint: set[str],
+                       coords: dict[str, tuple[int, int]]) -> None:
+        """将页面指纹和坐标注册到页面库。"""
+        if not fingerprint:
+            return
+        existing_fp, existing_coords = self._page_library.get(page_tag, (set(), {}))
+        merged_fp = existing_fp | fingerprint
+        merged_coords = {**existing_coords, **coords}
+        self._page_library[page_tag] = (merged_fp, merged_coords)
+        logger.debug("  页面库注册: {} | 指纹{}个 | 坐标{}个", page_tag, len(merged_fp), len(merged_coords))
+
+    def _identify_page(self, ui_tree: str) -> tuple[str | None, dict[str, tuple[int, int]]]:
+        """通过UI树指纹快速识别当前在哪个页面（不截图、不调AI）。"""
+        if not self._page_library:
+            return None, {}
+        current_fp = self._extract_desktop_fingerprint(ui_tree)
+        if not current_fp:
+            return None, {}
+        best_tag, best_score, best_coords = None, 0.0, {}
+        for tag, (fp, coords) in self._page_library.items():
+            if not fp:
+                continue
+            overlap = len(current_fp & fp)
+            score = overlap / len(fp)
+            if score > best_score:
+                best_score, best_tag, best_coords = score, tag, coords
+        if best_score >= 0.5:
+            return best_tag, best_coords
+        return None, {}
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -514,7 +557,22 @@ class DesktopBlueprintRunner:
             await asyncio.sleep(0.3)
             return
 
-        # 第2层：UI Automation精确定位
+        # 第2层：页面指纹识别 — 获取UI树 → 识别页面 → 复用缓存坐标
+        if self._page_library:
+            try:
+                ui_tree = await self._ctrl.get_page_source()
+                if ui_tree:
+                    page_tag, lib_coords = self._identify_page(ui_tree)
+                    if page_tag and target in lib_coords:
+                        x, y = lib_coords[target]
+                        logger.info("  [指纹] 识别到页面'{}' | 使用缓存坐标点击 ({}, {})", page_tag, x, y)
+                        await self._ctrl._click_at(x, y)
+                        await asyncio.sleep(0.3)
+                        return
+            except Exception:
+                pass
+
+        # 第3层：UI Automation精确定位
         try:
             await self._ctrl.tap(target)
             await asyncio.sleep(0.3)
@@ -526,7 +584,7 @@ class DesktopBlueprintRunner:
             else:
                 raise
 
-        # 第3层：AI视觉降级
+        # 第4层：AI视觉降级
         if self._ai:
             coord = await self._visual_find_element(target, description)
             if coord:
@@ -557,7 +615,25 @@ class DesktopBlueprintRunner:
             await asyncio.sleep(0.2)
             return
 
-        # 第2层：UI Automation精确定位
+        # 第2层：页面指纹识别 — 获取UI树 → 识别页面 → 复用缓存坐标
+        if self._page_library:
+            try:
+                ui_tree = await self._ctrl.get_page_source()
+                if ui_tree:
+                    page_tag, lib_coords = self._identify_page(ui_tree)
+                    if page_tag and target in lib_coords:
+                        x, y = lib_coords[target]
+                        logger.info("  [指纹] 识别到页面'{}' | 使用缓存坐标输入 ({}, {})", page_tag, x, y)
+                        await self._ctrl._click_at(x, y)
+                        await asyncio.sleep(0.3)
+                        await self._select_all_delete()
+                        await self._ctrl._send_text_bg(value)
+                        await asyncio.sleep(0.2)
+                        return
+            except Exception:
+                pass
+
+        # 第3层：UI Automation精确定位
         try:
             await self._ctrl.input_text(target, value)
             await asyncio.sleep(0.3)
@@ -569,7 +645,7 @@ class DesktopBlueprintRunner:
             else:
                 raise
 
-        # 第3层：AI视觉降级
+        # 第4层：AI视觉降级
         if self._ai:
             coord = await self._visual_find_element(target, description)
             if coord:
@@ -833,6 +909,17 @@ class DesktopBlueprintRunner:
 
         except Exception as e:
             logger.warning("AI视觉分析失败: {}", str(e)[:100])
+
+        # 将页面指纹+坐标注册到页面库（供后续快速识别页面）
+        if coords:
+            try:
+                ui_tree = await self._ctrl.get_page_source()
+                if ui_tree:
+                    page_tag = getattr(scenario, 'name', 'unknown')
+                    fp = self._extract_desktop_fingerprint(ui_tree)
+                    self._register_page(page_tag, fp, coords)
+            except Exception:
+                pass
 
         return coords
 
