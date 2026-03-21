@@ -77,7 +77,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           await this._handleBrowseBlueprint();
           break;
         case "copyBlueprintPrompt":
-          await this._handleCopyBlueprintPrompt(msg.platform || "web");
+          await this._handleCopyBlueprintPrompt(msg.platform || "web", msg.projectDir || "");
           break;
         case "platformPrecheck":
           await this._handlePlatformPrecheck(msg);
@@ -494,7 +494,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleCopyBlueprintPrompt(platform: string): Promise<void> {
+  private async _handleCopyBlueprintPrompt(platform: string, projectDir: string = ""): Promise<void> {
     const commonRules = `══════ 测试设计黄金规则（必须严格遵守） ══════
 
 【铁律0：每个项目必须有独立蓝本】
@@ -875,10 +875,15 @@ ${commonRules}`;
 ${commonRules}`;
     }
 
+    if (projectDir) {
+      const dirForPrompt = projectDir.replace(/\\/g, "/");
+      prompt = `当前项目路径：${dirForPrompt}\n请直接读取该目录下的源代码生成蓝本，无需再次询问项目路径。\n\n` + prompt;
+    }
     await vscode.env.clipboard.writeText(prompt);
     const platformNames: Record<string, string> = { web: "Web", miniprogram: "微信小程序", android: "Android", desktop: "Windows桌面", ios: "iOS" };
     const pName = platformNames[platform] || "Web";
     vscode.window.showInformationMessage(`✅ ${pName}蓝本提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。`);
+  }
   }
 
   private _guessProjectPathFromBlueprint(blueprintPath: string): string {
@@ -1707,8 +1712,10 @@ ${commonRules}`;
     // 复制蓝本生成提示词（根据当前选中项目的平台生成不同提示词）
     document.getElementById("btnCopyBlueprintPrompt").addEventListener("click", () => {
       const sel = document.getElementById("projectSelect");
-      const platform = sel && sel.selectedOptions[0] ? (sel.selectedOptions[0].dataset.platform || "web") : "web";
-      vscode.postMessage({ command: "copyBlueprintPrompt", platform: platform });
+      const selOpt = sel && sel.selectedOptions[0];
+      const platform = selOpt ? (selOpt.dataset.platform || "web") : "web";
+      const projectDir = selOpt ? (selOpt.dataset.projectDir || "") : "";
+      vscode.postMessage({ command: "copyBlueprintPrompt", platform: platform, projectDir: projectDir });
     });
 
     // 探索测试
@@ -1856,6 +1863,7 @@ ${commonRules}`;
         var opt = document.createElement("option");
         opt.value = String(i);
         opt.dataset.platform = proj.platform || "web";
+        opt.dataset.projectDir = proj.projectDir || "";
         var pName = platformNames[proj.platform] || proj.platform || "Web";
         // iOS项目在Windows下灰色不可选
         if (proj.platform === "ios" && isWindows) {

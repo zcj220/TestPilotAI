@@ -9,6 +9,8 @@
 """
 
 import asyncio
+import hashlib
+import json as _json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,10 +70,15 @@ class MobileBlueprintRunner:
         # 页面指纹标签：记录初始页（如登录页）的文本指纹
         # reset_state前快速检查当前是否已在初始页，是则跳过冷启动（省8秒+重建Session）
         self._initial_page_fingerprint: set[str] | None = None
-        # 多页面指纹库：记录测试过程中遇到的每个页面的指纹和坐标
-        # key=页面标签名（如'login','register'等）, value=(指纹集合, 坐标映射)
-        # 用途：步骤失败时快速dump UI树识别当前在哪个页面，直接用缓存坐标
+        # 多页面指纹库：记录测试过程中遇到的每个页面的指纹和坐标（核心缓存）
+        # key=页面标签名, value=(指纹集合, 坐标映射)
+        # 用途：场景预分析/步骤执行/页面切换时通过指纹识别页面并复用缓存坐标
+        # 自动去重：同一页面从不同场景进入时合并到同一条目（避免重复AI分析）
         self._page_library: dict[str, tuple[set[str], dict[str, tuple[int, int]]]] = {}
+        # 持久化缓存文件路径（在run()中根据blueprint.source_path初始化）
+        self._cache_path: Path | None = None
+        # 缓存绑定的分辨率（加载时校验，不匹配则作废）
+        self._cache_resolution: tuple[int, int] = (0, 0)
 
     @staticmethod
     def _extract_page_fingerprint(xml_str: str) -> set[str]:
@@ -91,15 +98,34 @@ class MobileBlueprintRunner:
 
     def _register_page(self, page_tag: str, fingerprint: set[str],
                        coords: dict[str, tuple[int, int]]) -> None:
-        """将页面指纹和坐标注册到页面库（供后续快速识别+直接操作）。"""
+        """将页面指纹和坐标注册到页面库（自动去重：相似页面合并到同一条目）。"""
         if not fingerprint:
             return
-        existing_fp, existing_coords = self._page_library.get(page_tag, (set(), {}))
-        merged_fp = existing_fp | fingerprint
-        merged_coords = {**existing_coords, **coords}
-        self._page_library[page_tag] = (merged_fp, merged_coords)
-        logger.debug("  页面库注册/更新: {} | 指纹{}个 | 坐标{}个",
-                     page_tag, len(merged_fp), len(merged_coords))
+        # 查找是否已有相似页面（指纹重叠 >= 50%），避免同一页面重复注册
+        merge_tag = None
+        best_score = 0.0
+        for tag, (fp, _) in self._page_library.items():
+            if not fp:
+                continue
+            overlap = len(fingerprint & fp)
+            score = overlap / len(fp)
+            if score > best_score:
+                best_score = score
+                merge_tag = tag
+
+        if best_score >= 0.5 and merge_tag:
+            # 合并到已有页面条目（同一页面不同场景的坐标都汇聚到一起）
+            existing_fp, existing_coords = self._page_library[merge_tag]
+            merged_fp = existing_fp | fingerprint
+            merged_coords = {**existing_coords, **coords}
+            self._page_library[merge_tag] = (merged_fp, merged_coords)
+            logger.debug("  页面库合并: {} (匹配{:.0%}) | 指纹{}个 | 坐标{}个",
+                         merge_tag, best_score, len(merged_fp), len(merged_coords))
+        else:
+            # 全新页面，建新条目
+            self._page_library[page_tag] = (fingerprint, dict(coords))
+            logger.debug("  页面库新增: {} | 指纹{}个 | 坐标{}个",
+                         page_tag, len(fingerprint), len(coords))
 
     def _identify_page(self, xml_str: str) -> tuple[str | None, dict[str, tuple[int, int]]]:
         """通过UI树指纹快速识别当前在哪个页面（不截图、不调AI）。
@@ -130,6 +156,103 @@ class MobileBlueprintRunner:
         if best_score >= 0.5:
             return best_tag, best_coords
         return None, {}
+
+    # ── 持久化缓存 ─────────────────────────────────────
+
+    def _init_cache(self, blueprint: Blueprint) -> None:
+        """根据蓝本路径和设备分辨率初始化持久化缓存。"""
+        w = int(self._ctrl._device.screen_width or 1080)
+        h = int(self._ctrl._device.screen_height or 2400)
+        self._cache_resolution = (w, h)
+
+        # 缓存文件放在蓝本同目录: testpilot/.page_cache.json
+        if blueprint.source_path:
+            cache_dir = blueprint.source_path.parent
+        else:
+            cache_dir = None
+
+        if cache_dir and cache_dir.exists():
+            self._cache_path = cache_dir / ".page_cache.json"
+            self._load_cache(blueprint)
+        else:
+            self._cache_path = None
+
+    def _load_cache(self, blueprint: Blueprint) -> None:
+        """从磁盘加载页面缓存到 _page_library（校验分辨率+包名）。"""
+        if not self._cache_path or not self._cache_path.exists():
+            return
+        try:
+            data = _json.loads(self._cache_path.read_text(encoding="utf-8"))
+            if data.get("schema_version") != 1:
+                logger.info("页面缓存schema版本不匹配，已忽略")
+                return
+            # 校验分辨率
+            dev = data.get("device", {})
+            if (dev.get("width"), dev.get("height")) != (self._cache_resolution[0], self._cache_resolution[1]):
+                logger.info("页面缓存分辨率不匹配 ({}x{} vs {}x{})，已作废",
+                            dev.get("width"), dev.get("height"),
+                            self._cache_resolution[0], self._cache_resolution[1])
+                return
+            # 校验包名
+            if data.get("app_package") != (blueprint.app_package or blueprint.bundle_id or ""):
+                logger.info("页面缓存app_package不匹配，已作废")
+                return
+
+            pages = data.get("pages", {})
+            loaded = 0
+            for tag, entry in pages.items():
+                fps = set(entry.get("fingerprints", []))
+                raw_coords = entry.get("coords", {})
+                coords = {k: tuple(v) for k, v in raw_coords.items()}
+                if fps and coords:
+                    self._page_library[tag] = (fps, coords)
+                    loaded += 1
+            if loaded:
+                logger.info("📦 页面缓存已加载 | {} 个页面 | 来源: {}", loaded, self._cache_path.name)
+        except Exception as e:
+            logger.debug("页面缓存加载失败（非致命）: {}", str(e)[:100])
+
+    def _save_cache(self, blueprint: Blueprint) -> None:
+        """将当前 _page_library 持久化到磁盘。"""
+        if not self._cache_path or not self._page_library:
+            return
+        try:
+            pages = {}
+            for tag, (fps, coords) in self._page_library.items():
+                # 指纹hash用于快速比较
+                fp_hash = hashlib.md5("".join(sorted(fps)).encode()).hexdigest()[:12]
+                pages[tag] = {
+                    "fingerprint_hash": fp_hash,
+                    "fingerprints": sorted(fps),
+                    "coords": {k: list(v) for k, v in coords.items()},
+                }
+            data = {
+                "schema_version": 1,
+                "device": {
+                    "width": self._cache_resolution[0],
+                    "height": self._cache_resolution[1],
+                },
+                "app_package": blueprint.app_package or blueprint.bundle_id or "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "pages": pages,
+            }
+            self._cache_path.write_text(
+                _json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.debug("页面缓存已保存 | {} 个页面 → {}", len(pages), self._cache_path.name)
+        except Exception as e:
+            logger.debug("页面缓存保存失败（非致命）: {}", str(e)[:100])
+
+    def _invalidate_page_cache(self, target: str) -> None:
+        """缓存坐标导致操作失败时，废弃包含该target的缓存条目。"""
+        to_remove = []
+        for tag, (fps, coords) in self._page_library.items():
+            if target in coords:
+                to_remove.append(tag)
+        for tag in to_remove:
+            del self._page_library[tag]
+            logger.info("  🗑️ 缓存条目已废弃: '{}' (因 {} 操作失败)", tag, target)
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -240,9 +363,9 @@ class MobileBlueprintRunner:
         consecutive_scene_failures = 0  # 连续场景失败计数
         MAX_CONSECUTIVE_FAILURES = 3    # 连续N个场景失败则判定为阻塞性Bug
         blocking_bug_detected = False
-        # 页面坐标缓存：同一页面只截图+AI分析一次，后续场景复用
-        # key=页面URL（如'/login'）, value={选择器: (x,y)} 坐标映射
-        page_coords_cache: dict[str, dict[str, tuple[int, int]]] = {}
+
+        # 初始化持久化缓存（加载上次运行的页面指纹+坐标）
+        self._init_cache(blueprint)
 
         for page_idx, page in enumerate(blueprint.pages):
             if cancelled or blocking_bug_detected:
@@ -266,24 +389,27 @@ class MobileBlueprintRunner:
                 logger.info("── 场景: {} ──", scenario.name)
                 self._hub.on_scenario_start()
 
-                # 场景开始前截图+AI分析当前页面，预拿所有元素坐标
-                # 如果场景第一步是 reset_state，跳过初始预分析（冷启动后页面会变，白分析）
+                # 场景开始前获取当前页面元素坐标（指纹缓存优先，减少AI调用）
                 first_action = scenario.steps[0].action if scenario.steps else ""
                 if first_action == "reset_state":
                     scene_coords = {}
                 else:
-                    # 尝试从页面坐标缓存中复用（同一页面不重复截图+AI分析）
-                    cache_key = page.url or "_default"
-                    cached = page_coords_cache.get(cache_key, {})
-                    # 检查缓存是否覆盖当前场景需要的所有目标
-                    needed = {s.target for s in scenario.steps if s.action in ("click", "fill") and s.target}
-                    if needed and needed.issubset(cached.keys()):
-                        scene_coords = dict(cached)
-                        logger.info("  页面坐标缓存命中 | 复用{}/{}个元素坐标（跳过截图+AI分析）", len(needed), len(cached))
-                    else:
+                    # 指纹优先：dump UI树 → 识别页面 → 缓存命中则跳过截图+AI分析
+                    scene_coords = {}
+                    fingerprint_hit = False
+                    try:
+                        xml_str = await self._ctrl.dump_ui_tree()
+                        if xml_str and self._page_library:
+                            page_tag, lib_coords = self._identify_page(xml_str)
+                            if page_tag and lib_coords:
+                                scene_coords.update(lib_coords)
+                                fingerprint_hit = True
+                                logger.info("  [指纹缓存] 页面'{}' | 复用{}个坐标（跳过截图+AI分析）",
+                                            page_tag, len(lib_coords))
+                    except Exception:
+                        pass
+                    if not fingerprint_hit:
                         scene_coords = await self._analyze_page_elements(scenario)
-                        if scene_coords:
-                            page_coords_cache[cache_key] = dict(scene_coords)
 
                 for step_def in scenario.steps:
                     step_num += 1
@@ -310,23 +436,26 @@ class MobileBlueprintRunner:
                         step_num, step_def, page, blueprint, scene_coords
                     )
 
-                    # reset_state 后重新预分析剩余步骤的元素坐标（优先用缓存）
+                    # reset_state 后回到初始页 → 先用指纹缓存，没命中才调AI分析
                     if step_def.action == "reset_state" and scene_coords is not None and not scene_coords:
                         remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
-                        needed = {s.target for s in remaining_steps if s.action in ("click", "fill") and s.target}
-                        # reset_state回到初始页，用页面URL作为缓存key
-                        cache_key = page.url or "_default"
-                        cached = page_coords_cache.get(cache_key, {})
-                        if needed and needed.issubset(cached.keys()):
-                            scene_coords.update(cached)
-                            logger.info("  reset_state后缓存命中 | 复用{}个元素坐标（跳过截图+AI分析）", len(needed))
-                        elif needed:
-                            from types import SimpleNamespace
-                            fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
-                            new_coords = await self._analyze_page_elements(fake_scenario)
-                            scene_coords.update(new_coords)
-                            if new_coords:
-                                page_coords_cache[cache_key] = dict(new_coords)
+                        if any(s.action in ("click", "fill") for s in remaining_steps):
+                            fingerprint_hit = False
+                            try:
+                                xml_str = await self._ctrl.dump_ui_tree()
+                                if xml_str and self._page_library:
+                                    page_tag, lib_coords = self._identify_page(xml_str)
+                                    if page_tag and lib_coords:
+                                        scene_coords.update(lib_coords)
+                                        fingerprint_hit = True
+                                        logger.info("  [reset_state] 指纹识别'{}' | 复用{}个缓存坐标",
+                                                    page_tag, len(lib_coords))
+                            except Exception:
+                                pass
+                            if not fingerprint_hit:
+                                from types import SimpleNamespace
+                                fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
+                                scene_coords.update(await self._analyze_page_elements(fake_scenario))
 
                     # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
                     if bug:
@@ -349,7 +478,7 @@ class MobileBlueprintRunner:
                             if decision.recover_selector:
                                 logger.info("  🔧 AI中枢L2恢复：先点击[{}]", decision.recover_selector)
                                 try:
-                                    await self._appium.click(decision.recover_selector)
+                                    await self._ctrl.tap(decision.recover_selector)
                                     await asyncio.sleep(1)
                                 except Exception as recover_err:
                                     logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
@@ -414,16 +543,33 @@ class MobileBlueprintRunner:
                     )
                     all_results.append(result)
 
-                    # navigate后scene_coords被清空 → 重新分析剩余步骤
+                    # navigate 后页面切换 → 先用指纹缓存，没命中才调AI分析
                     if step_def.action == "navigate" and not scene_coords:
                         remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
                         if any(s.action in ("click", "fill") for s in remaining_steps):
-                            from types import SimpleNamespace
-                            fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
-                            scene_coords.update(await self._analyze_page_elements(fake_scenario))
+                            fingerprint_hit = False
+                            try:
+                                xml_str = await self._ctrl.dump_ui_tree()
+                                if xml_str and self._page_library:
+                                    page_tag, lib_coords = self._identify_page(xml_str)
+                                    if page_tag and lib_coords:
+                                        scene_coords.update(lib_coords)
+                                        fingerprint_hit = True
+                                        logger.info("  [页面切换] 指纹识别'{}' | 复用{}个缓存坐标",
+                                                    page_tag, len(lib_coords))
+                            except Exception:
+                                pass
+                            if not fingerprint_hit:
+                                from types import SimpleNamespace
+                                fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
+                                scene_coords.update(await self._analyze_page_elements(fake_scenario))
 
                     # 失败时注入 logcat 日志
                     if bug:
+                        # 缓存自愈：步骤失败时清除涉及该 target 的缓存词条
+                        if step_def.target and step_def.action in ("click", "fill", "select"):
+                            self._invalidate_page_cache(step_def.target)
+
                         logs = await self._ctrl.get_logcat(last_n=30)
                         if logs:
                             log_text = "\n".join(logs[-20:])
@@ -460,6 +606,9 @@ class MobileBlueprintRunner:
                         blocking_bug_detected = True
                 else:
                     consecutive_scene_failures = 0  # 有场景通过，重置计数
+
+        # ── 持久化页面指纹缓存 ──
+        self._save_cache(blueprint)
 
         # 汇总
         report.step_results = all_results
@@ -722,9 +871,8 @@ class MobileBlueprintRunner:
                         error_message=f"文本断言失败: 预期'{expected}'，实际'{text}'",
                     ), bug
 
-            # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
-            need_screenshot = (step_def.action == "screenshot") or (step_def.expected and self._ai)
-            if need_screenshot:
+            # 只在蓝本显式写了screenshot动作时才截图
+            if step_def.action == "screenshot":
                 screenshot_path = await self._ctrl.screenshot(f"step{step_num:03d}_{step_def.action}")
 
         except Exception as exc:
@@ -968,6 +1116,7 @@ class MobileBlueprintRunner:
             response = await loop.run_in_executor(
                 None, lambda: self._ai.analyze_screenshot(
                     str(screenshot_path), prompt, reasoning_effort="low",
+                    timeout=60, max_tokens=2000,
                 )
             )
 
@@ -1241,7 +1390,7 @@ class MobileBlueprintRunner:
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
                     None, lambda p=prompt, sp=str(screenshot_path): self._ai.analyze_screenshot(
-                        sp, p, reasoning_effort="low",
+                        sp, p, reasoning_effort="low", timeout=45, max_tokens=500,
                     )
                 )
 

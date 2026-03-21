@@ -88,10 +88,15 @@ class ConnectionManager:
         if not self._connections:
             return
 
-        payload = json.dumps(
-            {"type": message_type, "data": data},
-            ensure_ascii=False,
-        )
+        try:
+            payload = json.dumps(
+                {"type": message_type, "data": data},
+                ensure_ascii=False,
+                default=str,  # 兜底：遇到不可序列化对象时转为字符串
+            )
+        except Exception as e:
+            logger.warning("WS广播序列化失败: {} | type={}", str(e)[:80], message_type)
+            return
 
         dead: list[WebSocket] = []
         for ws in self._connections:

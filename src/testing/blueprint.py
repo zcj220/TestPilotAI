@@ -51,8 +51,10 @@ class BlueprintPage(BaseModel):
 
 class Blueprint(BaseModel):
     """测试蓝本（testpilot.json 的完整结构）。"""
+    model_config = {"arbitrary_types_allowed": True}
 
     app_name: str = Field(description="应用名称")
+    source_path: Optional[Path] = Field(default=None, exclude=True, description="蓝本文件的磁盘路径（运行时填充，不序列化）")
     description: str = Field(default="", description="蓝本功能说明（50-200字，描述本蓝本覆盖的功能范围）")
     base_url: str = Field(default="", description="基础URL（如 http://localhost:3001）")
     version: str = Field(default="1.0", description="蓝本版本")
@@ -103,7 +105,9 @@ class BlueprintParser:
         except json.JSONDecodeError as e:
             raise ValueError(f"蓝本JSON格式错误: {e}")
 
-        return BlueprintParser.parse_dict(data)
+        bp = BlueprintParser.parse_dict(data)
+        bp.source_path = path
+        return bp
 
     @staticmethod
     def parse_dict(data: dict) -> Blueprint:

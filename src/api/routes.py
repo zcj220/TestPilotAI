@@ -320,7 +320,10 @@ def create_router(
                 auto_repair=req.auto_repair,
                 project_path=req.project_path,
             )
-            await ws_manager.send_test_done(report.pass_rate, len(report.bugs))
+            try:
+                await ws_manager.send_test_done(report.pass_rate, len(report.bugs))
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
 
             # 构建响应
             repair_summary = None
@@ -420,10 +423,13 @@ def create_router(
                 await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
                 await ws_manager.send_test_started()  # 通知插件显示控制按钮
                 report = await runner.run(blueprint)
-                await ws_manager.send_test_done(
-                    report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
-                    len(report.bugs),
-                )
+                try:
+                    await ws_manager.send_test_done(
+                        report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                        len(report.bugs),
+                    )
+                except Exception as ws_err:
+                    logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
                 from src.api.models import StepDetail, BugDetail
                 stopped = test_controller.was_stopped
                 if stopped:
@@ -569,7 +575,10 @@ def create_router(
                     report_dict = response.model_dump()
                 except AttributeError:
                     report_dict = response.dict()
-                await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+                try:
+                    await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+                except Exception as ws_err:
+                    logger.warning("WS推送test_done失败（不影响结果）: {}", str(ws_err)[:100])
                 result_holder["data"] = report_dict
             except Exception as e:
                 logger.error("蓝本测试执行失败: {}", e)
@@ -738,11 +747,15 @@ def create_router(
                 ],
             )
             # 通过WebSocket推送完整报告（含bugs+steps），插件侧边栏才能渲染Bug详情
+            # WS推送失败不能影响HTTP返回（否则客户端拿不到bug详情）
             try:
                 report_dict = response.model_dump()
             except AttributeError:
                 report_dict = response.dict()
-            await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+            try:
+                await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败（不影响HTTP返回）: {}", str(ws_err)[:100])
             return response
         except Exception as e:
             logger.error("手机蓝本测试执行失败: {}", e)
@@ -955,7 +968,10 @@ def create_router(
             )
 
             pass_rate = passed / total * 100 if total > 0 else 0
-            await ws_manager.send_test_done(pass_rate, len(bugs))
+            try:
+                await ws_manager.send_test_done(pass_rate, len(bugs))
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
 
             from src.api.models import StepDetail, BugDetail
             return TestReportResponse(
@@ -1303,10 +1319,13 @@ def create_router(
                 description=req.description,
                 max_actions=req.max_actions,
             )
-            await ws_manager.send_test_done(
-                report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
-                len(report.bugs),
-            )
+            try:
+                await ws_manager.send_test_done(
+                    report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                    len(report.bugs),
+                )
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
 
             return TestReportResponse(
                 test_name=report.test_name,
