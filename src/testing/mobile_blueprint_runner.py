@@ -510,10 +510,17 @@ class MobileBlueprintRunner:
                     await self._ctrl.navigate(f"{pkg}/{activity}")
                 else:
                     logger.warning("  reset_state: 无appPackage/bundleId，跳过")
-                await asyncio.sleep(2)  # 等待应用冷启动完成
-                # 重启后页面变了，清空预分析坐标
+                # Flutter/原生应用冷启动需要较长渲染时间（2秒不够，黑屏）
+                await asyncio.sleep(5)
+                # 重启后页面变了，清空预分析坐标并重新分析
                 if scene_coords is not None:
                     scene_coords.clear()
+                    # 重新预分析当前场景剩余步骤的元素坐标
+                    remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
+                    if any(s.action in ("click", "fill") for s in remaining_steps):
+                        from types import SimpleNamespace
+                        fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
+                        scene_coords.update(await self._analyze_page_elements(fake_scenario))
 
             elif step_def.action == "click":
                 await self._smart_tap(target, desc, scene_coords)
