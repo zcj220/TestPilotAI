@@ -62,6 +62,9 @@ class MobileBlueprintRunner:
         self._test_controller = test_controller
         # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
         self._hub = AIHub(ai_client)
+        # Flutter/自绘应用标志：UI树匹配为0时设为True，跳过Appium元素查找
+        # 避免每步都触发U2崩溃+重建Session（每次浪费20-40秒）
+        self._skip_appium = False
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -547,8 +550,9 @@ class MobileBlueprintRunner:
                     await self._ctrl.navigate(f"{pkg}/{activity}")
                 else:
                     logger.warning("  reset_state: 无appPackage/bundleId，跳过")
-                # Flutter/原生应用冷启动需要较长渲染时间（2秒不够，黑屏）
-                await asyncio.sleep(5)
+                # Flutter/原生应用冷启动需要较长渲染时间
+                # 5秒不够（919KB截图=闪屏过渡画面，AI分析0命中），增加到8秒
+                await asyncio.sleep(8)
                 # 重启后页面变了，清空预分析坐标
                 # 注意：重新预分析在外层场景循环中触发（_execute_step_inner无法访问scenario）
                 if scene_coords is not None:
@@ -711,6 +715,11 @@ class MobileBlueprintRunner:
                 ai_hit = 0
             logger.info("  页面预分析完成 | UI树={} + AI={} / 总共{}",
                          ui_matched, ai_hit, len(targets))
+            # 首次检测到UI树完全无法匹配任何元素（典型Flutter/自绘应用），
+            # 标记跳过Appium查找，后续所有步骤直接用坐标或视觉降级
+            if ui_matched == 0 and not self._skip_appium:
+                self._skip_appium = True
+                logger.info("  ⚡ 检测到自绘UI应用（UI树无法匹配元素），后续跳过Appium查找")
         else:
             logger.info("  页面预分析完成(UI树) | 匹配 {}/{} 个元素", ui_matched, len(targets))
 
@@ -909,21 +918,21 @@ class MobileBlueprintRunner:
             await self._ctrl.tap_xy(x, y)
             return
 
-        # 第2层：Appium 精确定位
-        try:
-            await self._ctrl.tap(target)
-            return
-        except RuntimeError as e:
-            err = str(e)
-            # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
-            recoverable = ("no such element" in err or "元素查找超时" in err
-                           or "session" in err.lower() or "超时" in err
-                           or "instrumentation" in err or "invalid selector" in err)
-            if not recoverable:
-                raise
+        # 第2层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
+        if not self._skip_appium:
+            try:
+                await self._ctrl.tap(target)
+                return
+            except RuntimeError as e:
+                err = str(e)
+                recoverable = ("no such element" in err or "元素查找超时" in err
+                               or "session" in err.lower() or "超时" in err
+                               or "instrumentation" in err or "invalid selector" in err)
+                if not recoverable:
+                    raise
 
         # 第3层：截图+AI实时定位
-        logger.info("  [视觉降级] Appium找不到 {}，截图+AI识别...", target)
+        logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
             await self._ctrl.tap_xy(coords[0], coords[1])
@@ -1029,21 +1038,21 @@ class MobileBlueprintRunner:
             await self._ctrl.input_text_xy(x, y, value)
             return
 
-        # 第2层：Appium 精确定位
-        try:
-            await self._ctrl.input_text(target, value)
-            return
-        except RuntimeError as e:
-            err = str(e)
-            # session丢失/U2崩溃/元素找不到 都回退到视觉降级，不直接抛出
-            recoverable = ("no such element" in err or "元素查找超时" in err
-                           or "session" in err.lower() or "超时" in err
-                           or "instrumentation" in err or "invalid selector" in err)
-            if not recoverable:
-                raise
+        # 第2层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
+        if not self._skip_appium:
+            try:
+                await self._ctrl.input_text(target, value)
+                return
+            except RuntimeError as e:
+                err = str(e)
+                recoverable = ("no such element" in err or "元素查找超时" in err
+                               or "session" in err.lower() or "超时" in err
+                               or "instrumentation" in err or "invalid selector" in err)
+                if not recoverable:
+                    raise
 
         # 第3层：截图+AI实时定位
-        logger.info("  [视觉降级] Appium找不到 {}，截图+AI识别...", target)
+        logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
             await self._ctrl.input_text_xy(coords[0], coords[1], value)
