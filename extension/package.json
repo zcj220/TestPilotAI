@@ -19,7 +19,7 @@
     "repair"
   ],
   "icon": "resources/icon.png",
-  "activationEvents": [],
+  "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {

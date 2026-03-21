@@ -379,11 +379,18 @@ export async function autoInjectOnActivate(
   outputChannel?: vscode.OutputChannel,
   extensionPath = "",
 ): Promise<void> {
+  outputChannel?.appendLine(`[TestPilot AI] autoInjectOnActivate 启动, extensionPath=${extensionPath}`);
   const folders = vscode.workspace.workspaceFolders;
-  if (!folders) { return; }
+  if (!folders) {
+    outputChannel?.appendLine(`[TestPilot AI] 没有工作区文件夹，跳过`);
+    return;
+  }
+
+  outputChannel?.appendLine(`[TestPilot AI] 发现 ${folders.length} 个工作区文件夹`);
 
   for (const folder of folders) {
     const root = folder.uri.fsPath;
+    outputChannel?.appendLine(`[TestPilot AI] 检查文件夹: ${folder.name} (${root})`);
 
     // 跳过 TestPilotAI 项目本身（我们自己的项目已有规则）
     if (fs.existsSync(path.join(root, "cli.py")) && fs.existsSync(path.join(root, "src", "app.py"))) {
@@ -392,7 +399,9 @@ export async function autoInjectOnActivate(
     }
 
     // 检查是否需要注入
-    if (needsInjection(root)) {
+    const needs = needsInjection(root);
+    outputChannel?.appendLine(`[TestPilot AI] ${folder.name} needsInjection=${needs}`);
+    if (needs) {
       outputChannel?.appendLine(`[TestPilot AI] 检测到 ${folder.name} 没有蓝本规则，自动注入中...`);
       const result = injectRules(root, outputChannel, false, extensionPath);
 
