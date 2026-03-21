@@ -68,6 +68,10 @@ class MobileBlueprintRunner:
         # 页面指纹标签：记录初始页（如登录页）的文本指纹
         # reset_state前快速检查当前是否已在初始页，是则跳过冷启动（省8秒+重建Session）
         self._initial_page_fingerprint: set[str] | None = None
+        # 多页面指纹库：记录测试过程中遇到的每个页面的指纹和坐标
+        # key=页面标签名（如'login','register'等）, value=(指纹集合, 坐标映射)
+        # 用途：步骤失败时快速dump UI树识别当前在哪个页面，直接用缓存坐标
+        self._page_library: dict[str, tuple[set[str], dict[str, tuple[int, int]]]] = {}
 
     @staticmethod
     def _extract_page_fingerprint(xml_str: str) -> set[str]:
@@ -84,6 +88,48 @@ class MobileBlueprintRunner:
         except ET.ParseError:
             pass
         return texts
+
+    def _register_page(self, page_tag: str, fingerprint: set[str],
+                       coords: dict[str, tuple[int, int]]) -> None:
+        """将页面指纹和坐标注册到页面库（供后续快速识别+直接操作）。"""
+        if not fingerprint:
+            return
+        existing_fp, existing_coords = self._page_library.get(page_tag, (set(), {}))
+        merged_fp = existing_fp | fingerprint
+        merged_coords = {**existing_coords, **coords}
+        self._page_library[page_tag] = (merged_fp, merged_coords)
+        logger.debug("  页面库注册/更新: {} | 指纹{}个 | 坐标{}个",
+                     page_tag, len(merged_fp), len(merged_coords))
+
+    def _identify_page(self, xml_str: str) -> tuple[str | None, dict[str, tuple[int, int]]]:
+        """通过UI树指纹快速识别当前在哪个页面（不截图、不调AI）。
+
+        Returns:
+            (页面标签, 坐标映射) 或 (None, {}) 表示无法识别
+        """
+        if not self._page_library:
+            return None, {}
+        current_fp = self._extract_page_fingerprint(xml_str)
+        if not current_fp:
+            return None, {}
+
+        best_tag = None
+        best_score = 0.0
+        best_coords: dict[str, tuple[int, int]] = {}
+
+        for tag, (fp, coords) in self._page_library.items():
+            if not fp:
+                continue
+            overlap = len(current_fp & fp)
+            score = overlap / len(fp)
+            if score > best_score:
+                best_score = score
+                best_tag = tag
+                best_coords = coords
+
+        if best_score >= 0.5:
+            return best_tag, best_coords
+        return None, {}
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -766,6 +812,12 @@ class MobileBlueprintRunner:
         else:
             logger.info("  页面预分析完成(UI树) | 匹配 {}/{} 个元素", ui_matched, len(targets))
 
+        # 将页面指纹+坐标注册到页面库（供后续快速识别页面）
+        if coords and xml_str:
+            page_tag = getattr(scenario, 'name', 'unknown')
+            fp = self._extract_page_fingerprint(xml_str)
+            self._register_page(page_tag, fp, coords)
+
         return coords
 
     def _match_targets_from_ui_tree(
@@ -961,7 +1013,22 @@ class MobileBlueprintRunner:
             await self._ctrl.tap_xy(x, y)
             return
 
-        # 第2层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
+        # 第2层：页面指纹识别 — dump UI树(3秒) → 识别页面 → 复用缓存坐标
+        if self._page_library:
+            try:
+                xml_now = await self._ctrl.dump_ui_tree()
+                if xml_now:
+                    page_tag, lib_coords = self._identify_page(xml_now)
+                    if page_tag and target in lib_coords:
+                        x, y = lib_coords[target]
+                        logger.info("  [指纹] 识别到页面'{}' | 使用缓存坐标点击 ({}, {}) | {}",
+                                    page_tag, x, y, desc)
+                        await self._ctrl.tap_xy(x, y)
+                        return
+            except Exception:
+                pass
+
+        # 第3层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
         if not self._skip_appium:
             try:
                 await self._ctrl.tap(target)
@@ -974,7 +1041,7 @@ class MobileBlueprintRunner:
                 if not recoverable:
                     raise
 
-        # 第3层：截图+AI实时定位
+        # 第4层：截图+AI实时定位
         logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
@@ -1081,7 +1148,22 @@ class MobileBlueprintRunner:
             await self._ctrl.input_text_xy(x, y, value)
             return
 
-        # 第2层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
+        # 第2层：页面指纹识别 — dump UI树(3秒) → 识别页面 → 复用缓存坐标
+        if self._page_library:
+            try:
+                xml_now = await self._ctrl.dump_ui_tree()
+                if xml_now:
+                    page_tag, lib_coords = self._identify_page(xml_now)
+                    if page_tag and target in lib_coords:
+                        x, y = lib_coords[target]
+                        logger.info("  [指纹] 识别到页面'{}' | 使用缓存坐标输入 ({}, {}) | {}",
+                                    page_tag, x, y, desc)
+                        await self._ctrl.input_text_xy(x, y, value)
+                        return
+            except Exception:
+                pass
+
+        # 第3层：Appium 精确定位（Flutter/自绘应用跳过，避免U2崩溃）
         if not self._skip_appium:
             try:
                 await self._ctrl.input_text(target, value)
@@ -1094,7 +1176,7 @@ class MobileBlueprintRunner:
                 if not recoverable:
                     raise
 
-        # 第3层：截图+AI实时定位
+        # 第4层：截图+AI实时定位
         logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
