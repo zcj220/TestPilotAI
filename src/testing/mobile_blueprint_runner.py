@@ -65,6 +65,25 @@ class MobileBlueprintRunner:
         # Flutter/自绘应用标志：UI树匹配为0时设为True，跳过Appium元素查找
         # 避免每步都触发U2崩溃+重建Session（每次浪费20-40秒）
         self._skip_appium = False
+        # 页面指纹标签：记录初始页（如登录页）的文本指纹
+        # reset_state前快速检查当前是否已在初始页，是则跳过冷启动（省8秒+重建Session）
+        self._initial_page_fingerprint: set[str] | None = None
+
+    @staticmethod
+    def _extract_page_fingerprint(xml_str: str) -> set[str]:
+        """从UI树XML提取页面文本指纹（用于快速识别当前在哪个页面）。"""
+        import xml.etree.ElementTree as ET
+        texts: set[str] = set()
+        try:
+            root = ET.fromstring(xml_str)
+            for node in root.iter():
+                for attr in ("text", "content-desc"):
+                    val = (node.get(attr) or "").strip()
+                    if val and len(val) >= 2:
+                        texts.add(val)
+        except ET.ParseError:
+            pass
+        return texts
 
     # ── 主入口 ────────────────────────────────────────────
 
@@ -538,22 +557,46 @@ class MobileBlueprintRunner:
 
             elif step_def.action == "reset_state":
                 # 场景间隔离：force-stop + 重启应用回到初始页面
-                # 对原生应用（Flutter/Android/iOS），清cookie无效，
-                # 必须杀进程冷启动才能回到初始状态（如登录页）
-                if blueprint.platform == "ios" and blueprint.bundle_id:
-                    logger.info("  reset_state: iOS冷启动 {}", blueprint.bundle_id)
-                    await self._ctrl.navigate(blueprint.bundle_id)
-                elif blueprint.app_package:
-                    activity = blueprint.app_activity or ".MainActivity"
-                    pkg = blueprint.app_package
-                    logger.info("  reset_state: Android冷启动 {}/{}", pkg, activity)
-                    await self._ctrl.navigate(f"{pkg}/{activity}")
-                else:
-                    logger.warning("  reset_state: 无appPackage/bundleId，跳过")
-                # Flutter/原生应用冷启动需要较长渲染时间
-                # 5秒不够（919KB截图=闪屏过渡画面，AI分析0命中），增加到8秒
-                await asyncio.sleep(8)
-                # 重启后页面变了，清空预分析坐标
+                # 智能检测：如果当前已在初始页，跳过冷启动（省8秒+重建Session）
+                skip_restart = False
+                if self._initial_page_fingerprint:
+                    try:
+                        xml_now = await self._ctrl.dump_ui_tree()
+                        if xml_now:
+                            current_fp = self._extract_page_fingerprint(xml_now)
+                            overlap = len(current_fp & self._initial_page_fingerprint)
+                            total = len(self._initial_page_fingerprint)
+                            if total > 0 and overlap / total >= 0.6:
+                                skip_restart = True
+                                logger.info("  reset_state: 已在初始页（指纹匹配{}/{}={:.0%}），跳过冷启动",
+                                            overlap, total, overlap / total)
+                    except Exception:
+                        pass
+
+                if not skip_restart:
+                    if blueprint.platform == "ios" and blueprint.bundle_id:
+                        logger.info("  reset_state: iOS冷启动 {}", blueprint.bundle_id)
+                        await self._ctrl.navigate(blueprint.bundle_id)
+                    elif blueprint.app_package:
+                        activity = blueprint.app_activity or ".MainActivity"
+                        pkg = blueprint.app_package
+                        logger.info("  reset_state: Android冷启动 {}/{}", pkg, activity)
+                        await self._ctrl.navigate(f"{pkg}/{activity}")
+                    else:
+                        logger.warning("  reset_state: 无appPackage/bundleId，跳过")
+                    # Flutter/原生应用冷启动需要较长渲染时间
+                    await asyncio.sleep(8)
+                    # 首次冷启动后记录初始页指纹（后续场景可复用）
+                    if self._initial_page_fingerprint is None:
+                        try:
+                            xml_after = await self._ctrl.dump_ui_tree()
+                            if xml_after:
+                                self._initial_page_fingerprint = self._extract_page_fingerprint(xml_after)
+                                logger.info("  初始页指纹已记录 | 关键词={}", self._initial_page_fingerprint)
+                        except Exception:
+                            pass
+
+                # 清空预分析坐标（即使跳过冷启动，也需要确保坐标对齐）
                 # 注意：重新预分析在外层场景循环中触发（_execute_step_inner无法访问scenario）
                 if scene_coords is not None:
                     scene_coords.clear()
