@@ -496,6 +496,25 @@ class MobileBlueprintRunner:
                 if scene_coords is not None:
                     scene_coords.clear()
 
+            elif step_def.action == "reset_state":
+                # 场景间隔离：force-stop + 重启应用回到初始页面
+                # 对原生应用（Flutter/Android/iOS），清cookie无效，
+                # 必须杀进程冷启动才能回到初始状态（如登录页）
+                if blueprint.platform == "ios" and blueprint.bundle_id:
+                    logger.info("  reset_state: iOS冷启动 {}", blueprint.bundle_id)
+                    await self._ctrl.navigate(blueprint.bundle_id)
+                elif blueprint.app_package:
+                    activity = blueprint.app_activity or ".MainActivity"
+                    pkg = blueprint.app_package
+                    logger.info("  reset_state: Android冷启动 {}/{}", pkg, activity)
+                    await self._ctrl.navigate(f"{pkg}/{activity}")
+                else:
+                    logger.warning("  reset_state: 无appPackage/bundleId，跳过")
+                await asyncio.sleep(2)  # 等待应用冷启动完成
+                # 重启后页面变了，清空预分析坐标
+                if scene_coords is not None:
+                    scene_coords.clear()
+
             elif step_def.action == "click":
                 await self._smart_tap(target, desc, scene_coords)
 
