@@ -884,7 +884,6 @@ ${commonRules}`;
     const pName = platformNames[platform] || "Web";
     vscode.window.showInformationMessage(`✅ ${pName}蓝本提示词已复制！请粘贴到 Cursor / Windsurf，让编程AI读取源码生成蓝本。`);
   }
-  }
 
   private _guessProjectPathFromBlueprint(blueprintPath: string): string {
     const normalized = blueprintPath.replace(/\\/g, "/");

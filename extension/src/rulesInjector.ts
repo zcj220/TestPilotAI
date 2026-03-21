@@ -47,7 +47,7 @@ function detectCurrentIDE(): string {
   return "vscode";
 }
 
-/** 规则模板内容（内嵌，避免依赖外部文件） */
+/** 规则模板内容（精简版：通用规则 + 引导AI读取平台专属规则文件） */
 function getTemplateContent(): string {
   return `# TestPilot AI — 编程AI蓝本自动生成规则
 
@@ -56,18 +56,25 @@ function getTemplateContent(): string {
 
 ---
 
-## ⚠️ 最重要：每个项目必须有自己的蓝本
+## ⚠️ 最重要的一条规则（必须严格遵守）
 
-- **每个项目目录**下必须有独立的 \`testpilot.json\`（或 \`testpilot/\` 目录）
-- 不同项目绝对不能共用蓝本——即使功能相似，选择器和路由也不同
-- 不同平台（Web/小程序/Android/桌面）必须各自独立蓝本，\`platform\` 字段不同
-- 当项目中**不存在** \`testpilot.json\` 或 \`testpilot/\` 目录时，你在完成功能开发后**必须**自动生成蓝本文件
+生成蓝本前，你**必须**先确定项目的 \`platform\` 类型，然后打开并阅读 \`.testpilot/platforms/\` 目录下对应平台的规则文件：
+
+| platform | 必读文件 |
+|----------|---------|
+| \`web\` | \`.testpilot/platforms/web.md\` |
+| \`android\` | \`.testpilot/platforms/android.md\` |
+| \`ios\` | \`.testpilot/platforms/ios.md\` |
+| \`miniprogram\` | \`.testpilot/platforms/miniprogram.md\` |
+| \`desktop\` | \`.testpilot/platforms/desktop.md\` |
+
+**不读平台规则就生成蓝本 = 必然出错。** 每个平台的选择器格式、可用动作、等待策略、模板结构完全不同。通用规则无法覆盖平台差异。
 
 ---
 
-## 一、蓝本自动生成（最重要）
+## 一、蓝本生成时机
 
-### 生成时机
+当项目中**不存在** \`testpilot.json\` 或 \`testpilot/\` 目录时，你在完成功能开发后**必须**自动生成蓝本文件。
 
 | 时机 | 动作 |
 |------|------|
@@ -75,304 +82,167 @@ function getTemplateContent(): string {
 | 新增一个完整功能模块 | 在蓝本中追加对应场景 |
 | 项目初始蓝本不存在 | 扫描现有代码，生成功能全覆盖的蓝本 |
 
-### 生成规则
-
-1. 蓝本文件固定命名 \`testpilot.json\`，放在**当前项目根目录**或 \`testpilot/\` 子目录下
-2. 必须覆盖项目的**所有用户可交互功能**，不允许遗漏
-3. 每个功能模块对应一个 \`page\`，每个用户场景对应一个 \`scenario\`
-4. 如果项目功能较多，按功能模块拆分为多个蓝本文件放在 \`testpilot/\` 目录下：
-   - 命名格式：\`testpilot/功能模块名.testpilot.json\`（用英文）
-   - 拆分判断：页面≤3个用一个 testpilot.json；页面>3个按功能模块拆分
-   - 由你根据项目实际代码结构自主决定如何拆分和命名
-5. 每个蓝本必须包含 \`app_name\`、\`description\`、\`platform\`、\`base_url\` 字段
-
-### 蓝本管理规则（极其重要！）
-
-- **每个被测应用目录下只允许一个 \`testpilot.json\`**（或 \`testpilot/\` 目录下按模块拆分）
-- **若已存在 \`testpilot.json\`，直接覆盖更新，禁止创建 \`_v2\`/\`_new\`/\`_backup\` 等变体**
-- 功能较多时，按功能模块拆分到 \`testpilot/\` 目录下：
-  - 如 \`testpilot/auth.testpilot.json\`、\`testpilot/dashboard.testpilot.json\`
-  - 更新某模块时**只替换该模块文件**，不影响其他模块
-  - 不要在 \`testpilot/\` 目录下堆积多个版本（如 auth_v1、auth_v2）
-- 拆分判断标准：页面≤3个用单个 \`testpilot.json\`；页面>3个按功能模块拆分到 \`testpilot/\`
-- 蓝本文件必须放在被测应用的根目录，不要放到其他项目目录下
+**最佳实践**：不要等项目全部写完才生成蓝本，而是**每实现一个功能就追加一个场景**。刚写完代码时记忆最清晰，选择器和预期值一定准确。
 
 ---
 
-## 二、测试设计黄金规则（必须严格遵守）
+## 二、蓝本管理规则
 
-### 核心哲学：绝对正向验证
-- 蓝本 = 假设一切功能完全正确的测试路线图
-- 写出"正确时应该是什么样"的断言，Bug由引擎自动发现（实际≠预期）
-- ❌ 绝对禁止：看到代码有Bug就针对性写用例确认
-- ✅ 正确做法：按功能正常逻辑写断言，Bug自然会暴露出来
-
-### 核心哲学：穷举每条路径
-- 代码是唯一真相：代码里实现了什么就测什么，没实现的不测
-- 穷举 = 每条路径的每种合理输入变体都要试：
-  - 搜索 → 精确匹配、部分匹配、大写、小写、空搜索
-  - 登录 → 正确账号、错误密码、空账号、空密码
-  - 数值输入 → 正常值、边界值、零、负数
-
-### 场景自包含原则（极其重要）
-- 每个 scenario 必须能独立运行，不依赖前一个场景的状态
-- 每个场景的第一步必须是 \`navigate\` 到起始页面
-- 引擎会在每个场景开始前自动清除 cookie/storage，确保干净状态
-- 禁止场景间传递状态（如场景1登录后场景2直接操作已登录页面）
-- 正确写法：
-  \`\`\`
-  场景1： navigate→填用户名→填密码→点登录→断言成功
-  场景2： navigate→填用户名→填错密码→点登录→断言失败
-  \`\`\`
-- 错误写法（禁止）：
-  \`\`\`
-  场景1： navigate→登录成功
-  场景2： 点退出→填错密码→登录  ← 依赖场景1已登录，禁止！
-  \`\`\`
-
-### 操作→断言配对
-- 每一个操作后面必须跟断言验证结果
-- 错误：click登录按钮 → 结束（没验证是否登录成功）
-- 正确：click登录按钮 → assert_text验证"欢迎回来"
-- 没有断言的操作等于没测
-
-### 断言必须严格基于代码逻辑（极其重要！禁止凭常识猜测）
-- 每个assert_text的expected值必须能在代码中找到出处（哪个变量、哪行代码会输出这个文本）
-- 禁止凭"常识"或"应该这样"写断言。例：
-  * 代码只验证非空就跳转 → 蓝本不能写"错误密码→登录失败"（代码根本不验证密码！）
-  * 代码catch里写'登录失败' → 要看什么条件触发catch，不是所有错误都走这条路
-- 必须追踪完整调用链：按钮点击→调用哪个函数→函数做了什么判断→跳转去哪→路由是否注册
-  * 例：登录→pushReplacementNamed('/dashboard') → 检查main.dart是否注册了/dashboard路由
-  * 路由未注册=应用Bug，蓝本正向写"记账台"断言，引擎会自动发现这个Bug
-- 必须检查输入框是否有默认值（如TextEditingController(text:'admin')、value属性、defaultValue）
-  * 有默认值时：蓝本的fill值会追加到默认值后面，而非替换！
-  * 如果默认值已满足测试需求，可以跳过fill步骤直接点击提交
-
-### 功能全覆盖
-- 先通读全部源代码，列出所有功能点
-- 每个按钮、表单、Tab、弹窗、下拉框必须至少有一个测试场景
-- 自检：数一数代码里有多少个可操作元素，蓝本是否每个都覆盖到了
-
-### 选择器规范
-- 使用代码中的真实 id（如 #login-btn）或稳定 class
-- 禁止用 div:nth-child(3) 这类脆弱选择器
-- 必须先阅读源代码确认选择器存在
-
-### 截图策略（省钱省时）
-- 每个蓝本模块的第1个场景末尾加1张 screenshot，其余场景不加
-- 断言失败时引擎会自动截图留证，蓝本不用额外写
-- ❌ 禁止每个场景末尾都加 screenshot
-
----
-
-## 三、蓝本基本结构
-
-\`\`\`json
-{
-  "app_name": "应用名称",
-  "description": "应用功能的完整描述（50-200字）",
-  "base_url": "http://localhost:3000",
-  "platform": "web",
-  "start_command": "npm start",
-  "start_cwd": ".",
-  "pages": [
-    {
-      "url": "/",
-      "name": "首页",
-      "scenarios": [
-        {
-          "name": "场景名称",
-          "description": "测试目标",
-          "steps": [
-            {"action": "navigate", "value": "/", "description": "打开首页"},
-            {"action": "fill", "target": "#username", "value": "testuser", "description": "在用户名输入框输入"},
-            {"action": "click", "target": "#loginBtn", "description": "点击登录按钮"},
-            {"action": "assert_text", "expected": "欢迎", "description": "验证登录成功显示欢迎信息"},
-            {"action": "screenshot", "description": "登录成功后的页面"}
-          ]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
+1. 蓝本文件放在**当前项目根目录**的 \`testpilot/\` 子目录下
+2. 页面≤3个用单个 \`testpilot.json\`；页面>3个按功能模块拆分
+3. 拆分命名：\`testpilot/模块名.testpilot.json\`（英文，如 \`auth.testpilot.json\`）
+4. **更新而非新建**：已存在同名蓝本直接覆盖，**禁止**创建 \`_v2\`、\`_new\`、\`_backup\` 变体
+5. 每个蓝本必须包含 \`app_name\`、\`description\`、\`platform\` 字段
 
 ### platform 取值
 
-| 值 | 适用场景 |
-|----|---------|
-| \`web\` | 网页应用（React/Vue/Angular/纯HTML） |
-| \`desktop\` | Windows桌面应用（需额外填 \`window_title\`） |
-| \`android\` | Android应用（需额外填 \`app_package\`、\`app_activity\`） |
-| \`ios\` | iOS应用（需额外填 \`bundle_id\`） |
-| \`miniprogram\` | 微信小程序（\`base_url\` 格式为 \`miniprogram://项目路径\`） |
-
-### 步骤动作
-
-**基础动作**（所有平台通用）：
-
-| 动作 | 必填参数 | 说明 |
-|------|---------|------|
-| \`click\` | \`target\`, \`description\` | 点击元素 |
-| \`fill\` | \`target\`, \`value\`, \`description\` | 输入文本 |
-| \`select\` | \`target\`, \`value\`, \`description\` | 下拉框选择（\`<select>\`元素用select不用fill） |
-| \`screenshot\` | \`description\` | 截图 |
-| \`assert_text\` | \`expected\`, \`description\` | 断言页面包含文本 |
-| \`wait\` | \`description\` | 等待（可用 \`value\` 指定毫秒） |
-| \`navigate\` | \`value\`(URL), \`description\` | 页面跳转（清空页面栈） |
-
-**小程序专用动作**（platform=miniprogram时可用）：
-
-| 动作 | 必填参数 | 说明 |
-|------|---------|------|
-| \`navigate_to\` | \`value\`(URL), \`description\` | 小程序页面跳转（不清空页面栈，用wx.navigateTo） |
-| \`evaluate\` | \`value\`(JS代码), \`description\` | 在小程序端执行JS代码（可访问wx/getApp等） |
-| \`page_query\` | \`target\`(选择器), \`value\`(操作), \`description\` | 查询元素（value可为text/count/texts） |
-| \`call_method\` | \`target\`(方法名), \`value\`(JSON参数), \`description\` | 调用页面方法 |
-| \`read_text\` | \`target\`, \`expected\`, \`description\` | 读取元素文本并可选断言 |
-| \`tap_multiple\` | \`target\`, \`value\`(次数), \`wait_ms\`, \`description\` | 连续点击多次 |
-| \`scroll\` | \`value\`(scrollTop), \`description\` | 滚动页面 |
-| \`assert_compare\` | \`target\`, \`value\`(比较表达式), \`description\` | 数值比较断言（如">=100"） |
-| \`reset_state\` | \`description\` | 重置全局状态（场景间清理，一般不需要手动调用） |
-
-### target 写法
-
-- **Web/小程序**：CSS选择器，如 \`#loginBtn\`、\`.submit-btn\`、\`input[name="email"]\`
-- **桌面应用**：\`name:屏幕上可见的原文\`，如 \`name:Login\`、\`name:确定\`
-  - ⚠️ **禁止**在 \`name:\` 后加中文后缀（按钮/输入框/列表项等）
-- **Android/iOS**：\`accessibility_id:xxx\` 或 \`id:xxx\`
-
-### description 最佳实践
-
-每个步骤的 \`description\` 应包含：
-1. **位置**：上方/下方/左侧/右侧
-2. **预期变化**：点击后页面会发生什么
-
-\`\`\`
-✅ "点击提交按钮，点击后表单数据提交到后端，页面显示'提交成功'提示"
-❌ "点击按钮"
-\`\`\`
+| 值 | 适用场景 | 额外必填字段 |
+|----|---------|------------|
+| \`web\` | 网页应用（React/Vue/Angular/纯HTML） | \`base_url\`、\`start_command\` |
+| \`android\` | Android/Flutter 应用 | \`app_package\`、\`app_activity\` |
+| \`ios\` | iOS/SwiftUI 应用（仅macOS） | \`bundle_id\` |
+| \`miniprogram\` | 微信小程序 | \`base_url\`（miniprogram://路径） |
+| \`desktop\` | Windows桌面应用 | \`window_title\` |
 
 ---
 
-## 四、蓝本增量维护（日常开发）
+## 三、蓝本增量维护（6种触发条件）
 
 当项目已有蓝本文件时，以下代码变更**必须**同步更新蓝本：
 
 | # | 触发条件 | 蓝本更新动作 |
 |---|---------|------------|
 | 1 | 新增/删除 UI 元素 | 添加/删除对应场景和步骤 |
-| 2 | 修改元素 id/class/选择器 | 更新蓝本中所有用到该选择器的 \`target\` |
+| 2 | 修改元素选择器（id/class/组件名） | 更新蓝本中所有 \`target\` |
 | 3 | 修改文本内容（按钮文字/提示/错误信息） | 更新 \`assert_text\` 的 \`expected\` |
 | 4 | 修改业务逻辑（表单验证/跳转/计算） | 更新断言和预期结果 |
 | 5 | 修复 Bug | 更新蓝本中对应断言 |
-| 6 | 修改应用配置（URL/端口/路由） | 更新 \`base_url\` / \`start_command\` |
+| 6 | 修改应用配置（URL/端口/路由/启动命令） | 更新 \`base_url\` / \`start_command\` 等 |
 
-**已有蓝本时，只修改/新增变更涉及的场景，不要重写整个文件。**
+**不触发更新**：纯CSS样式调整、代码注释修改、内部重构（不影响用户可见行为）。
 
 ---
 
-## 五、蓝本自检清单
+## 四、蓝本通用自检清单
 
 生成或修改蓝本后，逐项检查：
 
 - [ ] 所有用户可交互功能都有对应场景
-- [ ] \`target\` 选择器与实际代码中的 id/class 一致
-- [ ] \`expected\` 是界面上实际会显示的文字（不是描述性文字）
-- [ ] 页面切换后有 \`wait\` 步骤
-- [ ] 每个场景自包含（第一步是navigate，不依赖前一个场景的状态）
-- [ ] \`<select>\` 下拉框用 \`select\` 动作，不用 \`fill\`
+- [ ] 每个场景自包含（第一步是 navigate，不依赖前一个场景的状态）
 - [ ] \`platform\` 字段正确
-- [ ] \`base_url\` 和 \`start_command\` 填写正确
+- [ ] **已阅读对应平台规则文件**，选择器/动作/模板符合平台要求
+- [ ] \`target\` 选择器在源码中确实存在（已搜索验证）
+- [ ] \`expected\` 是界面上实际渲染的持久化文字（不是瞬态提示、不是变量名、不是注释）
+- [ ] 异步操作后有足够的 \`wait\` 时间（已检查代码中的延迟/API调用）
+- [ ] 页面跳转后有 \`wait\` + \`assert_text\` 验证到达目标页
+- [ ] 每个操作后有断言验证结果（不能只操作不验证）
 
 ---
 
-## 六、常见错误（经验教训）
+## 五、description 最佳实践
 
-| 错误 | 后果 | 正确做法 |
-|------|------|---------|
-| 对 \`<select>\` 元素用 \`fill\` | 引擎报错"Element is not an input" | 用 \`select\` 动作 |
-| 场景依赖前一个场景的登录状态 | 引擎每场景清cookie，后续场景全部失败 | 每个场景独立登录 |
-| 两个项目共用一个蓝本 | 选择器/路由不同导致全部失败 | 每个项目独立蓝本 |
-| 蓝本里写死了注册的用户名 | 第二次测试时"用户已存在" | 用带时间戳的用户名或每次清数据 |
-| 没有断言就结束场景 | 什么Bug都检测不到 | 每个操作后跟assert验证 |
-| 小程序用 \`#id\` 选择器 | WXML不支持id选择器，全部找不到 | 用 \`input.form-input[placeholder*='用户名']\` |
-| 小程序用 \`button:contains('登录')\` | 小程序不支持:contains伪类 | 用 \`button.btn-primary\` 或带bindtap的class |
-| 小程序picker用click操作 | picker是原生组件，不能直接click | 用 \`select\` 动作操作picker |
-| 小程序wx.showModal用click确认 | Modal是原生弹窗，不在DOM中 | 蓝本无法操作原生弹窗，需改用页面内确认 |
-| 凭常识写"错误密码→登录失败" | 代码不验证密码时断言永远不触发 | 必须读代码确认验证逻辑再写断言 |
-| 没检查输入框默认值就fill | fill是追加不是替换，admin变成adminadmin | 有默认值时跳过fill或先清空 |
-| 没检查路由是否注册就写跳转断言 | 路由未注册→异常→永远到不了目标页 | 追踪完整调用链：函数→路由→目标页 |
+每个步骤的 \`description\` 应包含位置和预期变化：
 
----
-
-## 七、微信小程序蓝本专属规则（platform=miniprogram时必读）
-
-### 选择器铁律（最重要！与Web完全不同！）
-
-小程序WXML**不是HTML**，以下Web选择器在小程序中全部无效：
-- ❌ \`#login-btn\`（WXML不支持id选择器）
-- ❌ \`button:contains('登录')\`（不支持:contains伪类）
-- ❌ \`input[type="text"]\`（WXML的input没有type attribute）
-- ❌ \`div > span\`（WXML里是view/text，不是div/span）
-
-**正确的小程序选择器写法**（按优先级排列）：
-1. **用placeholder区分input**：\`input[placeholder*='用户名']\`、\`input[placeholder*='密码']\`
-2. **用class区分按钮**：\`button.btn-primary\`（配合bindtap确认是哪个按钮）
-3. **用class组合定位**：\`.card .form-input\`（结合父容器缩小范围）
-4. **用data-属性**：\`view[data-tab='profit']\`（小程序常用data-xxx传参）
-5. **用文本内容辅助**：在description中描述元素文字，帮助引擎AI定位
-
-### 小程序特有组件的操作方式
-
-| 组件 | 错误写法 | 正确写法 |
-|------|---------|---------|
-| \`<picker>\` | click然后选选项 | \`{"action": "select", "target": "picker.type-picker", "value": "收入"}\` |
-| \`<switch>\` | click | \`{"action": "click", "target": "switch.my-switch"}\` |
-| \`wx.showModal\` | 无法操作（原生弹窗不在DOM中） | 蓝本里跳过modal确认步骤，或建议开发者改用页面内弹窗 |
-| \`wx.showToast\` | assert_text | 短暂显示后消失，用wait等待后再断言页面变化 |
-| TabBar | click底部tab | \`{"action": "navigate", "value": "/pages/reports/reports"}\` 直接导航 |
-
-### 小程序蓝本结构模板
-
-\`\`\`json
-{
-  "app_name": "小程序名称",
-  "description": "功能说明",
-  "base_url": "miniprogram://D:/projects/项目绝对路径",
-  "platform": "miniprogram",
-  "pages": [
-    {
-      "url": "pages/login/login",
-      "name": "登录页",
-      "scenarios": [
-        {
-          "name": "正确登录",
-          "steps": [
-            {"action": "navigate", "value": "pages/login/login", "description": "打开登录页"},
-            {"action": "fill", "target": "input[placeholder*='用户名']", "value": "admin", "description": "输入用户名"},
-            {"action": "fill", "target": "input[placeholder*='密码']", "value": "admin123", "description": "输入密码"},
-            {"action": "click", "target": "button.btn-primary", "description": "点击登录按钮，按钮文字为'登录'"},
-            {"action": "wait", "value": "2000", "description": "等待登录跳转"},
-            {"action": "assert_text", "expected": "记账台", "description": "验证跳转到记账台页面"}
-          ]
-        }
-      ]
-    }
-  ]
-}
+\`\`\`
+✅ "点击提交按钮，点击后表单数据提交到后端，页面显示'提交成功'提示"
+✅ "在页面中部的用户名输入框输入admin，输入后输入框显示admin"
+❌ "点击按钮"
+❌ "输入用户名"
 \`\`\`
 
-### 小程序蓝本自检追加项
+---
 
-- [ ] 所有选择器都不含 \`#id\`（WXML不支持）
-- [ ] 所有选择器都不含 \`:contains()\`（不支持）
-- [ ] input用 \`placeholder\` 属性区分，不用 \`id\` 或 \`name\`
-- [ ] picker用 \`select\` 动作，不用 \`click\`
-- [ ] \`base_url\` 是 \`miniprogram://绝对路径\`（不是相对路径）
-- [ ] TabBar页面跳转用 \`navigate\` 动作（不能click TabBar）
-- [ ] 没有操作 \`wx.showModal\` / \`wx.showToast\` 等原生弹窗
+## 六、选择器、动作表、模板、注意事项 → 参见平台规则
+
+**禁止在不阅读平台规则的情况下编写蓝本。** 以下内容在各平台规则文件中定义，不在本文件重复：
+
+- 该平台的封闭式动作表（只允许列出的动作）
+- 该平台的选择器格式、优先级、禁止列表
+- 该平台的完整 JSON 模板
+- 该平台的瞬态 UI 不可断言清单
+- 该平台的等待时间计算公式
+- 该平台的踩坑清单和常见错误
+- 该平台的代码稽核要求
+
+请在确定 \`platform\` 后，立即打开 \`.testpilot/platforms/{platform}.md\` 阅读完整规则。
 `;
+}
+
+/** 平台模板文件列表 */
+const PLATFORM_FILES = ["web.md", "android.md", "ios.md", "miniprogram.md", "desktop.md"];
+
+/**
+ * 获取平台模板文件内容（从插件内置的 templates 目录读取）
+ * @param extensionPath 插件安装路径
+ * @returns 平台名 → 文件内容 的 Map
+ */
+function getPlatformTemplates(extensionPath: string): Map<string, string> {
+  const templates = new Map<string, string>();
+  const templatesDir = path.join(extensionPath, "templates", "platforms");
+
+  for (const fileName of PLATFORM_FILES) {
+    const filePath = path.join(templatesDir, fileName);
+    try {
+      if (fs.existsSync(filePath)) {
+        templates.set(fileName, fs.readFileSync(filePath, "utf-8"));
+      }
+    } catch {
+      // 静默忽略读取失败
+    }
+  }
+  return templates;
+}
+
+/**
+ * 注入平台模板文件到用户项目的 .testpilot/platforms/ 目录
+ * @param workspaceRoot 工作区根目录
+ * @param extensionPath 插件安装路径
+ * @param outputChannel 日志输出通道
+ * @returns 创建的文件列表
+ */
+function injectPlatformTemplates(
+  workspaceRoot: string,
+  extensionPath: string,
+  outputChannel?: vscode.OutputChannel,
+): string[] {
+  const created: string[] = [];
+  const templates = getPlatformTemplates(extensionPath);
+  const targetDir = path.join(workspaceRoot, ".testpilot", "platforms");
+
+  // 如果 .testpilot/platforms 目录已存在并且有内容，跳过
+  if (fs.existsSync(targetDir)) {
+    const existing = fs.readdirSync(targetDir).filter((f: string) => f.endsWith(".md"));
+    if (existing.length >= PLATFORM_FILES.length) {
+      outputChannel?.appendLine(`[TestPilot AI] ⏭️ .testpilot/platforms/ 已有 ${existing.length} 个模板，跳过`);
+      return created;
+    }
+  }
+
+  // 创建目录
+  if (!fs.existsSync(targetDir)) {
+    fs.mkdirSync(targetDir, { recursive: true });
+  }
+
+  // 写入每个平台模板（不存在才创建）
+  for (const [fileName, content] of templates) {
+    const targetPath = path.join(targetDir, fileName);
+    if (!fs.existsSync(targetPath)) {
+      try {
+        fs.writeFileSync(targetPath, content, "utf-8");
+        created.push(`.testpilot/platforms/${fileName}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        outputChannel?.appendLine(`[TestPilot AI] ⚠️ 创建 ${fileName} 失败: ${msg}`);
+      }
+    }
+  }
+
+  if (created.length > 0) {
+    outputChannel?.appendLine(
+      `[TestPilot AI] ✅ 已注入 ${created.length} 个平台模板: ${created.join(", ")}`,
+    );
+  }
+  return created;
 }
 
 /**
@@ -386,6 +256,7 @@ export function injectRules(
   workspaceRoot: string,
   outputChannel?: vscode.OutputChannel,
   forceAll = false,
+  extensionPath = "",
 ): { created: string[]; skipped: string[] } {
   const template = getTemplateContent();
   const created: string[] = [];
@@ -410,13 +281,40 @@ export function injectRules(
     outputChannel?.appendLine(`[TestPilot AI] 检测到当前IDE: ${currentIDE}`);
   }
 
+  // TestPilot 内容标记（用于检测是否已追加过）
+  const TESTPILOT_MARKER = "# TestPilot AI — 编程AI蓝本自动生成规则";
+
   // 注入文件
   for (const relPath of filesToInject) {
     const fullPath = path.join(workspaceRoot, relPath);
+    const isAgentsMd = relPath === "AGENTS.md" || relPath === "CLAUDE.md";
 
-    // 已存在则跳过（不覆盖用户自定义内容）
     if (fs.existsSync(fullPath)) {
-      skipped.push(relPath);
+      if (isAgentsMd) {
+        // AGENTS.md / CLAUDE.md 是 TestPilot 专属文件，已存在则跳过
+        skipped.push(relPath);
+        continue;
+      }
+
+      // IDE 专用规则文件（如 .github/copilot-instructions.md）：追加模式
+      try {
+        const existingContent = fs.readFileSync(fullPath, "utf-8");
+        if (existingContent.includes(TESTPILOT_MARKER)) {
+          // 已包含 TestPilot 规则，跳过
+          skipped.push(relPath);
+          continue;
+        }
+        // 在用户已有内容末尾追加 TestPilot 规则
+        const separator = "\n\n---\n\n";
+        fs.writeFileSync(fullPath, existingContent.trimEnd() + separator + template, "utf-8");
+        created.push(relPath + " (追加)");
+        outputChannel?.appendLine(
+          `[TestPilot AI] 📎 已将蓝本规则追加到已有文件: ${relPath}`,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        outputChannel?.appendLine(`[TestPilot AI] ⚠️ 追加 ${relPath} 失败: ${msg}`);
+      }
       continue;
     }
 
@@ -447,15 +345,30 @@ export function injectRules(
     );
   }
 
+  // 注入平台模板文件到 .testpilot/platforms/
+  if (extensionPath) {
+    const platformCreated = injectPlatformTemplates(workspaceRoot, extensionPath, outputChannel);
+    created.push(...platformCreated);
+  }
+
   return { created, skipped };
 }
 
 /**
- * 检查工作区是否需要注入规则（没有AGENTS.md时才需要）
+ * 检查工作区是否需要注入规则
+ * 缺少 AGENTS.md 或缺少 .testpilot/platforms 目录都需要注入
  */
 export function needsInjection(workspaceRoot: string): boolean {
-  // 只检查 AGENTS.md 是否存在（跨工具通用文件）
-  return !fs.existsSync(path.join(workspaceRoot, "AGENTS.md"));
+  if (!fs.existsSync(path.join(workspaceRoot, "AGENTS.md"))) {
+    return true;
+  }
+  // 检查平台模板是否已注入
+  const platformDir = path.join(workspaceRoot, ".testpilot", "platforms");
+  if (!fs.existsSync(platformDir)) {
+    return true;
+  }
+  const existing = fs.readdirSync(platformDir).filter((f: string) => f.endsWith(".md"));
+  return existing.length < PLATFORM_FILES.length;
 }
 
 /**
@@ -464,6 +377,7 @@ export function needsInjection(workspaceRoot: string): boolean {
  */
 export async function autoInjectOnActivate(
   outputChannel?: vscode.OutputChannel,
+  extensionPath = "",
 ): Promise<void> {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders) { return; }
@@ -480,7 +394,7 @@ export async function autoInjectOnActivate(
     // 检查是否需要注入
     if (needsInjection(root)) {
       outputChannel?.appendLine(`[TestPilot AI] 检测到 ${folder.name} 没有蓝本规则，自动注入中...`);
-      const result = injectRules(root, outputChannel);
+      const result = injectRules(root, outputChannel, false, extensionPath);
 
       if (result.created.length > 0) {
         vscode.window.showInformationMessage(

@@ -536,7 +536,7 @@ export function activate(context: vscode.ExtensionContext): void {
         targetFolder = picked;
       }
 
-      const result = injectRules(targetFolder.uri.fsPath, outputChannel);
+      const result = injectRules(targetFolder.uri.fsPath, outputChannel, false, context.extensionPath);
       if (result.created.length > 0) {
         vscode.window.showInformationMessage(
           `✅ 已注入 ${result.created.length} 个规则文件到 ${targetFolder.name}`,
@@ -550,7 +550,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   // ── 插件激活时自动注入规则到工作区 ──
-  autoInjectOnActivate(outputChannel);
+  autoInjectOnActivate(outputChannel, context.extensionPath);
 
   outputChannel.appendLine("[TestPilot AI] 所有命令已注册（中文+英文）");
   outputChannel.appendLine("[TestPilot AI] 💡 Tip: Search 'TestPilot AI' in Command Palette (Ctrl+Shift+P) for all commands");
