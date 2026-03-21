@@ -2227,11 +2227,29 @@ ${commonRules}`;
         screenshotImg.src = "data:image/png;base64," + wsMsg.data.image;
         return;
       }
-      // test_done 含完整报告时，直接渲染结果（HTTP后备）
-      // 即使 HTTP fetch failed，WebView 也能通过 WS 拿到完整结果
-      if (wsMsg.type === "test_done" && wsMsg.data?.report) {
-        onTestResult(wsMsg.data.report);
-        return;
+      // test_done: render full report if available, otherwise show summary
+      if (wsMsg.type === "test_done") {
+        if (wsMsg.data?.report) {
+          onTestResult(wsMsg.data.report);
+          return;
+        }
+        // Fallback: build a minimal report from WS summary data
+        // This ensures result card always shows even if full_report is missing
+        if (wsMsg.data?.pass_rate !== undefined) {
+          const minimal = {
+            test_name: "蓝本测试",
+            pass_rate: wsMsg.data.pass_rate,
+            passed_steps: 0,
+            total_steps: 0,
+            bug_count: wsMsg.data.bug_count || 0,
+            duration_seconds: 0,
+            bugs: [],
+            steps: [],
+          };
+          onTestResult(minimal);
+          addLog("⚠️ 结果摘要已显示，完整Bug详情等待HTTP返回...", "warn");
+          return;
+        }
       }
       const level = typeMap[wsMsg.type] || "info";
       const text = wsMsg.data?.message || wsMsg.type;

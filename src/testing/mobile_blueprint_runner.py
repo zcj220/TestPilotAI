@@ -1194,6 +1194,15 @@ class MobileBlueprintRunner:
         logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
+            # Cache the visual result into page library for future reuse
+            try:
+                xml_now = await self._ctrl.dump_ui_tree()
+                if xml_now:
+                    fp = self._extract_page_fingerprint(xml_now)
+                    if fp:
+                        self._register_page(f"visual_{target[:30]}", fp, {target: coords})
+            except Exception:
+                pass
             await self._ctrl.tap_xy(coords[0], coords[1])
         else:
             raise RuntimeError(f"元素找不到（Appium+视觉均失败）: {target} | {desc}")
@@ -1329,6 +1338,15 @@ class MobileBlueprintRunner:
         logger.info("  [视觉定位] 截图+AI识别 {}...", target)
         coords = await self._visual_find_element(target, desc)
         if coords:
+            # Cache the visual result into page library for future reuse
+            try:
+                xml_now = await self._ctrl.dump_ui_tree()
+                if xml_now:
+                    fp = self._extract_page_fingerprint(xml_now)
+                    if fp:
+                        self._register_page(f"visual_{target[:30]}", fp, {target: coords})
+            except Exception:
+                pass
             await self._ctrl.input_text_xy(coords[0], coords[1], value)
         else:
             raise RuntimeError(f"元素找不到（Appium+视觉均失败）: {target} | {desc}")
@@ -1390,13 +1408,24 @@ class MobileBlueprintRunner:
                 loop = asyncio.get_event_loop()
                 response = await loop.run_in_executor(
                     None, lambda p=prompt, sp=str(screenshot_path): self._ai.analyze_screenshot(
-                        sp, p, reasoning_effort="low", timeout=45, max_tokens=500,
+                        sp, p, reasoning_effort="low", timeout=45, max_tokens=1024,
                     )
                 )
 
-                # 解析AI返回
-                json_match = re.search(r'\{[^}]+\}', response)
+                # Parse AI response — try to extract JSON even from truncated output
+                json_match = re.search(r'\{[^{}]*\}', response)
                 if not json_match:
+                    # Truncated JSON: try to salvage key fields
+                    if '"not_found"' in response or '"reason"' in response:
+                        logger.info("  视觉降级: AI确认元素不存在（截断响应）")
+                        return None
+                    if '"need_scroll"' in response:
+                        logger.info("  视觉降级: AI建议滚动（截断响应）")
+                        if scroll_attempt < max_scrolls:
+                            await self._ctrl.swipe_screen("down")
+                            await asyncio.sleep(1.0)
+                            continue
+                        return None
                     logger.warning("  视觉降级: AI返回格式异常: {}", response[:100])
                     return None
 
