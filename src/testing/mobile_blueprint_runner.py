@@ -228,6 +228,14 @@ class MobileBlueprintRunner:
                         step_num, step_def, page, blueprint, scene_coords
                     )
 
+                    # reset_state 后重新预分析剩余步骤的元素坐标
+                    if step_def.action == "reset_state" and scene_coords is not None and not scene_coords:
+                        remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
+                        if any(s.action in ("click", "fill") for s in remaining_steps):
+                            from types import SimpleNamespace
+                            fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
+                            scene_coords.update(await self._analyze_page_elements(fake_scenario))
+
                     # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
                     if bug:
                         ctx = StepContext(
@@ -517,15 +525,10 @@ class MobileBlueprintRunner:
                     logger.warning("  reset_state: 无appPackage/bundleId，跳过")
                 # Flutter/原生应用冷启动需要较长渲染时间（2秒不够，黑屏）
                 await asyncio.sleep(5)
-                # 重启后页面变了，清空预分析坐标并重新分析
+                # 重启后页面变了，清空预分析坐标
+                # 注意：重新预分析在外层场景循环中触发（_execute_step_inner无法访问scenario）
                 if scene_coords is not None:
                     scene_coords.clear()
-                    # 重新预分析当前场景剩余步骤的元素坐标
-                    remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
-                    if any(s.action in ("click", "fill") for s in remaining_steps):
-                        from types import SimpleNamespace
-                        fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
-                        scene_coords.update(await self._analyze_page_elements(fake_scenario))
 
             elif step_def.action == "click":
                 await self._smart_tap(target, desc, scene_coords)
