@@ -855,20 +855,30 @@ class MobileBlueprintRunner:
                         ), bug
                 elif expected and expected not in text:
                     elapsed = time.time() - start
+                    actual_display = text if len(text) <= 80 else text[:80] + '…(共' + str(len(text)) + '字符)'
+                    if target:
+                        bug_title = f"元素文本不匹配: {target}"
+                        bug_desc = f"在元素 [{target}] 的文本中未找到 '{expected}'。元素实际文本: '{actual_display}'"
+                        repro = f"检查元素 {target} 的文本内容是否包含 '{expected}'"
+                    else:
+                        bug_title = f"页面中未找到预期文本"
+                        bug_desc = f"在当前页面的全部可见文本中未找到 '{expected}'。页面文本摘要: '{actual_display}'"
+                        repro = f"检查当前页面是否显示了 '{expected}'"
                     bug = BugReport(
                         severity=BugSeverity.HIGH,
                         category="文本断言失败",
-                        title=f"元素文本不匹配: {target}",
-                        description=f"预期包含'{expected}'，实际为'{text}'",
+                        title=bug_title,
+                        description=bug_desc,
                         location=target or "",
-                        reproduction=f"检查元素 {target} 的文本内容",
+                        reproduction=repro,
                         screenshot_path=None,
                         step_number=step_num,
                     )
+                    err_msg = f"文本断言失败: 预期包含 '{expected}'，但{'元素 [' + target + ']' if target else '当前页面'}中未找到。实际文本: '{actual_display}'"
                     return StepResult(
                         step=step_num, action=action_type, description=desc,
                         status=StepStatus.FAILED, duration_seconds=elapsed,
-                        error_message=f"文本断言失败: 预期'{expected}'，实际'{text}'",
+                        error_message=err_msg,
                     ), bug
 
             # 只在蓝本显式写了screenshot动作时才截图

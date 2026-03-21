@@ -329,7 +329,9 @@ async function executeStep(step, stepNum) {
         }
         if (step.expected !== undefined && step.expected !== '') {
           if (!text.includes(step.expected)) {
-            throw new Error(`文本断言失败: "${step.target}"的文本"${text}"不包含"${step.expected}"`);
+            const actualDisplay = text.length <= 80 ? text : text.slice(0, 80) + `…(共${text.length}字符)`;
+            const scope = step.target ? `元素 [${step.target}]` : '当前页面';
+            throw new Error(`文本断言失败: 预期包含 '${step.expected}'，但${scope}中未找到。实际文本: '${actualDisplay}'`);
           }
         }
         return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '', data: text };
