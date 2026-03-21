@@ -346,9 +346,15 @@ export function injectRules(
   }
 
   // 注入平台模板文件到 .testpilot/platforms/
+  outputChannel?.appendLine(`[TestPilot AI] extensionPath="${extensionPath}"`);
   if (extensionPath) {
+    const templatesCheck = path.join(extensionPath, "templates", "platforms");
+    outputChannel?.appendLine(`[TestPilot AI] 模板目录: ${templatesCheck}, 存在=${fs.existsSync(templatesCheck)}`);
     const platformCreated = injectPlatformTemplates(workspaceRoot, extensionPath, outputChannel);
     created.push(...platformCreated);
+    outputChannel?.appendLine(`[TestPilot AI] 平台模板注入结果: ${platformCreated.length} 个文件`);
+  } else {
+    outputChannel?.appendLine(`[TestPilot AI] ⚠️ extensionPath 为空，跳过平台模板注入！`);
   }
 
   return { created, skipped };
