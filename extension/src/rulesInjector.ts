@@ -44,7 +44,9 @@ function detectCurrentIDE(): string {
   if (appName.includes("windsurf")) return "windsurf";
   if (appName.includes("cursor")) return "cursor";
   if (appName.includes("vscodium")) return "vscodium";
-  // 默认是 VS Code
+  if (appName.includes("positron")) return "vscode";   // Posit的IDE，基于VS Code
+  if (appName.includes("theia")) return "vscode";      // Eclipse Theia
+  if (appName.includes("code - oss")) return "vscode"; // 开源版VS Code
   return "vscode";
 }
 
@@ -60,6 +62,8 @@ function detectAllIDEs(): string[] {
   const extensionChecks: [string[], string][] = [
     [["saoudrizwan.claude-dev", "cline.cline"], "cline"],
     [["augment.augment-vscode", "augmentcode.augment"], "augment"],
+    [["anthropics.claude-code"], "claude"],
+    [["kilocode.kilocode", "nicepkg.aide-pro"], "cline"], // Kilo Code等Cline分支用同clinerules
   ];
   for (const [extIds, ideKey] of extensionChecks) {
     for (const extId of extIds) {
