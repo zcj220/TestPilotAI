@@ -141,7 +141,16 @@ wait 时间 = 代码中的异步延迟 + 2000ms（预留 Flutter 渲染 + Appium
 
 ---
 
-## 六、场景自包含原则与连续流模式
+## 六、场景自包含原则与连续流模式（flow 强制决策）
+
+### ⚠️ 生成蓝本时必须对每个 page 做 flow 决策
+
+**判断规则（按顺序检查）：**
+1. 该 page 下有 ≥2 个场景，且都需要先登录才能操作？→ **必须 `"flow": true`**
+2. 该 page 下有 ≥2 个场景是同页面 Tab 切换或连续操作？→ **必须 `"flow": true`**
+3. 该 page 下场景需要互相独立的干净状态（如正确登录 vs 错误登录）？→ 不写 flow（默认 false）
+
+**简单总结：如果多个场景都要先登录再操作同一个页面，那这个 page 必须设 `"flow": true`。不加 flow 导致每个场景都冷启动+重复登录 = 严重浪费。**
 
 ### 默认模式（`flow: false`）
 
@@ -157,12 +166,37 @@ wait 时间 = 代码中的异步延迟 + 2000ms（预留 Flutter 渲染 + Appium
 ```json
 {
   "url": "",
-  "title": "报表页面",
+  "title": "记账台",
   "flow": true,
   "scenarios": [
-    {"name": "查看利润表", "steps": [...]},
-    {"name": "切换到费用表", "steps": [...]},
-    {"name": "下载报表", "steps": [...]}
+    {
+      "name": "登录进入记账台",
+      "steps": [
+        {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "冷启动"},
+        {"action": "wait", "value": "3000"},
+        {"action": "fill", "target": "...", "value": "admin"},
+        {"action": "click", "target": "...", "description": "登录"},
+        {"action": "wait", "value": "3000"},
+        {"action": "assert_text", "expected": "记账台"}
+      ]
+    },
+    {
+      "name": "添加交易",
+      "steps": [
+        {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow下自动跳过）"},
+        {"action": "fill", "target": "...", "value": "50.00"},
+        {"action": "click", "target": "...", "description": "提交"},
+        {"action": "assert_text", "expected": "50.00"}
+      ]
+    },
+    {
+      "name": "删除交易",
+      "steps": [
+        {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow下自动跳过）"},
+        {"action": "click", "target": "...", "description": "删除"},
+        {"action": "assert_text", "expected": "已删除"}
+      ]
+    }
   ]
 }
 ```
@@ -170,13 +204,7 @@ wait 时间 = 代码中的异步延迟 + 2000ms（预留 Flutter 渲染 + Appium
 **flow 模式行为：**
 - 仅第1个场景执行 navigate 冷启动，后续场景的 navigate **自动跳过**
 - 场景间保持页面状态（不重启、不清除）
-- 步骤失败时由AI中枢决策：跳过步骤 → 继续；跳过场景 → 下一个场景
-- 连续3个场景失败 → 尝试冷启动恢复后继续（而非直接终止整个测试）
-
-**适用场景：**
-- 同页面 Tab 切换测试（利润表→费用表→分类表）
-- 连续操作流程（添加→编辑→删除）
-- 测试页面间导航（从记账台→报表页→返回）
+- 连续3个场景失败 → 尝试冷启动恢复后继续
 
 **重要：** flow 场景仍需写 navigate 步骤（方便单独运行），引擎在 flow 模式下自动跳过非首场景的 navigate。
 

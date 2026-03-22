@@ -145,45 +145,62 @@ function getTemplateContent(): string {
 
 ---
 
-## 三点五、连续流模式（flow）
+## 三点五、连续流模式（flow）— 强制决策
 
-蓝本默认每个场景独立运行（自包含，首步 navigate 冷启动）。但对于**同一页面内的连续操作**，可以启用连续流模式，让场景之间不重启应用、不清除状态，按真实用户操作路径连续执行。
+### ⚠️ 必须执行的决策步骤
+
+生成蓝本时，你**必须**对每个 \`page\` 做出 flow 决策，不允许跳过：
+
+**判断规则（按顺序检查）：**
+1. 该 page 下有 ≥2 个场景，且这些场景都需要先登录才能操作？→ **\`"flow": true\`**
+2. 该 page 下有 ≥2 个场景是同一页面内的 Tab 切换或连续操作？→ **\`"flow": true\`**
+3. 该 page 下的场景需要互相独立的干净状态（如：正确登录 vs 错误登录 vs 空字段）？→ **\`"flow": false\`**（可省略，默认就是 false）
+
+**常见错误（你必须避免）：**
+- ❌ 记账台有8个场景（添加交易、删除交易、切换类型…），每个都独立冷启动+登录 → **严重浪费！必须 flow: true**
+- ❌ 报表页有6个场景（看利润表、看费用表、下载报表…），每个都冷启动+登录+跳转到报表页 → **严重浪费！必须 flow: true**
+- ✅ 登录页有4个场景（正确登录、空用户名、错密码、注册），每个需要干净状态 → flow: false，正确
+
+**简单总结：如果多个场景都要先登录再操作同一个页面，那这个 page 必须设 \`"flow": true\`。**
 
 ### 启用方式
 
-在 \`page\` 级别添加 \`"flow": true\`：
+在 \`page\` 对象中添加 \`"flow": true\`：
 
 \`\`\`json
 {
   "pages": [
     {
       "url": "",
-      "title": "报表页面",
+      "title": "记账台",
       "flow": true,
       "scenarios": [
         {
-          "name": "查看利润表",
+          "name": "登录进入记账台",
           "steps": [
             {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "冷启动应用"},
             {"action": "wait", "value": "3000"},
-            {"action": "click", "target": "...", "description": "进入报表页"},
-            {"action": "assert_text", "expected": "利润表"}
+            {"action": "fill", "target": "...", "value": "admin"},
+            {"action": "click", "target": "...", "description": "登录"},
+            {"action": "wait", "value": "3000"},
+            {"action": "assert_text", "expected": "记账台"}
           ]
         },
         {
-          "name": "切换到费用表",
+          "name": "添加一笔交易",
           "steps": [
             {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow模式下自动跳过）"},
-            {"action": "click", "target": "...", "description": "点击费用标签"},
-            {"action": "assert_text", "expected": "费用分析"}
+            {"action": "fill", "target": "...", "value": "50.00", "description": "输入金额"},
+            {"action": "click", "target": "...", "description": "提交"},
+            {"action": "assert_text", "expected": "50.00"}
           ]
         },
         {
-          "name": "下载报表",
+          "name": "删除交易",
           "steps": [
             {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow模式下自动跳过）"},
-            {"action": "click", "target": "...", "description": "点击下载按钮"},
-            {"action": "assert_text", "expected": "下载成功"}
+            {"action": "click", "target": "...", "description": "删除"},
+            {"action": "assert_text", "expected": "已删除"}
           ]
         }
       ]
@@ -192,38 +209,25 @@ function getTemplateContent(): string {
 }
 \`\`\`
 
+**注意看：** 只有第1个场景做了完整的登录流程，后续场景直接在当前页面操作。navigate 步骤仍然保留（方便单独运行），但 flow 模式下引擎会自动跳过。
+
 ### flow 模式的行为
 
 | 行为 | \`flow: false\`（默认） | \`flow: true\` |
 |------|----------------------|---------------|
 | 场景首步 navigate | 执行（冷启动） | **仅第1个场景执行**，后续场景的 navigate 自动跳过 |
-| 场景间状态 | 清除（Cookie/Storage/应用重启） | **保持**（前一场景结束时的页面状态） |
-| 步骤失败恢复 | AI中枢决策：重试→跳过步骤→跳过场景 | 同左，但跳过场景后**继续下一场景**（不放弃整个 page） |
-| 连续失败止损 | 3个场景连续失败 → 终止 | 3个场景连续失败 → **冷启动恢复**后继续（而非终止） |
-
-### 什么时候用 flow
-
-- ✅ 同一页面内的 Tab 切换（报表页：利润表→费用表→分类表）
-- ✅ 连续操作流程（添加商品→编辑→删除）
-- ✅ 需要测试页面间导航是否正常（从A页面到B页面）
-- ❌ 需要干净状态的独立测试（登录成功 vs 登录失败）
-- ❌ 不同用户角色的测试场景
-
-### 重要：flow 场景仍需保留 navigate 步骤
-
-即使开启了 flow 模式，每个场景的 \`steps\` 中**仍然要写 navigate 步骤**。这是因为：
-1. 单独运行某个场景时，navigate 是必需的
-2. flow 模式下引擎会自动跳过非首个场景的 navigate
-3. 保持蓝本结构一致性，方便切换 flow 开关
+| 场景间状态 | 清除（应用重启） | **保持**（前一场景的页面状态） |
+| 连续失败止损 | 3个场景连续失败 → 终止 | 3个场景连续失败 → **冷启动恢复**后继续 |
 
 ---
 
 ## 四、蓝本通用自检清单
 
-生成或修改蓝本后，逐项检查：
+生成或修改蓝本后，**按顺序**逐项检查：
 
+- [ ] **【最重要】每个 page 都做了 flow 决策**：多场景共享登录状态 → \`"flow": true\`；需要干净状态的独立测试 → 不写 flow
 - [ ] 所有用户可交互功能都有对应场景
-- [ ] 每个场景自包含（第一步是 navigate），或页面启用了 \`flow: true\` 连续流模式
+- [ ] 每个场景的第一步是 navigate（flow 模式下引擎自动跳过非首场景的 navigate）
 - [ ] \`platform\` 字段正确
 - [ ] **已阅读对应平台规则文件**，选择器/动作/模板符合平台要求
 - [ ] \`target\` 选择器在源码中确实存在（已搜索验证）
