@@ -576,6 +576,13 @@ class MobileBlueprintRunner:
                             bug.description += f"\n\n--- logcat（最近20行） ---\n{log_text}"
                         all_bugs.append(bug)
 
+                    # 布局溢出检测：在截图/视觉断言步骤后检测 UI 元素是否超出屏幕宽度
+                    if not bug and step_def.action in ("screenshot", "assert_visible", "assert_text"):
+                        overflow_bug = await self._check_mobile_overflow(step_num)
+                        if overflow_bug:
+                            all_bugs.append(overflow_bug)
+                            logger.info("  📐 移动端布局溢出: {}", overflow_bug.title)
+
                     if self._on_step:
                         await self._on_step(step_num, result.status.value, desc)
 
@@ -634,6 +641,74 @@ class MobileBlueprintRunner:
         return report
 
     # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
+
+    async def _check_mobile_overflow(self, step_num: int) -> Optional[BugReport]:
+        """检测 Android UI 元素是否超出屏幕宽度（水平溢出）。
+
+        通过解析 Appium /source 返回的 UI 树 XML，检查每个元素的
+        bounds 属性中右边界是否超过设备屏幕宽度。垂直方向不检测
+        （正常滚动内容合法超出屏幕底部）。
+        """
+        try:
+            screen_w = self._ctrl._device.screen_width if self._ctrl._device else 0
+            if not screen_w or screen_w <= 0:
+                return None
+
+            xml_str = await self._ctrl.dump_ui_tree()
+            if not xml_str:
+                return None
+
+            import re
+            import xml.etree.ElementTree as ET
+            bounds_re = re.compile(r'\[(\d+),\d+\]\[(\d+),\d+\]')
+            overflow_els: list[str] = []
+
+            try:
+                root = ET.fromstring(xml_str)
+            except ET.ParseError:
+                return None
+
+            for node in root.iter():
+                bounds_str = node.get("bounds", "")
+                m = bounds_re.search(bounds_str)
+                if not m:
+                    continue
+                left_x, right_x = int(m.group(1)), int(m.group(2))
+                # 忽略宽度极小的元素（可能是装饰性元素）
+                if right_x - left_x < 10:
+                    continue
+                # 右边界超出屏幕宽度 20px 以上才算溢出
+                if right_x > screen_w + 20:
+                    label = (
+                        node.get("content-desc")
+                        or node.get("text")
+                        or node.get("class", "element")
+                    )
+                    overflow_els.append(
+                        f"{label[:40]}(right={right_x}px > 屏幕{screen_w}px)"
+                    )
+                    if len(overflow_els) >= 3:
+                        break
+
+            if not overflow_els:
+                return None
+
+            return BugReport(
+                severity=BugSeverity.MEDIUM,
+                category="布局异常",
+                title=f"UI元素水平溢出屏幕（步骤#{step_num}）",
+                description=(
+                    f"以下 {len(overflow_els)} 个元素右边界超出屏幕宽度({screen_w}px)，"
+                    f"可能存在截断或横向滚动条：\n"
+                    + "\n".join(f"  • {e}" for e in overflow_els)
+                ),
+                location="当前页面（截图时刻）",
+                step_number=step_num,
+                is_blocking=False,
+            )
+        except Exception as e:
+            logger.debug("移动端布局溢出检测异常（非致命）: {}", str(e)[:100])
+            return None
 
     @staticmethod
     def _label_bug_fault(bug: BugReport, fault: FaultType) -> None:

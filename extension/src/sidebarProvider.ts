@@ -214,6 +214,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
+      this._postMessage({ command: "batchTestStarted", count: msg.blueprint_paths.length });
 
       // 依次执行每个蓝本，汇总结果（用户停止时中断后续蓝本）
       const results: TestReportResponse[] = [];
@@ -293,9 +294,26 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         md += `通过率: ${(r.pass_rate || 0).toFixed(0)}% | Bug: ${r.bug_count || 0}\n\n`;
       });
 
-      // 合并所有蓝本的 bugs 和 steps
-      const allBugs = results.flatMap((r) => (r as unknown as Record<string, unknown>).bugs as unknown[] || []);
-      const allSteps = results.flatMap((r) => (r as unknown as Record<string, unknown>).steps as unknown[] || []);
+      // 合并所有蓝本的 bugs 和 steps（重新编号步骤，为bug打来源蓝本标签）
+      let stepOffset = 0;
+      const allSteps = results.flatMap((r, ri) => {
+        const bpName = (r.test_name || `蓝本${ri + 1}`).replace(/\.testpilot\.json$/i, "");
+        const steps = ((r as unknown as Record<string, unknown>).steps as unknown[] || []) as Record<string, unknown>[];
+        const renumbered = steps.map((s, si) => ({
+          ...s,
+          step: stepOffset + si + 1,
+          blueprint_label: bpName,
+        }));
+        stepOffset += steps.length;
+        return renumbered;
+      });
+      const allBugs = results.flatMap((r, ri) => {
+        const bpName = (r.test_name || `蓝本${ri + 1}`).replace(/\.testpilot\.json$/i, "");
+        return ((r as unknown as Record<string, unknown>).bugs as unknown[] || []).map((b) => ({
+          ...(b as Record<string, unknown>),
+          category: `[${bpName}] ${(b as Record<string, unknown>).category || ""}`.trim(),
+        }));
+      });
 
       // 用最后一个报告的格式返回汇总
       const summary: TestReportResponse = {
@@ -308,9 +326,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         pass_rate: passRate,
         duration_seconds: totalDuration,
         report_markdown: md,
-        bugs: allBugs,
-        steps: allSteps,
-      } as TestReportResponse;
+        bugs: allBugs as unknown as BugDetail[],
+        steps: allSteps as unknown as StepDetail[],
+        repair_summary: null,
+        fixed_bug_count: null,
+      };
 
       this._postMessage({ command: "testResult", data: summary });
     } catch (err: unknown) {
@@ -1748,6 +1768,7 @@ ${commonRules}`;
       switch (msg.command) {
         case "engineStatus": updateEngineStatus(msg.data); break;
         case "testStarted": onTestStarted(); break;
+        case "batchTestStarted": onBatchTestStarted(msg.count); break;
         case "testResult": onTestResult(msg.data); break;
         case "testError": onTestError(msg.data); break;
         case "progress": onProgress(msg.data); break;
@@ -2059,23 +2080,41 @@ ${commonRules}`;
     }
 
     let testingTimer = null;
+    let inBatchMode = false;
+    let batchTotal = 0;
+    let batchDone = 0;
+
+    function onBatchTestStarted(count) {
+      inBatchMode = true;
+      batchTotal = count || 0;
+      batchDone = 0;
+    }
+
     function onTestStarted() {
       controlSection.classList.remove("hidden");
       resultSection.classList.add("hidden");
-      // 立即清空上一轮的Bug列表和步骤详情
-      bugList.innerHTML = "";
-      bugTotal.textContent = "0";
-      bugSection.classList.add("hidden");
-      stepList.innerHTML = "";
-      stepSection.classList.add("hidden");
-      logArea.innerHTML = "";
-      addLog("测试任务已启动，步骤进度将实时显示...", "info");
+      // 批量模式下，每个蓝本的 send_test_started() 都会触发此函数，
+      // 绝对不能清除 inBatchMode！否则后续蓝本的 WS test_done 会覆盖合并结果。
+      // 仅在非批量模式（真正的新一轮测试）时才清除和重置UI。
+      if (!inBatchMode) {
+        // 立即清空上一轮的Bug列表和步骤详情
+        bugList.innerHTML = "";
+        bugTotal.textContent = "0";
+        bugSection.classList.add("hidden");
+        stepList.innerHTML = "";
+        stepSection.classList.add("hidden");
+        logArea.innerHTML = "";
+        addLog("测试任务已启动，步骤进度将实时显示...", "info");
+      }
       if (testingTimer) clearInterval(testingTimer);
       testingTimer = null;
     }
 
     function onTestResult(report) {
       if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
+      // 注意：不在此处清除 inBatchMode！
+      // WS test_done 可能作为宏任务晚于此处到达，会覆盖合并结果。
+      // inBatchMode 仅在 onTestStarted（新一轮测试）时清除。
       lastReport = report;
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
@@ -2187,9 +2226,13 @@ ${commonRules}`;
         const icon = s.status === "passed" ? "✅" : s.status === "failed" ? "❌" : "⚠️";
         const div = document.createElement("div");
         div.className = "step-item";
+        const labelHtml = s.blueprint_label
+          ? '<span class="step-bp" title="' + escapeHtml(s.blueprint_label) + '" style="font-size:10px;color:var(--info);flex-shrink:0;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">[' + escapeHtml(s.blueprint_label) + ']</span>'
+          : '';
         div.innerHTML =
           '<span class="step-icon">' + icon + '</span>' +
           '<span class="step-num">#' + s.step + '</span>' +
+          labelHtml +
           '<span class="step-desc" title="' + escapeHtml(s.description || s.action) + '">' + escapeHtml(s.description || s.action) + '</span>' +
           '<span class="step-time">' + s.duration_seconds.toFixed(1) + 's</span>';
         stepList.appendChild(div);
@@ -2224,6 +2267,14 @@ ${commonRules}`;
       if (wsMsg.type === "screenshot" && wsMsg.data?.image) {
         screenshotSection.classList.remove("hidden");
         screenshotImg.src = "data:image/png;base64," + wsMsg.data.image;
+        return;
+      }
+      // test_done: 批量模式下只记日志，不覆盖最终合并结果
+      if (wsMsg.type === "test_done" && inBatchMode) {
+        batchDone++;
+        const pct = wsMsg.data?.pass_rate !== undefined ? wsMsg.data.pass_rate.toFixed(0) + "%" : "?";
+        const bugCnt = wsMsg.data?.bug_count ?? "?";
+        addLog("[" + batchDone + "/" + batchTotal + "] 蓝本完成 通过率" + pct + " Bug:" + bugCnt, "info");
         return;
       }
       // test_done: render full report if available, otherwise show summary

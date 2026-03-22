@@ -423,25 +423,19 @@ def create_router(
                 await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
                 await ws_manager.send_test_started()  # 通知插件显示控制按钮
                 report = await runner.run(blueprint)
-                try:
-                    await ws_manager.send_test_done(
-                        report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
-                        len(report.bugs),
-                    )
-                except Exception as ws_err:
-                    logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
                 from src.api.models import StepDetail, BugDetail
                 stopped = test_controller.was_stopped
                 if stopped:
                     test_controller.reset()
-                return TestReportResponse(
+                pass_rate = report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0
+                response = TestReportResponse(
                     test_name=report.test_name,
                     url=report.url,
                     total_steps=report.total_steps,
                     passed_steps=report.passed_steps,
                     failed_steps=report.failed_steps,
                     bug_count=len(report.bugs),
-                    pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                    pass_rate=pass_rate,
                     duration_seconds=report.duration_seconds,
                     report_markdown=report.report_markdown,
                     stopped=stopped,
@@ -470,6 +464,15 @@ def create_router(
                         for b in report.bugs
                     ],
                 )
+                try:
+                    report_dict = response.model_dump()
+                except AttributeError:
+                    report_dict = response.dict()
+                try:
+                    await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+                except Exception as ws_err:
+                    logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                return response
             except Exception as e:
                 logger.error("手机蓝本测试执行失败: {}", e)
                 raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
@@ -968,13 +971,9 @@ def create_router(
             )
 
             pass_rate = passed / total * 100 if total > 0 else 0
-            try:
-                await ws_manager.send_test_done(pass_rate, len(bugs))
-            except Exception as ws_err:
-                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
 
             from src.api.models import StepDetail, BugDetail
-            return TestReportResponse(
+            response = TestReportResponse(
                 test_name=report.test_name,
                 url=report.url,
                 total_steps=total,
@@ -1006,6 +1005,15 @@ def create_router(
                     for b in bugs
                 ],
             )
+            try:
+                report_dict = response.model_dump()
+            except AttributeError:
+                report_dict = response.dict()
+            try:
+                await ws_manager.send_test_done(pass_rate, len(bugs), full_report=report_dict)
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+            return response
         except HTTPException:
             raise
         except Exception as e:
@@ -1095,17 +1103,52 @@ def create_router(
 
             await controller.close()
 
-            return TestReportResponse(
+            from src.api.models import StepDetail, BugDetail
+            pass_rate = report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0
+            response = TestReportResponse(
                 test_name=report.test_name,
                 url=report.url or "",
                 total_steps=report.total_steps,
                 passed_steps=report.passed_steps,
                 failed_steps=report.failed_steps,
                 bug_count=len(report.bugs),
-                pass_rate=report.passed_steps / report.total_steps * 100 if report.total_steps > 0 else 0,
+                pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                steps=[
+                    StepDetail(
+                        step=r.step,
+                        action=r.action.value if hasattr(r.action, 'value') else str(r.action),
+                        description=r.description,
+                        status=r.status.value if hasattr(r.status, 'value') else str(r.status),
+                        duration_seconds=r.duration_seconds,
+                        error_message=r.error_message,
+                        screenshot_path=r.screenshot_path,
+                    )
+                    for r in report.step_results
+                ],
+                bugs=[
+                    BugDetail(
+                        severity=b.severity.value if hasattr(b.severity, 'value') else str(b.severity),
+                        title=b.title,
+                        description=b.description,
+                        category=b.category,
+                        location=b.location,
+                        step_number=b.step_number,
+                        screenshot_path=b.screenshot_path,
+                    )
+                    for b in report.bugs
+                ],
             )
+            try:
+                report_dict = response.model_dump()
+            except AttributeError:
+                report_dict = response.dict()
+            try:
+                await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
+            except Exception as ws_err:
+                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+            return response
         except HTTPException:
             raise
         except Exception as e:

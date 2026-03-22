@@ -102,6 +102,75 @@ class DesktopBlueprintRunner:
         # 多页面指纹库：记录测试过程中遇到的每个页面的文本指纹和坐标
         # 用途：步骤失败时快速识别当前在哪个页面，直接用缓存坐标（不截图不调AI）
         self._page_library: dict[str, tuple[set[str], dict[str, tuple[int, int]]]] = {}
+        # 持久化缓存文件路径（在run()中根据blueprint.source_path初始化）
+        self._cache_path: Path | None = None
+
+    # ── 持久化缓存 ─────────────────────────────────────
+
+    def _init_cache(self, blueprint: Blueprint) -> None:
+        """根据蓝本路径初始化持久化缓存。"""
+        if blueprint.source_path:
+            cache_dir = blueprint.source_path.parent
+        else:
+            cache_dir = None
+
+        if cache_dir and cache_dir.exists():
+            self._cache_path = cache_dir / ".page_cache_desktop.json"
+            self._load_cache(blueprint)
+        else:
+            self._cache_path = None
+
+    def _load_cache(self, blueprint: Blueprint) -> None:
+        """从磁盘加载页面缓存到 _page_library。"""
+        if not self._cache_path or not self._cache_path.exists():
+            return
+        try:
+            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            if data.get("schema_version") != 1:
+                return
+            if data.get("app_name") != (blueprint.app_name or ""):
+                logger.info("桌面页面缓存app_name不匹配，已作废")
+                return
+            pages = data.get("pages", {})
+            loaded = 0
+            for tag, entry in pages.items():
+                fps = set(entry.get("fingerprints", []))
+                raw_coords = entry.get("coords", {})
+                coords = {k: tuple(v) for k, v in raw_coords.items()}
+                if fps and coords:
+                    self._page_library[tag] = (fps, coords)
+                    loaded += 1
+            if loaded:
+                logger.info("📦 桌面页面缓存已加载 | {} 个页面 | 来源: {}", loaded, self._cache_path.name)
+        except Exception as e:
+            logger.debug("桌面页面缓存加载失败（非致命）: {}", str(e)[:100])
+
+    def _save_cache(self, blueprint: Blueprint) -> None:
+        """将当前 _page_library 持久化到磁盘。"""
+        if not self._cache_path or not self._page_library:
+            return
+        try:
+            pages = {}
+            for tag, (fps, coords) in self._page_library.items():
+                fp_hash = hashlib.md5("".join(sorted(fps)).encode()).hexdigest()[:12]
+                pages[tag] = {
+                    "fingerprint_hash": fp_hash,
+                    "fingerprints": sorted(fps),
+                    "coords": {k: list(v) for k, v in coords.items()},
+                }
+            data = {
+                "schema_version": 1,
+                "app_name": blueprint.app_name or "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "pages": pages,
+            }
+            self._cache_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            logger.debug("桌面页面缓存已保存 | {} 个页面 → {}", len(pages), self._cache_path.name)
+        except Exception as e:
+            logger.debug("桌面页面缓存保存失败（非致命）: {}", str(e)[:100])
 
     @staticmethod
     def _extract_desktop_fingerprint(ui_tree: str) -> set[str]:
@@ -164,6 +233,9 @@ class DesktopBlueprintRunner:
 
         if self._test_controller:
             self._test_controller.start(total_steps=blueprint.total_steps)
+
+        # 初始化持久化缓存（加载上次运行的页面指纹+坐标）
+        self._init_cache(blueprint)
 
         # 连接目标窗口
         try:
@@ -333,6 +405,9 @@ class DesktopBlueprintRunner:
 
                     if self._on_step:
                         await self._on_step(step_num, result.status.value, desc)
+
+        # ── 持久化页面指纹缓存 ──
+        self._save_cache(blueprint)
 
         # 汇总
         report.step_results = all_results
