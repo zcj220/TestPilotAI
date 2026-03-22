@@ -40,11 +40,37 @@ const IDE_RULES_MAP: Record<string, string> = {
 function detectCurrentIDE(): string {
   const appName = (vscode.env.appName || "").toLowerCase();
 
+  if (appName.includes("trae")) return "trae";
   if (appName.includes("windsurf")) return "windsurf";
   if (appName.includes("cursor")) return "cursor";
   if (appName.includes("vscodium")) return "vscodium";
   // 默认是 VS Code
   return "vscode";
+}
+
+/**
+ * 检测所有应该注入规则的IDE列表
+ * 除当前IDE外，还检测已安装的AI扩展（Cline/Augment等）
+ */
+function detectAllIDEs(): string[] {
+  const ides = new Set<string>();
+  ides.add(detectCurrentIDE());
+
+  // 检测已安装的AI编程扩展
+  const extensionChecks: [string[], string][] = [
+    [["saoudrizwan.claude-dev", "cline.cline"], "cline"],
+    [["augment.augment-vscode", "augmentcode.augment"], "augment"],
+  ];
+  for (const [extIds, ideKey] of extensionChecks) {
+    for (const extId of extIds) {
+      if (vscode.extensions.getExtension(extId)) {
+        ides.add(ideKey);
+        break;
+      }
+    }
+  }
+
+  return Array.from(ides);
 }
 
 /**
@@ -396,16 +422,18 @@ export function injectRules(
     // 强制注入所有IDE规则（手动触发时）
     filesToInject = ["AGENTS.md", ...Object.values(IDE_RULES_MAP)];
   } else {
-    // 智能注入：AGENTS.md + 当前IDE专用文件
-    const currentIDE = detectCurrentIDE();
-    filesToInject = ["AGENTS.md"];
+    // 智能注入：AGENTS.md + CLAUDE.md + 当前IDE + 已安装的AI扩展
+    const detectedIDEs = detectAllIDEs();
+    filesToInject = ["AGENTS.md", "CLAUDE.md"];
     
-    const ideRuleFile = IDE_RULES_MAP[currentIDE];
-    if (ideRuleFile) {
-      filesToInject.push(ideRuleFile);
+    for (const ide of detectedIDEs) {
+      const ruleFile = IDE_RULES_MAP[ide];
+      if (ruleFile && !filesToInject.includes(ruleFile)) {
+        filesToInject.push(ruleFile);
+      }
     }
     
-    outputChannel?.appendLine(`[TestPilot AI] 检测到当前IDE: ${currentIDE}`);
+    outputChannel?.appendLine(`[TestPilot AI] 检测到IDE: ${detectedIDEs.join(", ")}`);
   }
 
   // TestPilot 内容标记（用于检测是否已追加过）
@@ -621,5 +649,86 @@ export async function autoInjectOnActivate(
     } else {
       outputChannel?.appendLine(`[TestPilot AI] ${folder.name} 已有规则文件，跳过注入`);
     }
+
+    // 检查是否有蓝本文件，没有则创建空壳蓝本
+    ensureSkeletonBlueprint(root, outputChannel);
+  }
+}
+
+/**
+ * 确保项目有蓝本文件（至少一个空壳）。
+ * 如果 testpilot/ 目录不存在或为空，自动创建一个骨架蓝本，
+ * 使项目始终出现在插件面板中。
+ */
+function ensureSkeletonBlueprint(
+  workspaceRoot: string,
+  outputChannel?: vscode.OutputChannel,
+): void {
+  const testpilotDir = path.join(workspaceRoot, "testpilot");
+  const rootBlueprint = path.join(workspaceRoot, "testpilot.json");
+
+  // 如果已有蓝本文件，跳过
+  if (fs.existsSync(rootBlueprint)) return;
+  if (fs.existsSync(testpilotDir)) {
+    try {
+      const files = fs.readdirSync(testpilotDir).filter((f: string) => f.endsWith(".json"));
+      if (files.length > 0) return;
+    } catch { /* ignore */ }
+  }
+
+  // 检测项目类型和名称
+  const folderName = path.basename(workspaceRoot);
+  let appName = folderName;
+  let platform = "web";
+
+  // Flutter / Dart
+  if (fs.existsSync(path.join(workspaceRoot, "pubspec.yaml"))) {
+    platform = "android";
+    try {
+      const pubspec = fs.readFileSync(path.join(workspaceRoot, "pubspec.yaml"), "utf-8");
+      const nameMatch = pubspec.match(/^name:\s*(.+)$/m);
+      if (nameMatch) appName = nameMatch[1].trim();
+    } catch { /* ignore */ }
+  }
+  // Node.js / Web
+  else if (fs.existsSync(path.join(workspaceRoot, "package.json"))) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8"));
+      if (pkg.name) appName = pkg.name;
+    } catch { /* ignore */ }
+    // 小程序检测
+    if (fs.existsSync(path.join(workspaceRoot, "app.json")) && fs.existsSync(path.join(workspaceRoot, "app.wxss"))) {
+      platform = "miniprogram";
+    }
+  }
+  // 微信小程序（无 package.json）
+  else if (fs.existsSync(path.join(workspaceRoot, "app.json")) && fs.existsSync(path.join(workspaceRoot, "app.js"))) {
+    platform = "miniprogram";
+  }
+  // iOS / Swift
+  else if (fs.existsSync(path.join(workspaceRoot, "Package.swift")) || fs.readdirSync(workspaceRoot).some((f: string) => f.endsWith(".xcodeproj") || f.endsWith(".xcworkspace"))) {
+    platform = "ios";
+  }
+
+  // 创建空壳蓝本
+  const skeleton = {
+    app_name: appName,
+    description: `请让编程AI为 ${appName} 生成完整的测试蓝本（当前为空壳，尚无测试场景）`,
+    base_url: platform === "web" ? "http://localhost:3000" : "",
+    platform: platform,
+    start_command: "",
+    pages: [],
+  };
+
+  try {
+    if (!fs.existsSync(testpilotDir)) {
+      fs.mkdirSync(testpilotDir, { recursive: true });
+    }
+    const skeletonPath = path.join(testpilotDir, "testpilot.json");
+    fs.writeFileSync(skeletonPath, JSON.stringify(skeleton, null, 2), "utf-8");
+    outputChannel?.appendLine(`[TestPilot AI] 📦 已为 ${appName} 创建空壳蓝本: testpilot/testpilot.json`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    outputChannel?.appendLine(`[TestPilot AI] ⚠️ 创建空壳蓝本失败: ${msg}`);
   }
 }

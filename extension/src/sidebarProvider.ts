@@ -88,6 +88,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "connectDevice":
           await this._handleConnectDevice(msg);
           break;
+        case "openBlueprintFile":
+          if (msg.filePath) {
+            const fileUri = vscode.Uri.file(msg.filePath);
+            vscode.workspace.openTextDocument(fileUri).then((doc) => {
+              vscode.window.showTextDocument(doc, { preview: false });
+            });
+          }
+          break;
       }
     });
 
@@ -1928,6 +1936,15 @@ ${commonRules}`;
         return;
       }
 
+      // 检测是否全部为空壳蓝本（pages为空）
+      var allEmpty = entries.every(function(e) { return (e.scenarioCount || 0) === 0; });
+      if (allEmpty) {
+        var emptyHint = document.createElement("div");
+        emptyHint.style.cssText = "color:var(--warning,#f59e0b);padding:8px;text-align:center;font-size:11px;line-height:1.6;background:rgba(245,158,11,0.08);border-radius:4px;margin-bottom:6px";
+        emptyHint.innerHTML = '⚠️ 蓝本为空壳，尚无测试场景<br>请点击下方「📋 复制蓝本生成提示词」<br>粘贴给编程AI自动生成完整蓝本';
+        blueprintListEl.appendChild(emptyHint);
+      }
+
       // 全局蓝本选项（固定在顶部）
       var globalItem = document.createElement("label");
       globalItem.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 4px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);margin-bottom:4px";
@@ -1998,6 +2015,19 @@ ${commonRules}`;
         info.innerHTML = '<div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + platformBadge + ' ' + displayName + '</div>'
           + (desc ? '<div style="color:var(--muted);font-size:11px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + desc + '</div>' : '')
           + '<div style="color:var(--muted);font-size:10px;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + scenarios + '场景 ' + steps + '步骤 · ' + fileName + '</div>';
+
+        // 右键菜单：打开蓝本文件
+        info.addEventListener("contextmenu", function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          vscode.postMessage({ command: "openBlueprintFile", filePath: path });
+        });
+        // 双击也可打开
+        info.addEventListener("dblclick", function(e) {
+          e.preventDefault();
+          vscode.postMessage({ command: "openBlueprintFile", filePath: path });
+        });
+        info.style.cursor = "pointer";
 
         item.appendChild(cbWrap);
         item.appendChild(info);
