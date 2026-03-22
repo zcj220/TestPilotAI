@@ -47,9 +47,22 @@ function detectCurrentIDE(): string {
   return "vscode";
 }
 
+/**
+ * 模板版本号。每次更新模板内容时递增。
+ * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
+ */
+const TEMPLATE_VERSION = 2;
+
+/** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
+function extractVersion(content: string): number {
+  const match = content.match(/<!-- TestPilot-Template-Version: (\d+) -->/);
+  return match ? parseInt(match[1], 10) : 0;
+}
+
 /** 规则模板内容（精简版：通用规则 + 引导AI读取平台专属规则文件） */
 function getTemplateContent(): string {
-  return `# TestPilot AI — 编程AI蓝本自动生成规则
+  return `<!-- TestPilot-Template-Version: ${TEMPLATE_VERSION} -->
+# TestPilot AI — 编程AI蓝本自动生成规则
 
 > 本文件由 TestPilot AI 插件自动注入，指导编程AI在开发过程中自动生成和维护测试蓝本。
 > 你可以根据项目需求自由修改本文件内容。
@@ -291,12 +304,28 @@ function injectPlatformTemplates(
   const templates = getPlatformTemplates(extensionPath);
   const targetDir = path.join(workspaceRoot, ".testpilot", "platforms");
 
-  // 如果 .testpilot/platforms 目录已存在并且有内容，跳过
+  // 检查 .testpilot/platforms 目录
   if (fs.existsSync(targetDir)) {
     const existing = fs.readdirSync(targetDir).filter((f: string) => f.endsWith(".md"));
     if (existing.length >= PLATFORM_FILES.length) {
-      outputChannel?.appendLine(`[TestPilot AI] ⏭️ .testpilot/platforms/ 已有 ${existing.length} 个模板，跳过`);
-      return created;
+      // 所有文件都存在，检查版本号决定是否需要更新
+      let needsUpdate = false;
+      for (const fileName of PLATFORM_FILES) {
+        const targetPath = path.join(targetDir, fileName);
+        if (fs.existsSync(targetPath)) {
+          const content = fs.readFileSync(targetPath, "utf-8");
+          const ver = extractVersion(content);
+          if (ver < TEMPLATE_VERSION) {
+            needsUpdate = true;
+            break;
+          }
+        }
+      }
+      if (!needsUpdate) {
+        outputChannel?.appendLine(`[TestPilot AI] ⏭️ .testpilot/platforms/ 已有 ${existing.length} 个模板且版本最新，跳过`);
+        return created;
+      }
+      outputChannel?.appendLine(`[TestPilot AI] 🔄 .testpilot/platforms/ 版本过旧，更新中...`);
     }
   }
 
@@ -305,7 +334,7 @@ function injectPlatformTemplates(
     fs.mkdirSync(targetDir, { recursive: true });
   }
 
-  // 写入每个平台模板（不存在才创建）
+  // 写入每个平台模板（不存在则创建，版本过旧则更新）
   for (const [fileName, content] of templates) {
     const targetPath = path.join(targetDir, fileName);
     if (!fs.existsSync(targetPath)) {
@@ -315,6 +344,18 @@ function injectPlatformTemplates(
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         outputChannel?.appendLine(`[TestPilot AI] ⚠️ 创建 ${fileName} 失败: ${msg}`);
+      }
+    } else {
+      // 已存在：检查版本号
+      try {
+        const existingContent = fs.readFileSync(targetPath, "utf-8");
+        const existingVersion = extractVersion(existingContent);
+        if (existingVersion < TEMPLATE_VERSION) {
+          fs.writeFileSync(targetPath, content, "utf-8");
+          created.push(`.testpilot/platforms/${fileName} (v${existingVersion}→v${TEMPLATE_VERSION})`);
+        }
+      } catch {
+        // 静默忽略
       }
     }
   }
@@ -373,8 +414,25 @@ export function injectRules(
 
     if (fs.existsSync(fullPath)) {
       if (isAgentsMd) {
-        // AGENTS.md / CLAUDE.md 是 TestPilot 专属文件，已存在则跳过
-        skipped.push(relPath);
+        // AGENTS.md / CLAUDE.md：检查版本号，旧版本则自动更新
+        try {
+          const existingContent = fs.readFileSync(fullPath, "utf-8");
+          const existingVersion = extractVersion(existingContent);
+          if (existingVersion >= TEMPLATE_VERSION) {
+            skipped.push(relPath);
+            continue;
+          }
+          // 版本过旧，更新文件
+          fs.writeFileSync(fullPath, template, "utf-8");
+          created.push(relPath + ` (v${existingVersion}→v${TEMPLATE_VERSION})`);
+          outputChannel?.appendLine(
+            `[TestPilot AI] 🔄 ${relPath} 版本过旧(v${existingVersion})，已更新到 v${TEMPLATE_VERSION}`,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          outputChannel?.appendLine(`[TestPilot AI] ⚠️ 更新 ${relPath} 失败: ${msg}`);
+          skipped.push(relPath);
+        }
         continue;
       }
 
@@ -382,8 +440,28 @@ export function injectRules(
       try {
         const existingContent = fs.readFileSync(fullPath, "utf-8");
         if (existingContent.includes(TESTPILOT_MARKER)) {
-          // 已包含 TestPilot 规则，跳过
-          skipped.push(relPath);
+          // 已包含 TestPilot 规则，检查版本
+          const existingVersion = extractVersion(existingContent);
+          if (existingVersion >= TEMPLATE_VERSION) {
+            skipped.push(relPath);
+            continue;
+          }
+          // 版本过旧：替换 TestPilot 部分（保留用户自己的内容）
+          const markerIndex = existingContent.indexOf(TESTPILOT_MARKER);
+          // 向前找分隔线或版本标记
+          let startIndex = existingContent.lastIndexOf("---", markerIndex);
+          if (startIndex === -1) startIndex = existingContent.lastIndexOf("<!-- TestPilot", markerIndex);
+          if (startIndex === -1) startIndex = markerIndex;
+          const userContent = existingContent.substring(0, startIndex).trimEnd();
+          if (userContent.length > 0) {
+            fs.writeFileSync(fullPath, userContent + "\n\n---\n\n" + template, "utf-8");
+          } else {
+            fs.writeFileSync(fullPath, template, "utf-8");
+          }
+          created.push(relPath + ` (v${existingVersion}→v${TEMPLATE_VERSION})`);
+          outputChannel?.appendLine(
+            `[TestPilot AI] 🔄 ${relPath} TestPilot规则已更新到 v${TEMPLATE_VERSION}`,
+          );
           continue;
         }
         // 在用户已有内容末尾追加 TestPilot 规则
@@ -444,10 +522,20 @@ export function injectRules(
 
 /**
  * 检查工作区是否需要注入规则
- * 缺少 AGENTS.md 或缺少 .testpilot/platforms 目录都需要注入
+ * 缺少 AGENTS.md、.testpilot/platforms 目录不全、或版本过旧都需要注入
  */
 export function needsInjection(workspaceRoot: string): boolean {
-  if (!fs.existsSync(path.join(workspaceRoot, "AGENTS.md"))) {
+  const agentsPath = path.join(workspaceRoot, "AGENTS.md");
+  if (!fs.existsSync(agentsPath)) {
+    return true;
+  }
+  // 检查 AGENTS.md 版本号
+  try {
+    const content = fs.readFileSync(agentsPath, "utf-8");
+    if (extractVersion(content) < TEMPLATE_VERSION) {
+      return true;
+    }
+  } catch {
     return true;
   }
   // 检查平台模板是否已注入
@@ -456,7 +544,24 @@ export function needsInjection(workspaceRoot: string): boolean {
     return true;
   }
   const existing = fs.readdirSync(platformDir).filter((f: string) => f.endsWith(".md"));
-  return existing.length < PLATFORM_FILES.length;
+  if (existing.length < PLATFORM_FILES.length) {
+    return true;
+  }
+  // 检查平台模板版本
+  for (const fileName of PLATFORM_FILES) {
+    const filePath = path.join(platformDir, fileName);
+    if (fs.existsSync(filePath)) {
+      try {
+        const content = fs.readFileSync(filePath, "utf-8");
+        if (extractVersion(content) < TEMPLATE_VERSION) {
+          return true;
+        }
+      } catch {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**

@@ -1,3 +1,4 @@
+<!-- TestPilot-Template-Version: 2 -->
 # Windows 桌面应用平台蓝本规则（platform = "desktop"）
 
 > 本文件定义 Windows 桌面应用（WPF/WinForms/Electron/Qt 等）蓝本的完整规则。

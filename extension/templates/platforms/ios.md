@@ -1,3 +1,4 @@
+<!-- TestPilot-Template-Version: 2 -->
 # iOS/SwiftUI 平台蓝本规则（platform = "ios"）
 
 > 本文件定义 iOS 原生应用和 SwiftUI 应用蓝本的完整规则。

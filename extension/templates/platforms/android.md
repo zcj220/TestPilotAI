@@ -1,3 +1,4 @@
+<!-- TestPilot-Template-Version: 2 -->
 # Android/Flutter 平台蓝本规则（platform = "android"）
 
 > 本文件定义 Android 原生应用和 Flutter 应用蓝本的完整规则。

@@ -1,3 +1,4 @@
+<!-- TestPilot-Template-Version: 2 -->
 # Web 平台蓝本规则（platform = "web"）
 
 > 本文件定义 Web 应用（React/Vue/Angular/纯HTML）蓝本的完整规则。

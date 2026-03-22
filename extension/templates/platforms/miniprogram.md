@@ -1,3 +1,4 @@
+<!-- TestPilot-Template-Version: 2 -->
 # 微信小程序平台蓝本规则（platform = "miniprogram"）
 
 > 本文件定义微信小程序蓝本的完整规则。
