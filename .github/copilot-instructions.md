@@ -1,16 +1,42 @@
 # TestPilot AI - Project Coding Standards
 
-## Language Rule (MANDATORY)
+# Language Rule (MANDATORY)
+- 你必须全程使用中文进行思考、推理、回答和对话。
+- 只有代码、专业名词、关键字等必须使用英文的地方，才可保留英文，其余内容一律使用中文。
 
-All AI thinking, reasoning, and responses MUST be in **English**. This applies to:
-- Code comments in new/modified code
-- Commit messages
-- AI-generated explanations and dialog
-- Variable/function naming (already English)
+# Core Workflow: 4-Step Method
+1. 任务分析：分析需求、技术难点，默认使用北京时间。
+2. 实施规划：制定 3–5 个步骤，Python 项目第一步必须包含虚拟环境设置。
+3. 分步执行：单次代码输出严格限制在 **100 行以内**，复杂任务分批次输出。
+4. 总结回顾：提供代码使用说明和注意事项。
 
-Exception: User-facing strings in the product (UI text, log messages, prompts sent to AI models) may remain in Chinese as they are part of the product's Chinese localization.
+# Key Optimization Specifications
+- 代码生成控制：避免卡顿，严禁一次性生成超长代码。
+- Python 专项：强制使用虚拟环境，代码中显式指定 Asia/Shanghai 时区。
+- 项目文档管理：每个项目必须创建并实时维护 开发备忘录.md 文件。
 
----
+# Project Documentation Mandatory Requirements
+## 文件位置
+项目根目录下的 开发备忘录.md
+
+## 实时同步
+每次代码修改、Bug 修复、功能更新后，必须同步更新该备忘录。
+
+## 核心内容
+- 项目简介与核心功能
+- 环境配置（重点强调 python -m venv venv）
+- 开发、测试与部署步骤
+- 版本更新日志（明确标注已淘汰的旧代码和新增功能）
+- 已知问题与解决方案
+
+## 更新原则
+确保代码与文档完全一致，淘汰内容需特别注明。
+
+# Interaction & Output Rules
+- 全程使用简洁专业的简体中文。
+- 代码注释重点解释核心逻辑，避免冗长。
+- 分批次输出代码时，需明确标注进度（例如：[第1/3部分]）。
+- 代码长度超过 100 行时，必须分段输出，每段不超过 100 行。
 
 ## 蓝本文件（testpilot.json）管理规则
 
@@ -380,48 +406,3 @@ Flutter 的 `Semantics` 组件在 Android 端映射为无障碍属性。**选择
 
 > Flutter 每次 `navigate` 重启后的标准流程：先 `wait 3000`，再 `wait target` 等关键元素就绪。
 
-核心工作流程：四步法
-
-任务分析：分析需求、技术难点，默认使用北京时间。
-
-实施规划：制定3-5个步骤，Python项目第一步必须包含虚拟环境设置。
-
-分步执行：单次代码生成严格限制在150行以内，复杂任务分批次进行。
-
-总结回顾：提供代码使用说明和注意事项。
-
-重点优化规范
-
-代码生成控制：避免卡顿，严禁一次性生成超长代码。
-
-Python专项：强制使用虚拟环境，代码中显式指定 Asia/Shanghai时区。
-
-项目文档管理：每个项目必须创建并实时维护 开发备忘录.md文件。
-
-项目文档强制要求
-
-文件位置：项目根目录下的 开发备忘录.md。
-
-实时同步：每次代码修改、Bug修复、功能更新后，必须同步更新该备忘录。
-
-核心内容：
-
-项目简介与核心功能。
-
-环境配置（重点强调 python -m venv venv）。
-
-开发、测试与部署步骤。
-
-版本更新日志（明确标注已淘汰的旧代码和新增功能）。
-
-已知问题与解决方案。
-
-更新原则：确保代码与文档完全一致，淘汰内容需特别注明。
-
-交互与输出
-
-全程使用简洁专业的简体中文。
-
-代码注释重点解释核心逻辑，避免冗长。
-
-分批次输出代码时，需明确标注进度（例如：[第1/3部分]）。

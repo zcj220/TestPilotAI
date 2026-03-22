@@ -136,13 +136,25 @@ wait 时间 = 代码中的异步延迟 + 2000ms（预留 SwiftUI 渲染 + XCUITe
 
 ---
 
-## 六、场景自包含原则
+## 六、场景自包含原则与连续流模式
+
+### 默认模式（`flow: false`）
 
 - `navigate` 的 `value` 填 Bundle ID，引擎自动执行 `terminateApp → launchApp` 冷启动
 - `@Published` 属性在 terminateApp 后自动重置
 - `@AppStorage` **不会**重置（持久化到 UserDefaults）
 - 每个场景的第一步：`navigate` → `wait 3000` → 操作
 - **禁止**场景间传递状态
+
+### 连续流模式（`flow: true`）
+
+在 `page` 级别设置 `"flow": true`，同一页面内的场景将连续执行，不冷启动：
+- 仅第1个场景执行 navigate 冷启动，后续场景的 navigate **自动跳过**
+- 场景间保持应用状态
+- 步骤失败时AI中枢尝试跳过并继续，连续失败时冷启动恢复
+- 每个场景仍需写 navigate（方便单独运行）
+
+**适用：** Tab 切换、连续操作流程。**不适用：** 需要干净状态的独立测试。
 
 ---
 

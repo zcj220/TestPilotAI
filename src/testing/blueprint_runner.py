@@ -161,18 +161,21 @@ class BlueprintRunner:
                 except Exception as e:
                     logger.error("页面导航失败: {} | {}", page_url, str(e)[:80])
 
-            for scenario in page.scenarios:
+            is_flow = getattr(page, 'flow', False)
+            for sc_idx, scenario in enumerate(page.scenarios):
                 if cancelled or blocking_bug_detected:
                     break
 
-                # 场景间隔离：清除cookie/storage，确保每个场景从干净状态开始
-                try:
-                    await self._browser._context.clear_cookies()
-                    await self._browser.page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
-                except Exception as e:
-                    logger.debug("场景隔离清理失败（非致命）: {}", str(e)[:60])
+                # 场景间隔离：flow模式下跳过清除，保持前一场景的状态
+                if not is_flow:
+                    try:
+                        await self._browser._context.clear_cookies()
+                        await self._browser.page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
+                    except Exception as e:
+                        logger.debug("场景隔离清理失败（非致命）: {}", str(e)[:60])
 
-                logger.info("── 场景: {} ──", scenario.name)
+                flow_tag = " [连续流]" if is_flow else ""
+                logger.info("── 场景: {}{} ──", scenario.name, flow_tag)
                 self._hub.on_scenario_start()
 
                 # 预扫描场景中所有assert_text的expected文本，提前注册到异常检测器的suppress列表
@@ -359,18 +362,40 @@ class BlueprintRunner:
                             len(s.scenarios) for s in blueprint.pages
                         ) - (sum(len(p.scenarios) for p in blueprint.pages[:page_idx])
                              + page.scenarios.index(scenario) + 1)
-                        logger.warning(
-                            "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
-                            "建议先修复阻塞问题再重测",
-                            MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
-                        )
-                        if self._on_step:
-                            await self._on_step(
-                                step_num, "error",
-                                f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
-                                f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+
+                        if is_flow and remaining_scenarios > 0:
+                            # flow模式：连续失败时刷新页面恢复，而不是放弃全部
+                            logger.warning(
+                                "🔄 [连续流] 连续{}个场景失败，尝试刷新页面恢复后继续测试...",
+                                MAX_CONSECUTIVE_FAILURES,
                             )
-                        blocking_bug_detected = True
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "warn",
+                                    f"🔄 连续流恢复：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"刷新页面后继续剩余{remaining_scenarios}个场景",
+                                )
+                            try:
+                                await self._browser.page.reload(wait_until="domcontentloaded")
+                                await asyncio.sleep(2)
+                                consecutive_scene_failures = 0
+                                logger.info("  ✅ 页面刷新恢复成功，继续测试")
+                            except Exception as e:
+                                logger.error("  ❌ 页面恢复失败: {}，停止测试", str(e)[:80])
+                                blocking_bug_detected = True
+                        else:
+                            logger.warning(
+                                "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
+                                "建议先修复阻塞问题再重测",
+                                MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
+                            )
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "error",
+                                    f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+                                )
+                            blocking_bug_detected = True
                 else:
                     consecutive_scene_failures = 0  # 有场景通过，重置计数
 

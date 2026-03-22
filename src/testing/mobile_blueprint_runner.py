@@ -383,14 +383,32 @@ class MobileBlueprintRunner:
                 except Exception as nav_err:
                     logger.error("手机页面导航失败: {} | {}", page.url, nav_err)
 
-            for scenario in page.scenarios:
+            is_flow = getattr(page, 'flow', False)
+            for sc_idx, scenario in enumerate(page.scenarios):
                 if cancelled or blocking_bug_detected:
                     break
-                logger.info("── 场景: {} ──", scenario.name)
+
+                flow_tag = " [连续流]" if is_flow else ""
+                logger.info("── 场景: {}{} ──", scenario.name, flow_tag)
                 self._hub.on_scenario_start()
 
+                # flow模式下，非首个场景跳过navigate步骤（不重启应用）
+                # 同时需要重新分析当前页面元素坐标（因为页面可能已变化）
+                steps_to_run = scenario.steps
+                if is_flow and sc_idx > 0:
+                    # 过滤掉开头的navigate步骤（它们用于冷启动，flow模式不需要）
+                    filtered = []
+                    skip_nav = True
+                    for s in scenario.steps:
+                        if skip_nav and s.action == "navigate":
+                            logger.info("  [连续流] 跳过navigate步骤（保持当前页面状态）")
+                            continue
+                        skip_nav = False  # 只跳过开头的navigate
+                        filtered.append(s)
+                    steps_to_run = filtered if filtered else scenario.steps
+
                 # 场景开始前获取当前页面元素坐标（指纹缓存优先，减少AI调用）
-                first_action = scenario.steps[0].action if scenario.steps else ""
+                first_action = steps_to_run[0].action if steps_to_run else ""
                 if first_action == "reset_state":
                     scene_coords = {}
                 else:
@@ -411,7 +429,7 @@ class MobileBlueprintRunner:
                     if not fingerprint_hit:
                         scene_coords = await self._analyze_page_elements(scenario)
 
-                for step_def in scenario.steps:
+                for step_def in steps_to_run:
                     step_num += 1
                     desc = step_def.description or step_def.action
 
@@ -438,7 +456,7 @@ class MobileBlueprintRunner:
 
                     # reset_state 后回到初始页 → 先用指纹缓存，没命中才调AI分析
                     if step_def.action == "reset_state" and scene_coords is not None and not scene_coords:
-                        remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
+                        remaining_steps = steps_to_run[steps_to_run.index(step_def)+1:]
                         if any(s.action in ("click", "fill") for s in remaining_steps):
                             fingerprint_hit = False
                             try:
@@ -510,8 +528,8 @@ class MobileBlueprintRunner:
                                 step_num, step_def.action, step_def.target, step_def.value,
                                 passed=False, error=result.error_message if result else None,
                             )
-                            remaining_idx = scenario.steps.index(step_def) + 1
-                            for skip_step in scenario.steps[remaining_idx:]:
+                            remaining_idx = steps_to_run.index(step_def) + 1
+                            for skip_step in steps_to_run[remaining_idx:]:
                                 step_num += 1
                                 skip_desc = skip_step.description or skip_step.action
                                 try:
@@ -545,7 +563,7 @@ class MobileBlueprintRunner:
 
                     # navigate 后页面切换 → 先用指纹缓存，没命中才调AI分析
                     if step_def.action == "navigate" and not scene_coords:
-                        remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
+                        remaining_steps = steps_to_run[steps_to_run.index(step_def)+1:]
                         if any(s.action in ("click", "fill") for s in remaining_steps):
                             fingerprint_hit = False
                             try:
@@ -589,8 +607,8 @@ class MobileBlueprintRunner:
                 # ── 场景结束：检测连续失败（阻塞性Bug自动止损） ──
                 scene_has_bug = any(
                     r.status in (StepStatus.FAILED, StepStatus.ERROR)
-                    for r in all_results[-len(scenario.steps):]
-                    if r.step > step_num - len(scenario.steps)
+                    for r in all_results[-len(steps_to_run):]
+                    if r.step > step_num - len(steps_to_run)
                 )
                 if scene_has_bug:
                     consecutive_scene_failures += 1
@@ -599,18 +617,40 @@ class MobileBlueprintRunner:
                             len(s.scenarios) for s in blueprint.pages
                         ) - (sum(len(p.scenarios) for p in blueprint.pages[:page_idx])
                              + page.scenarios.index(scenario) + 1)
-                        logger.warning(
-                            "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
-                            "建议先修复阻塞问题再重测",
-                            MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
-                        )
-                        if self._on_step:
-                            await self._on_step(
-                                step_num, "error",
-                                f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
-                                f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+
+                        if is_flow and remaining_scenarios > 0:
+                            # flow模式：连续失败时尝试冷启动恢复，而不是放弃全部
+                            logger.warning(
+                                "🔄 [连续流] 连续{}个场景失败，尝试冷启动恢复后继续测试...",
+                                MAX_CONSECUTIVE_FAILURES,
                             )
-                        blocking_bug_detected = True
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "warn",
+                                    f"🔄 连续流恢复：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"冷启动恢复后继续剩余{remaining_scenarios}个场景",
+                                )
+                            try:
+                                await self._ctrl.launch()
+                                await asyncio.sleep(3)
+                                consecutive_scene_failures = 0  # 重置，给恢复后的场景机会
+                                logger.info("  ✅ 冷启动恢复成功，继续测试")
+                            except Exception as e:
+                                logger.error("  ❌ 冷启动恢复失败: {}，停止测试", str(e)[:80])
+                                blocking_bug_detected = True
+                        else:
+                            logger.warning(
+                                "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过 | "
+                                "建议先修复阻塞问题再重测",
+                                MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
+                            )
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "error",
+                                    f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"剩余{remaining_scenarios}个场景已跳过，请先修复阻塞问题",
+                                )
+                            blocking_bug_detected = True
                 else:
                     consecutive_scene_failures = 0  # 有场景通过，重置计数
 

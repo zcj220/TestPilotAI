@@ -47,6 +47,7 @@ class BlueprintPage(BaseModel):
     title: Optional[str] = Field(default=None, description="预期页面标题")
     elements: dict[str, str] = Field(default_factory=dict, description="元素映射：名称→CSS选择器")
     scenarios: list[BlueprintScenario] = Field(default_factory=list, description="该页面的测试场景")
+    flow: bool = Field(default=False, description="连续流模式：true时场景间不重启应用/不清状态，按真实用户操作路径连续执行")
 
 
 class Blueprint(BaseModel):
