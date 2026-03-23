@@ -1300,6 +1300,35 @@ ${commonRules}`;
     }
     .gear-btn:hover { background:var(--input-bg); color:var(--fg); border:none; }
     .gear-btn.active-gear { color:var(--btn-bg); }
+    /* 设置浮动下拉菜单 */
+    .settings-dropdown {
+      position:fixed; top:30px; right:6px; z-index:1000;
+      min-width:210px;
+      background:var(--input-bg); color:var(--fg);
+      border:1px solid var(--input-border);
+      border-radius:5px;
+      box-shadow:0 4px 20px rgba(0,0,0,0.4);
+      padding:4px 0;
+      display:none;
+    }
+    .settings-dropdown.open { display:block; }
+    .sdrop-section {
+      font-size:10px; color:var(--muted);
+      padding:6px 12px 2px; letter-spacing:0.5px;
+    }
+    .sdrop-item {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:7px 12px; font-size:12px; color:var(--fg); cursor:pointer;
+      gap:12px;
+    }
+    .sdrop-item:hover { background:var(--hover-bg, rgba(128,128,128,0.15)); }
+    .sdrop-item.disabled { opacity:0.5; cursor:default; }
+    .sdrop-item.disabled:hover { background:transparent; }
+    .sdrop-divider { height:1px; background:var(--input-border); margin:4px 0; }
+    .sdrop-sublabel {
+      font-size:10px; color:var(--muted);
+      padding:0 12px 6px; text-align:right;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--fg); padding: 12px; }
     h2 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
@@ -1429,8 +1458,32 @@ ${commonRules}`;
   </style>
 </head>
 <body>
-  <!-- 右上角设置按钮 -->
+  <!-- 右上角设置按钮 + 浮动下拉菜单 -->
   <button class="gear-btn" id="btnGearSettings" title="设置">⚙️</button>
+  <div id="settingsDropdown" class="settings-dropdown">
+    <div class="sdrop-section">个性化设置</div>
+    <div class="sdrop-item" id="settingsThemeRow">
+      <span>🌓 界面主题</span>
+      <label class="toggle-switch" onclick="event.stopPropagation()">
+        <input type="checkbox" id="themeToggle" />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="sdrop-sublabel" id="themeLabel">🌙 深色模式</div>
+    <div class="sdrop-divider"></div>
+    <div class="sdrop-item disabled">
+      <span>🌐 界面语言</span>
+      <span class="badge-soon">即将推出</span>
+    </div>
+    <div class="sdrop-item disabled">
+      <span>🔤 字体大小</span>
+      <span class="badge-soon">即将推出</span>
+    </div>
+    <div class="sdrop-item disabled">
+      <span>🔑 账户登录</span>
+      <span class="badge-soon">即将推出</span>
+    </div>
+  </div>
   <!-- 引擎状态 -->
   <div class="section">
     <h2>
@@ -1560,30 +1613,6 @@ ${commonRules}`;
       <div id="shareResult" style="font-size:11px;margin-top:4px;display:none"></div>
     </div>
 
-    <!-- 设置 -->
-    <div class="tab-content" id="panelSettings">
-      <div style="margin-bottom:12px;font-size:12px;color:var(--muted)">个性化设置</div>
-      <div class="settings-row">
-        <span>🌓 界面主题</span>
-        <label class="toggle-switch">
-          <input type="checkbox" id="themeToggle" />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-      <div style="font-size:11px;color:var(--muted);padding:2px 2px 8px;text-align:right" id="themeLabel">跟随编辑器</div>
-      <div class="settings-row">
-        <span>🌐 界面语言</span>
-        <span class="badge-soon">即将推出</span>
-      </div>
-      <div class="settings-row">
-        <span>🔤 字体大小</span>
-        <span class="badge-soon">即将推出</span>
-      </div>
-      <div class="settings-row">
-        <span>🔑 账户登录</span>
-        <span class="badge-soon">即将推出</span>
-      </div>
-    </div>
   </div>
 
   <!-- 测试控制 -->
@@ -1668,21 +1697,18 @@ ${commonRules}`;
     const panelBlueprint = document.getElementById("panelBlueprint");
     const panelExplore = document.getElementById("panelExplore");
     const panelCommunity = document.getElementById("panelCommunity");
-    const panelSettings = document.getElementById("panelSettings");
     const allTabs = [tabBlueprint, tabExplore, tabCommunity];
     const allPanels = [panelBlueprint, panelExplore, panelCommunity];
     const btnGear = document.getElementById("btnGearSettings");
-    let settingsOpen = false;
+    const settingsDropdown = document.getElementById("settingsDropdown");
 
     function switchTab(activeTab, activePanel) {
       allTabs.filter(Boolean).forEach(t => t.classList.remove("active"));
       allPanels.filter(Boolean).forEach(p => p.classList.remove("active"));
       if (activeTab) activeTab.classList.add("active");
       if (activePanel) activePanel.classList.add("active");
-      // 关闭设置面板
-      if (panelSettings) panelSettings.classList.remove("active");
       if (btnGear) btnGear.classList.remove("active-gear");
-      settingsOpen = false;
+      if (settingsDropdown) settingsDropdown.classList.remove("open");
     }
     tabBlueprint.addEventListener("click", () => switchTab(tabBlueprint, panelBlueprint));
     tabExplore.addEventListener("click", () => switchTab(tabExplore, panelExplore));
@@ -1690,20 +1716,20 @@ ${commonRules}`;
       switchTab(tabCommunity, panelCommunity);
       loadCommunityExperiences();
     });
-    // 右上角齿轮：toggle 设置面板
-    if (btnGear) btnGear.addEventListener("click", () => {
-      settingsOpen = !settingsOpen;
-      if (settingsOpen) {
-        allTabs.filter(Boolean).forEach(t => t.classList.remove("active"));
-        allPanels.filter(Boolean).forEach(p => p.classList.remove("active"));
-        if (panelSettings) panelSettings.classList.add("active");
-        btnGear.classList.add("active-gear");
-      } else {
-        if (panelSettings) panelSettings.classList.remove("active");
-        btnGear.classList.remove("active-gear");
-        // 恢复蓝本模式
-        tabBlueprint.classList.add("active");
-        panelBlueprint.classList.add("active");
+    // 右上角齿轮：弹出浮动下拉菜单
+    if (btnGear) btnGear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = settingsDropdown.classList.contains("open");
+      settingsDropdown.classList.toggle("open", !isOpen);
+      btnGear.classList.toggle("active-gear", !isOpen);
+    });
+    // 点击外部关闭下拉菜单
+    document.addEventListener("click", (e) => {
+      if (settingsDropdown && settingsDropdown.classList.contains("open")) {
+        if (!settingsDropdown.contains(e.target) && e.target !== btnGear) {
+          settingsDropdown.classList.remove("open");
+          if (btnGear) btnGear.classList.remove("active-gear");
+        }
       }
     });
 
