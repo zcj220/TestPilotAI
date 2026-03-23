@@ -419,7 +419,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (isElementNotFound && bugDesc.includes("@hint=") && !cat.includes("[蓝本问题]")) {
           lines.push(`   ⚠️ 归因提示：XPath[@hint='xxx'] 在 Flutter 中不稳定（UiAutomator2 有时无法读取 EditText hint）。建议改用 Semantics label 的 accessibility_id 定位。大概率是【蓝本问题】。`);
         }
-        // ── 顽固Bug加强分析（已出现≥2次，即至少3次修复失败）──
+        // ── 顽固Bug多级递进分析 ──
+        if (retryCount === 1) {
+          lines.push(`   ⚠️ [第2次出现] 此Bug上次已出现过，修复后依然发生。请优先检查：蓝本断言是否本身有误？选择器是否精确对应源码？`);
+        }
         if (retryCount >= 2) {
           lines.push(`   🚨 [顽固Bug × ${retryCount + 1}次] 此Bug已连续 ${retryCount + 1} 次出现，前几次修复均无效。请强制换思路深度分析：`);
           lines.push(`      ① expected 文本/元素在APP当前状态下真的可见/存在吗？（不要假设）`);
@@ -427,6 +430,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           lines.push(`      ③ 这究竟是APP逻辑Bug，还是蓝本断言本身不合理？`);
           lines.push(`      ④ 如果APP没有后端/数据库，操作后不会有文字反馈，断言应改为验证UI状态变化`);
           lines.push(`      ⑤ 禁止重复使用上一次失败的同一修复方案`);
+        }
+        if (retryCount >= 3) {
+          lines.push(`   🚨🚨 [第${retryCount + 1}次·请人工介入] AI已无法独立解决此Bug，建议暂停AI自动修复，手动打开蓝本文件检查断言逻辑，并直接运行APP验证该操作的真实反馈，再决定修复方向。`);
         }
       });
     } else {
@@ -1860,8 +1866,13 @@ ${commonRules}`;
 
     // 存储最后一次报告数据
     let lastReport = null;
-    // 顽固Bug重试计数：key=签名(步骤号|标题前40字), value=累计出现次数（跨多次测试，不重置）
-    var bugRetryMap = {};
+    // 顽固Bug重试计数：key=签名(步骤号|标题前40字), value=累计出现次数（localStorage持久化，Reload Window不丢失）
+    var bugRetryMap = (function() {
+      try { return JSON.parse(localStorage.getItem("tp_bug_retry") || "{}"); } catch(e) { return {}; }
+    })();
+    function saveBugRetryMap() {
+      try { localStorage.setItem("tp_bug_retry", JSON.stringify(bugRetryMap)); } catch(e) {}
+    }
 
     // 复制Bug给AI
     document.getElementById("btnCopyBugs").addEventListener("click", () => {
@@ -2391,6 +2402,7 @@ ${commonRules}`;
         var sig = (bug.step_number || "0") + "|" + (bug.title || "").substring(0, 40);
         bugRetryMap[sig] = (bugRetryMap[sig] || 0) + 1;
       });
+      saveBugRetryMap();
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
       addLog("测试完成!", "success");
@@ -2417,7 +2429,7 @@ ${commonRules}`;
       resultSection.classList.remove("hidden");
 
       // 渲染Bug列表
-      renderBugs(report.bugs || []);
+      renderBugs(report.bugs || [], bugRetryMap);
 
       // 渲染步骤详情（自动展开）
       renderSteps(report.steps || []);
@@ -2467,7 +2479,8 @@ ${commonRules}`;
       };
     }
 
-    function renderBugs(bugs) {
+    function renderBugs(bugs, retryMap) {
+      retryMap = retryMap || {};
       bugList.innerHTML = "";
       bugTotal.textContent = bugs.length;
       if (bugs.length === 0) {
@@ -2479,10 +2492,18 @@ ${commonRules}`;
         const sev = bug.severity || "medium";
         const div = document.createElement("div");
         div.className = "bug-item " + sev;
+        var bugSig = (bug.step_number || "0") + "|" + (bug.title || "").substring(0, 40);
+        var rc = retryMap[bugSig] || 0;
+        var retryBadge = rc >= 3
+          ? ' <span style="color:var(--error,#ef4444);font-size:10px;font-weight:600">🚨×' + rc + ' 需人工介入</span>'
+          : rc >= 2
+            ? ' <span style="color:var(--warning,#f59e0b);font-size:10px">🔁×' + rc + '</span>'
+            : '';
         div.innerHTML =
           '<div class="bug-title">' +
             '<span class="severity-badge ' + sev + '">' + sev.toUpperCase() + '</span>' +
             escapeHtml(bug.title || "Bug #" + (i+1)) +
+            retryBadge +
           '</div>' +
           (bug.step_number ? '<div class="bug-meta">步骤 #' + bug.step_number + (bug.category ? ' · ' + escapeHtml(bug.category) : '') + '</div>' : '') +
           '<div class="bug-desc">' + escapeHtml((bug.description || "").substring(0, 200)) + '</div>';
