@@ -1215,20 +1215,37 @@ ${commonRules}`;
       --error: #f44747;
       --warn: #cca700;
       --info: var(--vscode-descriptionForeground, #9d9d9d);
+      --editor-bg: var(--vscode-editor-background, #252526);
     }
     body.light-mode {
-      --bg: #f3f3f3;
+      --bg: #e8e8e8;
       --fg: #1e1e1e;
-      --input-bg: #ffffff;
-      --input-border: rgba(0,0,0,0.25);
+      --input-bg: #f5f5f5;
+      --input-border: rgba(0,0,0,0.2);
       --input-fg: #1e1e1e;
       --btn-bg: #007acc;
       --btn-fg: #ffffff;
       --btn-hover: #005a9e;
       --muted: rgba(0,0,0,0.45);
       --info: #5a5a5a;
+      --editor-bg: #dedede;
     }
     body.light-mode { background: var(--bg); color: var(--fg); }
+    body.light-mode button {
+      border-color: rgba(0,0,0,0.18);
+    }
+    body.light-mode button:hover {
+      border-color: rgba(0,0,0,0.35);
+    }
+    body.light-mode .btn-secondary {
+      background: rgba(0,0,0,0.06);
+      border-color: rgba(0,0,0,0.18);
+      color: var(--fg);
+    }
+    body.light-mode .btn-secondary:hover {
+      background: rgba(0,0,0,0.12);
+      border-color: rgba(0,0,0,0.3);
+    }
     /* Toggle switch */
     .toggle-switch { position:relative; display:inline-block; width:40px; height:22px; }
     .toggle-switch input { opacity:0; width:0; height:0; }
@@ -1307,7 +1324,7 @@ ${commonRules}`;
     .tab-content.active { display: block; }
 
     .log-area {
-      background: var(--vscode-editor-background);
+      background: var(--editor-bg);
       border: 1px solid var(--input-border);
       border-radius: 3px;
       padding: 8px;
@@ -1324,7 +1341,7 @@ ${commonRules}`;
     .log-entry.warn { color: var(--warn); }
 
     .result-card {
-      background: var(--vscode-editor-background);
+      background: var(--editor-bg);
       border: 1px solid var(--input-border);
       border-radius: 3px;
       padding: 10px;
@@ -1361,7 +1378,7 @@ ${commonRules}`;
 
     /* Bug列表样式 */
     .bug-item {
-      background: var(--vscode-editor-background);
+      background: var(--editor-bg);
       border: 1px solid var(--input-border);
       border-radius: 3px;
       padding: 8px;
@@ -1412,7 +1429,7 @@ ${commonRules}`;
     </div>
     <button class="btn-secondary hidden" id="btnCheckEngine">检查连接</button>
     <!-- 设备状态提示（仅Android/iOS项目显示） -->
-    <div id="deviceStatusRow" class="hidden" style="background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
+    <div id="deviceStatusRow" class="hidden" style="background:var(--editor-bg);border:1px solid var(--input-border);border-radius:3px;padding:6px 8px;margin:6px 0;font-size:11px">
       <div style="display:flex;align-items:flex-start;gap:4px;margin-bottom:4px">
         <span id="deviceStatusIcon" style="flex-shrink:0;line-height:1.4">📱</span>
         <span id="deviceStatusText" style="color:var(--muted);word-break:break-word;line-height:1.4">检测中...</span>
@@ -2781,8 +2798,14 @@ ${commonRules}`;
       }
     });
 
-    // 初始检查
+    // 初始检查 + 轮询（最长60秒/每5秒，连接后自动停止，解决Trae等IDE WebView渲染慢导致按钮状态不更新的问题）
     vscode.postMessage({ command: "checkEngine" });
+    let _initPollCount = 0;
+    const _initPollId = setInterval(() => {
+      _initPollCount++;
+      if (wasConnected || _initPollCount >= 12) { clearInterval(_initPollId); return; }
+      vscode.postMessage({ command: "checkEngine" });
+    }, 5000);
   </script>
 </body>
 </html>`;
