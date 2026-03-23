@@ -62,7 +62,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           await this._handleGetHistory();
           break;
         case "copyBugs":
-          await this._handleCopyBugs(msg.report, msg.blueprintPath || "");
+          await this._handleCopyBugs(msg.report, msg.blueprintPath || "", msg.retryInfo || {});
           break;
         case "launchEngine":
           vscode.commands.executeCommand("testpilot-ai.launchEngine");
@@ -366,7 +366,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private _formatBugText(report: Record<string, unknown>, blueprintPath: string = ""): string {
+  private _formatBugText(report: Record<string, unknown>, blueprintPath: string = "", retryInfo: Record<string, number> = {}): string {
     const bugCount = report.bug_count as number || 0;
     const lines: string[] = [
       `TestPilot AI 发现 ${bugCount} 个Bug，请修复：`,
@@ -379,6 +379,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const cat = (bug.category as string) || "";
         const bugDesc = (bug.description as string) || "";
         const bugTitle = (bug.title as string) || "";
+        const bugSig = `${bug.step_number || "0"}|${bugTitle.substring(0, 40)}`;
+        const retryCount = retryInfo[bugSig] || 0;  // ≥2 = 已失败3次（初次+2次重试）
         const step = bug.step_number ? ` (步骤#${bug.step_number})` : "";
         lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${cat ? cat + " " : ""}${bugTitle}${step}`);
         if (bugDesc) {
@@ -417,6 +419,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (isElementNotFound && bugDesc.includes("@hint=") && !cat.includes("[蓝本问题]")) {
           lines.push(`   ⚠️ 归因提示：XPath[@hint='xxx'] 在 Flutter 中不稳定（UiAutomator2 有时无法读取 EditText hint）。建议改用 Semantics label 的 accessibility_id 定位。大概率是【蓝本问题】。`);
         }
+        // ── 顽固Bug加强分析（已出现≥2次，即至少3次修复失败）──
+        if (retryCount >= 2) {
+          lines.push(`   🚨 [顽固Bug × ${retryCount + 1}次] 此Bug已连续 ${retryCount + 1} 次出现，前几次修复均无效。请强制换思路深度分析：`);
+          lines.push(`      ① expected 文本/元素在APP当前状态下真的可见/存在吗？（不要假设）`);
+          lines.push(`      ② 你上几次的修复方向是否相同？如果是，本次必须换一个完全不同的角度`);
+          lines.push(`      ③ 这究竟是APP逻辑Bug，还是蓝本断言本身不合理？`);
+          lines.push(`      ④ 如果APP没有后端/数据库，操作后不会有文字反馈，断言应改为验证UI状态变化`);
+          lines.push(`      ⑤ 禁止重复使用上一次失败的同一修复方案`);
+        }
       });
     } else {
       lines.push((report.report_markdown as string || "").substring(0, 1000));
@@ -452,8 +463,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     return lines.join("\n");
   }
 
-  private async _handleCopyBugs(report: Record<string, unknown>, blueprintPath: string = ""): Promise<void> {
-    const bugText = this._formatBugText(report, blueprintPath);
+  private async _handleCopyBugs(report: Record<string, unknown>, blueprintPath: string = "", retryInfo: Record<string, number> = {}): Promise<void> {
+    const bugText = this._formatBugText(report, blueprintPath, retryInfo);
 
     // 按IDE类型依次尝试发送到聊天面板
     // 各IDE的 appHost / 扩展 ID 用于检测当前运行环境
@@ -1849,13 +1860,15 @@ ${commonRules}`;
 
     // 存储最后一次报告数据
     let lastReport = null;
+    // 顽固Bug重试计数：key=签名(步骤号|标题前40字), value=累计出现次数（跨多次测试，不重置）
+    var bugRetryMap = {};
 
     // 复制Bug给AI
     document.getElementById("btnCopyBugs").addEventListener("click", () => {
       if (!lastReport) { addLog("暂无测试报告", "error"); return; }
       // 附带蓝本路径，让编程AI知道调run_blueprint_test时传什么路径
       var bpPath = document.getElementById("inputBlueprintPath").value.trim();
-      vscode.postMessage({ command: "copyBugs", report: lastReport, blueprintPath: bpPath });
+      vscode.postMessage({ command: "copyBugs", report: lastReport, blueprintPath: bpPath, retryInfo: bugRetryMap });
     });
 
     // 重测按钮
@@ -2373,6 +2386,11 @@ ${commonRules}`;
       // WS test_done 可能作为宏任务晚于此处到达，会覆盖合并结果。
       // inBatchMode 仅在 onTestStarted（新一轮测试）时清除。
       lastReport = report;
+      // 更新顽固Bug计数（签名 = 步骤号|标题前40字）
+      (report.bugs || []).forEach(function(bug) {
+        var sig = (bug.step_number || "0") + "|" + (bug.title || "").substring(0, 40);
+        bugRetryMap[sig] = (bugRetryMap[sig] || 0) + 1;
+      });
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
       addLog("测试完成!", "success");

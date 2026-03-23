@@ -670,24 +670,27 @@ export async function autoInjectOnActivate(
       const result = injectRules(root, outputChannel, false, extensionPath);
 
       if (result.created.length > 0) {
-        vscode.window.showInformationMessage(
-          `TestPilot AI: 已为 ${folder.name} 注入 ${result.created.length} 个编程AI规则文件，编程AI将自动生成测试蓝本`,
-          "查看详情",
-        ).then((action) => {
-          if (action === "查看详情") {
-            // 打开 AGENTS.md 让用户看看注入了什么
-            const agentsPath = path.join(root, "AGENTS.md");
-            if (fs.existsSync(agentsPath)) {
-              vscode.workspace.openTextDocument(agentsPath).then((doc) => {
-                vscode.window.showTextDocument(doc, { preview: true });
-              });
+        // 只通知真正的规则文件（排除平台模板 .testpilot/platforms/），避免每次版本更新都打扰用户
+        const ruleFilesCreated = result.created.filter(f => !f.startsWith(".testpilot"));
+        if (ruleFilesCreated.length > 0) {
+          vscode.window.showInformationMessage(
+            `TestPilot AI: 已为 ${folder.name} 注入 ${ruleFilesCreated.length} 个编程AI规则文件，编程AI将自动生成测试蓝本`,
+            "查看详情",
+          ).then((action) => {
+            if (action === "查看详情") {
+              const agentsPath = path.join(root, "AGENTS.md");
+              if (fs.existsSync(agentsPath)) {
+                vscode.workspace.openTextDocument(agentsPath).then((doc) => {
+                  vscode.window.showTextDocument(doc, { preview: true });
+                });
+              }
             }
-          }
-        });
+          });
+        }
       }
-    } else {
-      outputChannel?.appendLine(`[TestPilot AI] ${folder.name} 已有规则文件，跳过注入`);
-    }
+      } else {
+        outputChannel?.appendLine(`[TestPilot AI] ${folder.name} 已有规则文件，跳过注入`);
+      }
 
     // 检查是否有蓝本文件，没有则创建空壳蓝本
     ensureSkeletonBlueprint(root, outputChannel);
