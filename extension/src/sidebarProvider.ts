@@ -623,12 +623,17 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     lines.push(`        - platform：必须与项目类型匹配`);
     lines.push(`        - start_command：必须能在 start_cwd 目录下独立运行`);
     lines.push(`     b. 读取现有蓝本，列出其中所有 target 选择器`);
-    lines.push(`     c. 对每个 target，在项目源码中搜索该选择器（用 id、class、placeholder、type 等真实属性）`);
-    lines.push(`        - 搜到：保留`);
+    lines.push(`     c. 对每个 target，打开对应的源文件（HTML/JSX/TSX/Vue），验证该选择器真实存在：`);
+    lines.push(`        - 找到对应 DOM 元素：保留`);
     lines.push(`        - 搜不到或已失效：更正为源码中实际存在的选择器`);
-    lines.push(`     d. 检查源码中是否有新增功能未被现有蓝本覆盖，若有则补充对应场景`);
-    lines.push(`     e. 检查已删除的功能，删除对应场景`);
-    lines.push(`     f. 将更新后的完整蓝本覆盖写回原文件（禁止新建额外文件）`);
+    lines.push(`        ⚠️【选择器陷阱】React/Vue/Angular 中 <Select>、<Modal>、<Dropdown> 等自定义组件名`);
+    lines.push(`           不会出现在渲染后的 DOM class 中！必须打开该组件的源文件查看其根元素实际渲染的 class/id。`);
+    lines.push(`           例如：JSX 里 <CategorySelect /> 渲染后根节点可能是 <div class="relative"> 而不是 <div class="CategorySelect">`);
+    lines.push(`     d. 检查每个页面下的场景数量：若某个 page 有 ≥2 个场景且都需要先登录后操作同一页面，`);
+    lines.push(`        必须给该 page 设置 "flow": true，避免每个场景都重复冷启动+登录（极大浪费时间）`);
+    lines.push(`     e. 检查源码中是否有新增功能未被现有蓝本覆盖，若有则补充对应场景`);
+    lines.push(`     f. 检查已删除的功能，删除对应场景`);
+    lines.push(`     g. 将更新后的完整蓝本覆盖写回原文件（禁止新建额外文件）`);
     lines.push(`     ⚠️ 禁止仅凭印象或整体扫描就宣布"无需更新"——必须逐个搜索验证每个 target`);
 
     const prompt = lines.join("\n");

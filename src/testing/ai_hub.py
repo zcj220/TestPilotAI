@@ -100,6 +100,8 @@ class HubDecision:
     ai_cost_ms: float = 0               # 本次决策的AI调用耗时
     recover_selector: Optional[str] = None  # L2恢复动作：先点击这个选择器再重试
     override_action: Optional[str] = None   # L2动作替换：重试时改用此动作（如 fill→select）
+    recover_x: Optional[float] = None   # L2坐标回退：归一化X坐标(0.0-1.0)
+    recover_y: Optional[float] = None   # L2坐标回退：归一化Y坐标(0.0-1.0)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -400,6 +402,14 @@ class AIHub:
             )
             if history:
                 prompt += f"{history}\n\n"
+            is_click_action = ctx.action == "click"
+            coord_hint = (
+                "\n如果 fault=test 且目标元素在截图中确实可见（只是选择器写错了），"
+                "请同时提供该元素的归一化坐标（0.0~1.0，左上角为原点）："
+                '"recover_x": 0.xx, "recover_y": 0.xx（引擎会用坐标直接点击作为兜底）。'
+                "如果元素不可见或不确定坐标，请省略这两个字段。"
+            ) if is_click_action else ""
+
             prompt += (
                 f"然后你想做第{ctx.step_num}步：{action_desc}\n"
                 f"但是失败了。报错：{(ctx.error_message or '未知')[:200]}\n\n"
@@ -412,8 +422,9 @@ class AIHub:
                 "         计算结果不对、该出现的内容缺失（应用自身没实现好）\n"
                 "- test = 测试脚本的问题：选择器找不到元素（但页面看起来正常）、\n"
                 "         页面还在加载、弹窗遮挡、动画没播完、时序太快\n\n"
-                "返回JSON：\n"
-                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"recover"或"none", "recover_selector": "可选，CSS选择器"}\n'
+                + coord_hint +
+                "\n\n返回JSON：\n"
+                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"recover"或"none", "recover_selector": "可选，CSS选择器", "recover_x": 可选归一化X, "recover_y": 可选归一化Y}\n'
                 "suggestion含义：\n"
                 "  retry=再试一次可能好（如页面还在加载）\n"
                 "  skip=跳过这一步\n"
@@ -455,17 +466,33 @@ class AIHub:
 
             logger.info("  🧠 AI中枢L2诊断: {} | 归因={} | 建议={}", diagnosis, fault.value, suggestion)
 
+            # L2坐标回退：当选择器失效但元素可见时，用AI提供的坐标直接点击
+            recover_x = result.get("recover_x")
+            recover_y = result.get("recover_y")
+            if (ctx.action == "click" and fault == FaultType.TEST
+                    and recover_x is not None and recover_y is not None
+                    and ctx.click_fn):
+                try:
+                    nx, ny = float(recover_x), float(recover_y)
+                    if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
+                        logger.info("  🎯 AI中枢L2坐标回退: 点击({:.2f}, {:.2f}) 绕过失效选择器", nx, ny)
+                        await ctx.click_fn(nx, ny)
+                        self._total_heals += 1
+                        return HubDecision(
+                            action=HubAction.RETRY,
+                            reason=f"L2坐标回退点击({nx:.2f},{ny:.2f}): {diagnosis}",
+                            fault=fault,
+                            ai_cost_ms=cost_ms,
+                            recover_x=nx,
+                            recover_y=ny,
+                        )
+                except Exception as coord_err:
+                    logger.warning("  L2坐标回退失败: {}", str(coord_err)[:80])
+
             if suggestion == "recover" and result.get("recover_selector"):
-                # L2恢复：先执行恢复动作再重试
+                # L2恢复：先执行恢复动作再重试（recover_selector在Runner中点击）
                 recover_sel = result["recover_selector"]
                 logger.info("  🔧 AI中枢L2恢复: 先点击[{}]再重试", recover_sel)
-                if ctx.click_fn:
-                    try:
-                        # Web平台：click_fn接受归一化坐标，这里改用selector
-                        # 直接通过Runner的浏览器点击
-                        pass  # 恢复动作在Runner中执行
-                    except Exception as click_err:
-                        logger.warning("  L2恢复点击失败: {}", str(click_err)[:80])
                 return HubDecision(
                     action=HubAction.RETRY,
                     reason=f"L2恢复: {diagnosis}",
