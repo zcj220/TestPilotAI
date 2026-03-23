@@ -429,6 +429,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       "- 无标签：需要你自行判断是应用问题还是蓝本问题",
       "- ⚠️ 归因提示：TestPilot AI基于规则的自动推断，供参考，请结合实际源码判断",
       "",
+      "🔍 修复前请先自行判断每个Bug的真实来源，常见蓝本问题误报为[应用Bug]的情况：",
+      "1. assert_text 断言了 SnackBar/Toast 等瞬态提示（2-3秒消失，Appium来不及检查）→ 改为 screenshot",
+      "2. accessibility_id 使用了英文缩写（如 btn_login），而非源码 Semantics(label:'xxx') 的实际中文值 → 查源码更新选择器",
+      "3. XPath[@hint='xxx'] 在 Flutter EditText 中不稳定 → 改用 Semantics label 的 accessibility_id",
+      "4. 被测APP没有后端/数据库，操作后无持久化反馈 → 断言改为验证UI状态变化（如表单清空、余额数字变化），而非文字提示",
+      "如果以上任何一条符合，请直接修改蓝本，不要改APP代码。",
+      "",
     );
     // 闭环指令：包含蓝本路径，让编程AI能直接调用MCP工具重测
     if (blueprintPath) {
@@ -448,28 +455,53 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async _handleCopyBugs(report: Record<string, unknown>, blueprintPath: string = ""): Promise<void> {
     const bugText = this._formatBugText(report, blueprintPath);
 
-    // 尝试直接发送到 Cascade/Copilot 聊天
-    try {
-      // Windsurf Cascade
-      await vscode.commands.executeCommand("windsurf.newCascade", bugText);
-      vscode.window.showInformationMessage("Bug报告已发送给AI，等待修复");
-      return;
-    } catch {
-      // 不是 Windsurf，尝试其他方式
+    // 按IDE类型依次尝试发送到聊天面板
+    // 各IDE的 appHost / 扩展 ID 用于检测当前运行环境
+    const chatCommands: Array<{ name: string; fn: () => Promise<void> }> = [
+      {
+        // Windsurf — Cascade 新建对话
+        name: "Windsurf",
+        fn: async () => { await vscode.commands.executeCommand("windsurf.newCascade", bugText); },
+      },
+      {
+        // Trae（字节跳动）— 发送到 AI 对话
+        name: "Trae",
+        fn: async () => { await vscode.commands.executeCommand("trae.action.newChat", bugText); },
+      },
+      {
+        // Cursor — 打开 Composer/Chat 并填入内容
+        name: "Cursor",
+        fn: async () => { await vscode.commands.executeCommand("aichat.newchataction", bugText); },
+      },
+      {
+        // GitHub Copilot Chat（VS Code 原生）
+        name: "Copilot",
+        fn: async () => {
+          await vscode.commands.executeCommand("workbench.action.chat.open", { query: bugText });
+        },
+      },
+      {
+        // Copilot Chat 旧版命令（VS Code < 1.90）
+        name: "Copilot(legacy)",
+        fn: async () => {
+          await vscode.commands.executeCommand("github.copilot.chat", bugText);
+        },
+      },
+    ];
+
+    for (const { name, fn } of chatCommands) {
+      try {
+        await fn();
+        vscode.window.showInformationMessage(`Bug报告已发送到 ${name} AI，等待修复`);
+        return;
+      } catch {
+        // 当前IDE不支持此命令，继续尝试下一个
+      }
     }
 
-    try {
-      // GitHub Copilot Chat
-      await vscode.commands.executeCommand("workbench.action.chat.open", { query: bugText });
-      vscode.window.showInformationMessage("Bug报告已发送到聊天面板");
-      return;
-    } catch {
-      // 没有 Copilot Chat
-    }
-
-    // 兜底：复制到剪贴板
+    // 所有IDE命令均不可用，兜底复制到剪贴板
     await vscode.env.clipboard.writeText(bugText);
-    vscode.window.showInformationMessage("Bug摘要已复制到剪贴板，粘贴到聊天窗口让AI修复");
+    vscode.window.showInformationMessage("Bug摘要已复制到剪贴板，请粘贴到AI聊天窗口让AI修复");
   }
 
   private async _handleScanBlueprints(): Promise<void> {
