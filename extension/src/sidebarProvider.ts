@@ -615,7 +615,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     lines.push(`3. 通读项目源代码，确认已实现的功能列表`);
     lines.push(`4. 检查 testpilot/ 目录是否已有蓝本文件：`);
     lines.push(`   - 若【没有蓝本】：按规则从零生成完整蓝本，保存到 testpilot/ 目录`);
-    lines.push(`   - 若【已有蓝本】：读取现有蓝本，与源码对比，仅更新有变化的字段/场景/步骤，保留正确部分不动，最终覆盖写回原文件（禁止新建额外文件）`);
+    lines.push(`   - 若【已有蓝本】：必须按以下步骤做增量更新（禁止跳过任意一步）：`);
+    lines.push(`     a. 读取现有蓝本，列出其中所有 target 选择器`);
+    lines.push(`     b. 对每个 target，在项目源码中搜索该选择器（用 id、class、placeholder、type 等真实属性）`);
+    lines.push(`        - 搜到：保留`);
+    lines.push(`        - 搜不到或已失效：更正为源码中实际存在的选择器`);
+    lines.push(`     c. 检查源码中是否有新增功能未被现有蓝本覆盖，若有则补充对应场景`);
+    lines.push(`     d. 检查已删除的功能，删除对应场景`);
+    lines.push(`     e. 将更新后的完整蓝本覆盖写回原文件（禁止新建额外文件）`);
+    lines.push(`     ⚠️ 禁止仅凭印象或整体扫描就宣布"无需更新"——必须逐个搜索验证每个 target`);
 
     const prompt = lines.join("\n");
     await vscode.env.clipboard.writeText(prompt);
