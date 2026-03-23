@@ -1462,7 +1462,7 @@ ${commonRules}`;
       <label>蓝本列表
         <span style="font-size:11px;color:var(--muted);margin-left:4px">（勾选要测试的蓝本）</span>
       </label>
-      <div id="blueprintList" style="max-height:280px;overflow-y:auto;border:1px solid var(--border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px"></div>
+      <div id="blueprintList" style="max-height:280px;overflow-y:auto;border:1px solid var(--input-border);border-radius:3px;padding:4px;font-size:11px;margin-bottom:4px;background:var(--editor-bg)"></div>
       <div class="btn-row" style="margin-top:4px">
         <button class="btn-secondary" id="btnScanBp" style="flex:1;font-size:11px;padding:4px">🔍 扫描蓝本</button>
         <button class="btn-secondary" id="btnBrowseBp" style="flex:1;font-size:11px;padding:4px">📂 浏览文件</button>
@@ -1472,9 +1472,9 @@ ${commonRules}`;
       <label>覆盖 base_url（可选）</label>
       <input type="text" id="inputBpBaseUrl" placeholder="http://localhost:3000" />
 
-      <button id="btnBlueprintTest">▶ 运行选中蓝本</button>
-      <hr style="border:0;border-top:1px solid var(--border);margin:10px 0" />
-      <button id="btnCopyBlueprintPrompt" class="btn-secondary" style="background:#8b5cf6">📋 复制蓝本生成提示词</button>
+      <button id="btnBlueprintTest" class="btn-secondary">▶ 运行选中蓝本</button>
+      <hr style="border:0;border-top:1px solid var(--input-border);margin:10px 0" />
+      <button id="btnCopyBlueprintPrompt" class="btn-secondary">📋 复制蓝本生成提示词</button>
     </div>
 
     <!-- 探索模式 -->
@@ -1574,7 +1574,7 @@ ${commonRules}`;
     <div class="btn-row">
       <button class="btn-secondary" id="btnPause">⏸ 暂停</button>
       <button class="btn-secondary" id="btnResume">▶ 继续</button>
-      <button class="btn-danger" id="btnStop">⏹ 停止</button>
+      <button class="btn-secondary" id="btnStop">⏹ 停止</button>
     </div>
   </div>
 
