@@ -2174,7 +2174,7 @@ ${commonRules}`;
 
       // 全局蓝本选项（固定在顶部）
       var globalItem = document.createElement("label");
-      globalItem.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 4px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;background:var(--bg-secondary,#1e1e1e);border:1px solid var(--border);margin-bottom:4px";
+      globalItem.style.cssText = "display:flex;align-items:center;gap:4px;padding:4px 4px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;background:var(--editor-bg);border:1px solid var(--input-border);margin-bottom:4px";
       globalItem.title = "勾选后将测试当前项目所有蓝本";
       
       var globalCb = document.createElement("input");
@@ -2215,7 +2215,7 @@ ${commonRules}`;
         var item = document.createElement("label");
         item.className = "local-blueprint-item";
         item.style.cssText = "display:flex;align-items:flex-start;gap:4px;padding:3px 4px;border-radius:4px;cursor:pointer;font-size:12px;line-height:1.4;overflow:hidden;width:100%;box-sizing:border-box";
-        item.addEventListener("mouseenter", function() { item.style.background = "var(--hover-bg,#2a2d2e)"; });
+        item.addEventListener("mouseenter", function() { item.style.background = "var(--input-bg)"; });
         item.addEventListener("mouseleave", function() { item.style.background = "transparent"; });
 
         // 复选框区域（独立tooltip：操作提示）
