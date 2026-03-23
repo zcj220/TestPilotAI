@@ -1200,6 +1200,7 @@ ${commonRules}`;
     content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
   <title>TestPilot AI</title>
   <style>
+    body { position: relative; }
     :root {
       --bg: var(--vscode-sideBar-background, #1e1e1e);
       --fg: var(--vscode-sideBar-foreground, #cccccc);
@@ -1255,6 +1256,16 @@ ${commonRules}`;
       background:var(--input-bg); border:1px solid var(--input-border);
       padding:1px 7px; border-radius:8px;
     }
+    /* 右上角齿轮按钮 */
+    .gear-btn {
+      position:fixed; top:2px; right:6px; z-index:999;
+      width:26px; min-width:26px; padding:2px; margin:0;
+      background:transparent; border:none;
+      font-size:15px; line-height:1; cursor:pointer;
+      color:var(--muted); border-radius:4px;
+    }
+    .gear-btn:hover { background:var(--input-bg); color:var(--fg); border:none; }
+    .gear-btn.active-gear { color:var(--btn-bg); }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--fg); padding: 12px; }
     h2 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
@@ -1384,6 +1395,8 @@ ${commonRules}`;
   </style>
 </head>
 <body>
+  <!-- 右上角设置按钮 -->
+  <button class="gear-btn" id="btnGearSettings" title="设置">⚙️</button>
   <!-- 引擎状态 -->
   <div class="section">
     <h2>
@@ -1425,7 +1438,6 @@ ${commonRules}`;
       <button class="active" id="tabBlueprint">蓝本模式</button>
       <button id="tabExplore">探索模式</button>
       <button id="tabCommunity">经验库</button>
-      <button id="tabSettings">⚙️</button>
     </div>
 
     <!-- 蓝本模式 -->
@@ -1619,19 +1631,24 @@ ${commonRules}`;
     const tabBlueprint = document.getElementById("tabBlueprint");
     const tabExplore = document.getElementById("tabExplore");
     const tabCommunity = document.getElementById("tabCommunity");
-    const tabSettings = document.getElementById("tabSettings");
     const panelBlueprint = document.getElementById("panelBlueprint");
     const panelExplore = document.getElementById("panelExplore");
     const panelCommunity = document.getElementById("panelCommunity");
     const panelSettings = document.getElementById("panelSettings");
-    const allTabs = [tabBlueprint, tabExplore, tabCommunity, tabSettings];
-    const allPanels = [panelBlueprint, panelExplore, panelCommunity, panelSettings];
+    const allTabs = [tabBlueprint, tabExplore, tabCommunity];
+    const allPanels = [panelBlueprint, panelExplore, panelCommunity];
+    const btnGear = document.getElementById("btnGearSettings");
+    let settingsOpen = false;
 
     function switchTab(activeTab, activePanel) {
       allTabs.filter(Boolean).forEach(t => t.classList.remove("active"));
       allPanels.filter(Boolean).forEach(p => p.classList.remove("active"));
       if (activeTab) activeTab.classList.add("active");
       if (activePanel) activePanel.classList.add("active");
+      // 关闭设置面板
+      if (panelSettings) panelSettings.classList.remove("active");
+      if (btnGear) btnGear.classList.remove("active-gear");
+      settingsOpen = false;
     }
     tabBlueprint.addEventListener("click", () => switchTab(tabBlueprint, panelBlueprint));
     tabExplore.addEventListener("click", () => switchTab(tabExplore, panelExplore));
@@ -1639,7 +1656,22 @@ ${commonRules}`;
       switchTab(tabCommunity, panelCommunity);
       loadCommunityExperiences();
     });
-    if (tabSettings) tabSettings.addEventListener("click", () => switchTab(tabSettings, panelSettings));
+    // 右上角齿轮：toggle 设置面板
+    if (btnGear) btnGear.addEventListener("click", () => {
+      settingsOpen = !settingsOpen;
+      if (settingsOpen) {
+        allTabs.filter(Boolean).forEach(t => t.classList.remove("active"));
+        allPanels.filter(Boolean).forEach(p => p.classList.remove("active"));
+        if (panelSettings) panelSettings.classList.add("active");
+        btnGear.classList.add("active-gear");
+      } else {
+        if (panelSettings) panelSettings.classList.remove("active");
+        btnGear.classList.remove("active-gear");
+        // 恢复蓝本模式
+        tabBlueprint.classList.add("active");
+        panelBlueprint.classList.add("active");
+      }
+    });
 
     // 主题切换
     const themeToggle = document.getElementById("themeToggle");
