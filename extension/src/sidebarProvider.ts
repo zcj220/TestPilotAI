@@ -377,26 +377,45 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     if (bugs.length > 0) {
       bugs.forEach((bug, i) => {
         const cat = (bug.category as string) || "";
+        const bugDesc = (bug.description as string) || "";
+        const bugTitle = (bug.title as string) || "";
         const step = bug.step_number ? ` (步骤#${bug.step_number})` : "";
-        lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${cat ? cat + " " : ""}${bug.title}${step}`);
-        if (bug.description) {
-          const desc = bug.description as string;
-          const firstLine = desc.split("\n")[0].substring(0, 200);
+        lines.push(`${i + 1}. [${(bug.severity as string || "medium").toUpperCase()}] ${cat ? cat + " " : ""}${bugTitle}${step}`);
+        if (bugDesc) {
+          const firstLine = bugDesc.split("\n")[0].substring(0, 200);
           lines.push(`   ${firstLine}`);
           // 显示根因分析（关键！编程AI需要看到Playwright的真正报错原因）
-          if (desc.includes("🔍 根因分析")) {
-            const rootCause = desc.split("� 根因分析: ")[1];
+          if (bugDesc.includes("🔍 根因分析")) {
+            const rootCause = bugDesc.split("🔍 根因分析: ")[1];
             if (rootCause) {
               lines.push(`   🔍 根因分析: ${rootCause.split("\n")[0].substring(0, 200)}`);
             }
           }
           // 显示修复建议
-          if (desc.includes("�💡 修复建议")) {
-            const suggestion = desc.split("💡 修复建议")[1];
+          if (bugDesc.includes("💡 修复建议")) {
+            const suggestion = bugDesc.split("💡 修复建议")[1];
             if (suggestion) {
               lines.push(`   💡 修复建议${suggestion.split("\n")[0].substring(0, 200)}`);
             }
           }
+        }
+        // ── 智能归因提示（帮助AI判断是蓝本问题还是APP问题）──
+        // 1. SnackBar/Toast 误判：断言失败但预期文本是瞬态消息关键词
+        const snackbarKeywords = ["成功", "已添加", "已删除", "已保存", "已更新", "已提交", "完成"];
+        const isAssertFail = bugDesc.includes("未找到预期文本") || bugTitle.includes("文本断言失败");
+        const looksLikeSnackbar = snackbarKeywords.some(k => bugDesc.includes(`'${k}`) || bugDesc.includes(`"${k}`));
+        if (isAssertFail && looksLikeSnackbar && !cat.includes("[蓝本问题]")) {
+          lines.push(`   ⚠️ 归因提示：预期文本可能是 SnackBar/Toast 瞬态消息（2-3秒后消失），Appium检查时已消失。若APP确实显示了该提示，则这是【蓝本问题】，应将 assert_text 改为 screenshot。`);
+        }
+        // 2. accessibility_id 使用英文缩写而非实际 Semantics label
+        const isElementNotFound = bugDesc.includes("元素找不到") || bugDesc.includes("no such element");
+        const usesEnglishId = /accessibility_id:[a-z_]{3,}/.test(bugDesc) || /accessibility_id:[a-z_]{3,}/.test(bugTitle);
+        if (isElementNotFound && usesEnglishId && !cat.includes("[蓝本问题]")) {
+          lines.push(`   ⚠️ 归因提示：accessibility_id 使用了英文缩写（如 btn_login），但 Flutter/Android Semantics 通常映射为中文 label。请查看源码 Semantics(label:'xxx') 的实际值，更新蓝本选择器。大概率是【蓝本问题】。`);
+        }
+        // 3. XPath[@hint='xxx'] 在 Flutter 中不稳定
+        if (isElementNotFound && bugDesc.includes("@hint=") && !cat.includes("[蓝本问题]")) {
+          lines.push(`   ⚠️ 归因提示：XPath[@hint='xxx'] 在 Flutter 中不稳定（UiAutomator2 有时无法读取 EditText hint）。建议改用 Semantics label 的 accessibility_id 定位。大概率是【蓝本问题】。`);
         }
       });
     } else {
@@ -408,6 +427,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       "- [应用Bug]：被测应用代码有问题，请修复应用代码",
       "- [蓝本问题]：testpilot.json蓝本写错了（选择器错、动作类型错等），请修正蓝本文件",
       "- 无标签：需要你自行判断是应用问题还是蓝本问题",
+      "- ⚠️ 归因提示：TestPilot AI基于规则的自动推断，供参考，请结合实际源码判断",
       "",
     );
     // 闭环指令：包含蓝本路径，让编程AI能直接调用MCP工具重测

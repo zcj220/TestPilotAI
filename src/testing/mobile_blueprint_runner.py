@@ -101,19 +101,22 @@ class MobileBlueprintRunner:
         """将页面指纹和坐标注册到页面库（自动去重：相似页面合并到同一条目）。"""
         if not fingerprint:
             return
-        # 查找是否已有相似页面（指纹重叠 >= 50%），避免同一页面重复注册
+        # 查找是否已有相似页面（双向Jaccard >= 60%），避免同一页面重复注册
+        # 双向匹配：要求「缓存覆盖当前」和「当前覆盖缓存」都满足阈值，防止小页面误匹配大页面
         merge_tag = None
         best_score = 0.0
         for tag, (fp, _) in self._page_library.items():
             if not fp:
                 continue
             overlap = len(fingerprint & fp)
-            score = overlap / len(fp)
+            score_a = overlap / len(fp)           # 缓存页面有多少词出现在新页面
+            score_b = overlap / len(fingerprint)  # 新页面有多少词出现在缓存
+            score = min(score_a, score_b)         # 取较小值，双向都要满足
             if score > best_score:
                 best_score = score
                 merge_tag = tag
 
-        if best_score >= 0.5 and merge_tag:
+        if best_score >= 0.6 and merge_tag:
             # 合并到已有页面条目（同一页面不同场景的坐标都汇聚到一起）
             existing_fp, existing_coords = self._page_library[merge_tag]
             merged_fp = existing_fp | fingerprint
@@ -147,13 +150,15 @@ class MobileBlueprintRunner:
             if not fp:
                 continue
             overlap = len(current_fp & fp)
-            score = overlap / len(fp)
+            score_a = overlap / len(fp)           # 缓存页面有多少词出现在当前页面
+            score_b = overlap / len(current_fp)   # 当前页面有多少词出现在缓存
+            score = min(score_a, score_b)         # 双向最小，防止小缓存误匹配大页面
             if score > best_score:
                 best_score = score
                 best_tag = tag
                 best_coords = coords
 
-        if best_score >= 0.5:
+        if best_score >= 0.6:
             return best_tag, best_coords
         return None, {}
 
