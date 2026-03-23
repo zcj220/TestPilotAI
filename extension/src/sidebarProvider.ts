@@ -607,13 +607,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       lines.push(`请直接读取该目录下的源代码生成蓝本，无需再次询问项目路径。`);
       lines.push(``);
     }
-    lines.push(`请为当前【${pName}】项目生成测试蓝本。`);
+    lines.push(`请为当前【${pName}】项目生成或更新测试蓝本。`);
     lines.push(``);
     lines.push(`⚠️ 生成前请先按顺序完成以下步骤（缺一不可）：`);
     lines.push(`1. 阅读 AGENTS.md（蓝本通用规则）`);
     lines.push(`2. 阅读 .testpilot/platforms/${platform}.md（${pName}平台专属规则、选择器规范和完整模板）`);
     lines.push(`3. 通读项目源代码，确认已实现的功能列表`);
-    lines.push(`4. 按规则要求生成完整蓝本，保存到 testpilot/ 目录`);
+    lines.push(`4. 检查 testpilot/ 目录是否已有蓝本文件：`);
+    lines.push(`   - 若【没有蓝本】：按规则从零生成完整蓝本，保存到 testpilot/ 目录`);
+    lines.push(`   - 若【已有蓝本】：读取现有蓝本，与源码对比，仅更新有变化的字段/场景/步骤，保留正确部分不动，最终覆盖写回原文件（禁止新建额外文件）`);
 
     const prompt = lines.join("\n");
     await vscode.env.clipboard.writeText(prompt);
