@@ -1215,6 +1215,46 @@ ${commonRules}`;
       --warn: #cca700;
       --info: var(--vscode-descriptionForeground, #9d9d9d);
     }
+    body.light-mode {
+      --bg: #f3f3f3;
+      --fg: #1e1e1e;
+      --input-bg: #ffffff;
+      --input-border: rgba(0,0,0,0.25);
+      --input-fg: #1e1e1e;
+      --btn-bg: #007acc;
+      --btn-fg: #ffffff;
+      --btn-hover: #005a9e;
+      --muted: rgba(0,0,0,0.45);
+      --info: #5a5a5a;
+    }
+    body.light-mode { background: var(--bg); color: var(--fg); }
+    /* Toggle switch */
+    .toggle-switch { position:relative; display:inline-block; width:40px; height:22px; }
+    .toggle-switch input { opacity:0; width:0; height:0; }
+    .toggle-slider {
+      position:absolute; cursor:pointer; inset:0;
+      background:rgba(128,128,128,0.4); border-radius:22px;
+      transition:.3s;
+    }
+    .toggle-slider:before {
+      content:""; position:absolute; height:16px; width:16px;
+      left:3px; bottom:3px; background:#fff; border-radius:50%;
+      transition:.3s;
+    }
+    .toggle-switch input:checked + .toggle-slider { background:var(--btn-bg); }
+    .toggle-switch input:checked + .toggle-slider:before { transform:translateX(18px); }
+    /* Settings panel */
+    .settings-row {
+      display:flex; justify-content:space-between; align-items:center;
+      padding:10px 2px; border-bottom:1px solid var(--input-border);
+    }
+    .settings-row:last-child { border-bottom:none; }
+    .settings-row span { font-size:13px; }
+    .badge-soon {
+      font-size:10px; color:var(--muted);
+      background:var(--input-bg); border:1px solid var(--input-border);
+      padding:1px 7px; border-radius:8px;
+    }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--fg); padding: 12px; }
     h2 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
@@ -1385,6 +1425,7 @@ ${commonRules}`;
       <button class="active" id="tabBlueprint">蓝本模式</button>
       <button id="tabExplore">探索模式</button>
       <button id="tabCommunity">经验库</button>
+      <button id="tabSettings">⚙️</button>
     </div>
 
     <!-- 蓝本模式 -->
@@ -1472,6 +1513,31 @@ ${commonRules}`;
       <button id="btnShareExperience" style="margin-top:6px;background:#8b5cf6">📤 分享到社区</button>
       <div id="shareResult" style="font-size:11px;margin-top:4px;display:none"></div>
     </div>
+
+    <!-- 设置 -->
+    <div class="tab-content" id="panelSettings">
+      <div style="margin-bottom:12px;font-size:12px;color:var(--muted)">个性化设置</div>
+      <div class="settings-row">
+        <span>🌓 界面主题</span>
+        <label class="toggle-switch">
+          <input type="checkbox" id="themeToggle" />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div style="font-size:11px;color:var(--muted);padding:2px 2px 8px;text-align:right" id="themeLabel">跟随编辑器</div>
+      <div class="settings-row">
+        <span>🌐 界面语言</span>
+        <span class="badge-soon">即将推出</span>
+      </div>
+      <div class="settings-row">
+        <span>🔤 字体大小</span>
+        <span class="badge-soon">即将推出</span>
+      </div>
+      <div class="settings-row">
+        <span>🔑 账户登录</span>
+        <span class="badge-soon">即将推出</span>
+      </div>
+    </div>
   </div>
 
   <!-- 测试控制 -->
@@ -1553,13 +1619,17 @@ ${commonRules}`;
     const tabBlueprint = document.getElementById("tabBlueprint");
     const tabExplore = document.getElementById("tabExplore");
     const tabCommunity = document.getElementById("tabCommunity");
+    const tabSettings = document.getElementById("tabSettings");
     const panelBlueprint = document.getElementById("panelBlueprint");
     const panelExplore = document.getElementById("panelExplore");
     const panelCommunity = document.getElementById("panelCommunity");
+    const panelSettings = document.getElementById("panelSettings");
+    const allTabs = [tabBlueprint, tabExplore, tabCommunity, tabSettings];
+    const allPanels = [panelBlueprint, panelExplore, panelCommunity, panelSettings];
 
     function switchTab(activeTab, activePanel) {
-      [tabBlueprint, tabExplore, tabCommunity].filter(Boolean).forEach(t => t.classList.remove("active"));
-      [panelBlueprint, panelExplore, panelCommunity].filter(Boolean).forEach(p => p.classList.remove("active"));
+      allTabs.filter(Boolean).forEach(t => t.classList.remove("active"));
+      allPanels.filter(Boolean).forEach(p => p.classList.remove("active"));
       if (activeTab) activeTab.classList.add("active");
       if (activePanel) activePanel.classList.add("active");
     }
@@ -1568,6 +1638,30 @@ ${commonRules}`;
     if (tabCommunity) tabCommunity.addEventListener("click", () => {
       switchTab(tabCommunity, panelCommunity);
       loadCommunityExperiences();
+    });
+    if (tabSettings) tabSettings.addEventListener("click", () => switchTab(tabSettings, panelSettings));
+
+    // 主题切换
+    const themeToggle = document.getElementById("themeToggle");
+    const themeLabel = document.getElementById("themeLabel");
+    function applyTheme(isLight) {
+      if (isLight) {
+        document.body.classList.add("light-mode");
+        themeLabel.textContent = "☀️ 浅色模式";
+      } else {
+        document.body.classList.remove("light-mode");
+        themeLabel.textContent = "🌙 深色模式";
+      }
+    }
+    try {
+      const savedTheme = localStorage.getItem("tp-theme");
+      if (savedTheme === "light") { themeToggle.checked = true; applyTheme(true); }
+      else { applyTheme(false); }
+    } catch(e) {}
+    themeToggle.addEventListener("change", (e) => {
+      const isLight = e.target.checked;
+      try { localStorage.setItem("tp-theme", isLight ? "light" : "dark"); } catch(e) {}
+      applyTheme(isLight);
     });
 
     // 蓝本多选列表
