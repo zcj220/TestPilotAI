@@ -523,6 +523,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleCopyBlueprintPrompt(platform: string, projectDir: string = ""): Promise<void> {
+    const platformNames: Record<string, string> = {
+      web: "Web",
+      miniprogram: "微信小程序",
+      android: "Android/Flutter",
+      desktop: "Windows桌面",
+      ios: "iOS/SwiftUI",
+    };
+    const pName = platformNames[platform] || "Web";
+
+    const lines: string[] = [];
+    if (projectDir) {
+      lines.push(`当前项目路径：${projectDir.replace(/\\/g, "/")}`);
+      lines.push(`请直接读取该目录下的源代码生成蓝本，无需再次询问项目路径。`);
+      lines.push(``);
+    }
+    lines.push(`请为当前【${pName}】项目生成测试蓝本。`);
+    lines.push(``);
+    lines.push(`⚠️ 生成前请先按顺序完成以下步骤（缺一不可）：`);
+    lines.push(`1. 阅读 AGENTS.md（蓝本通用规则）`);
+    lines.push(`2. 阅读 .testpilot/platforms/${platform}.md（${pName}平台专属规则、选择器规范和完整模板）`);
+    lines.push(`3. 通读项目源代码，确认已实现的功能列表`);
+    lines.push(`4. 按规则要求生成完整蓝本，保存到 testpilot/ 目录`);
+
+    const prompt = lines.join("\n");
+    await vscode.env.clipboard.writeText(prompt);
+    vscode.window.showInformationMessage(`✅ ${pName}蓝本提示词已复制！请粘贴给编程AI，它会先读规则文件再生成蓝本。`);
+  }
+
+  // ── 以下为旧版长提示词备份（已废弃，改用短口令模式） ──
+  private async _handleCopyBlueprintPrompt_LEGACY(platform: string, projectDir: string = ""): Promise<void> {
     const commonRules = `══════ 测试设计黄金规则（必须严格遵守） ══════
 
 【铁律0：每个项目必须有独立蓝本】
@@ -1119,18 +1149,19 @@ ${commonRules}`;
   <title>TestPilot AI</title>
   <style>
     :root {
-      --bg: var(--vscode-sideBar-background);
-      --fg: var(--vscode-sideBar-foreground);
-      --input-bg: var(--vscode-input-background);
-      --input-border: var(--vscode-input-border);
-      --input-fg: var(--vscode-input-foreground);
-      --btn-bg: var(--vscode-button-background);
-      --btn-fg: var(--vscode-button-foreground);
-      --btn-hover: var(--vscode-button-hoverBackground);
+      --bg: var(--vscode-sideBar-background, #1e1e1e);
+      --fg: var(--vscode-sideBar-foreground, #cccccc);
+      --input-bg: var(--vscode-input-background, #3c3c3c);
+      --input-border: var(--vscode-input-border, rgba(255,255,255,0.35));
+      --input-fg: var(--vscode-input-foreground, #cccccc);
+      --btn-bg: var(--vscode-button-background, #0e639c);
+      --btn-fg: var(--vscode-button-foreground, #ffffff);
+      --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
+      --muted: var(--vscode-descriptionForeground, rgba(204,204,204,0.55));
       --success: #4ec9b0;
       --error: #f44747;
       --warn: #cca700;
-      --info: var(--vscode-descriptionForeground);
+      --info: var(--vscode-descriptionForeground, #9d9d9d);
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--fg); padding: 12px; }
@@ -1155,11 +1186,12 @@ ${commonRules}`;
     button {
       width: 100%; padding: 7px; margin-top: 8px; font-size: 13px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
-      border: none; border-radius: 3px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.55); border-radius: 3px; cursor: pointer;
     }
-    button:hover { background: var(--btn-hover); }
+    button:hover { background: var(--btn-hover); border-color: rgba(255,255,255,0.85); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .btn-secondary { background: transparent; border: 1px solid var(--input-border); color: var(--fg); }
+    .btn-secondary { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.6); color: var(--fg); }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.85); }
     .btn-row { display: flex; gap: 6px; margin-top: 8px; }
     .btn-row button { flex: 1; margin-top: 0; }
     .btn-danger { background: var(--error); }

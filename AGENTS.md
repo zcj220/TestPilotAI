@@ -5,6 +5,46 @@
 
 ---
 
+## 零、平台识别规则（写蓝本前必须先确定 platform）
+
+**在 platform 确定之前，禁止生成任何蓝本内容。** 错误的 platform 会导致规则、选择器、动作全部用错，整个蓝本无法运行。
+
+### 识别顺序（按优先级从高到低）
+
+1. **检查已有蓝本** — 读 `testpilot/*.json`，看 `platform` 字段；**但必须与代码特征核对（见下表）**，若明显矛盾则以代码为准并纠正
+2. **检查代码文件特征**（唯一客观依据）：
+
+| 文件/特征 | platform |
+|-----------|----------|
+| `pubspec.yaml` / `AndroidManifest.xml` / `*.kt` / `*.java` | `android` |
+| `*.xcodeproj` / `*.swift` / `Info.plist` | `ios` |
+| `app.json` + `pages/` 目录（小程序结构） | `miniprogram` |
+| `*.xaml` / `*.wxs` / `tkinter` / `pywinauto` / Electron + `BrowserWindow` | `desktop` |
+| `package.json` + `*.html` / React / Vue / Angular / 纯HTML | `web` |
+
+3. **读 `testpilot/CHANGELOG.md`**（如存在）— 里面可能已注明平台
+4. **以上都无法确定 → 停下来，明确问用户**：「这个项目是 Web / Android / iOS / 小程序 / 桌面应用 中的哪一种？」
+
+### 发现平台写错了，如何纠正
+
+- 发现已有蓝本的 `platform` 与代码特征矛盾 → **立即停止**，告知用户「检测到蓝本 platform 字段为 xxx，但项目代码特征显示应为 yyy，已自动修正」
+- 修正步骤：① 更新所有蓝本的 `platform` 字段 ② 重读正确平台规则文件 ③ 检查选择器/动作是否需要同步修改
+- **不要沉默地继续写错误的蓝本**
+
+### 空项目或无法判断时的处理规则
+
+1. **项目完全为空**（无任何源码文件）→ **不写蓝本，静默等待**。空项目没有可测功能，无需操作，也不要打扰用户。
+2. **代码特征模糊**（如只有 README、配置文件，看不出平台）→ 同上，继续等待直到出现明确的代码文件。
+3. **用户描述与代码矛盾** → 以代码为准。用户说"这是 Android 项目"但目录里只有 `index.html` → 判断为 web，告知用户。
+
+**已生成错误蓝本后如何纠正：**
+1. 你发现代码特征与蓝本 `platform` 矛盾（如蓝本写 `"platform": "web"` 但项目有 `AndroidManifest.xml`）
+2. **主动告知用户**：「检测到蓝本 platform=web，但项目代码显示应为 android，正在自动修正」
+3. 自动执行：修改所有蓝本的 `platform` 字段 → 重读 `.testpilot/platforms/android.md` → 检查所有选择器和动作是否符合 android 规范 → 修正不符规范的部分
+4. **不需要等用户确认，直接修正并告知结果**
+
+---
+
 ## 一、蓝本自动生成（最重要）
 
 当项目中**不存在** `testpilot.json` 或 `testpilot/` 目录时，你在完成功能开发后**必须**自动生成蓝本文件。

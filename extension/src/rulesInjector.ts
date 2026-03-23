@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 2;
+const TEMPLATE_VERSION = 5;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
@@ -112,6 +112,41 @@ function getTemplateContent(): string {
 | \`desktop\` | \`.testpilot/platforms/desktop.md\` |
 
 **不读平台规则就生成蓝本 = 必然出错。** 每个平台的选择器格式、可用动作、等待策略、模板结构完全不同。通用规则无法覆盖平台差异。
+
+---
+
+## 零（前）、平台识别规则（写蓝本前必须先确定 platform）
+
+**在 platform 确定之前，禁止生成任何蓝本内容。**
+
+### 识别顺序（按优先级）
+
+1. **检查代码文件特征**（唯一客观依据）：
+
+| 文件/特征 | platform |
+|-----------|----------|
+| \`pubspec.yaml\` / \`AndroidManifest.xml\` / \`*.kt\` / \`*.java\` | \`android\` |
+| \`*.xcodeproj\` / \`*.swift\` / \`Info.plist\` | \`ios\` |
+| \`app.json\` + \`pages/\` 目录（小程序结构） | \`miniprogram\` |
+| \`*.xaml\` / \`tkinter\` / \`pywinauto\` / Electron + \`BrowserWindow\` | \`desktop\` |
+| \`package.json\` + \`*.html\` / React / Vue / Angular | \`web\` |
+
+2. **检查已有蓝本的 platform 字段** — 但必须与代码特征核对，若矛盾以代码为准
+3. **读 \`testpilot/CHANGELOG.md\`**（如存在）— 里面可能已注明平台
+4. **以上都无法确定 → 停下来问用户**：「这是 Web / Android / iOS / 小程序 / 桌面 中的哪种？」
+
+### 空项目或无法判断时的处理规则
+
+- **项目完全为空**（无源码）→ **不写蓝本，静默等待**，不要打扰用户
+- **代码特征模糊** → 同上，等待出现明确代码文件
+- **用户描述与代码矛盾** → 以代码为准，告知用户
+
+### 发现平台写错时如何纠正
+
+1. 发现代码特征与蓝本 \`platform\` 矛盾（如蓝本写 \`"web"\` 但项目有 \`AndroidManifest.xml\`）
+2. **主动告知**：「检测到蓝本 platform=web，但项目代码显示应为 android，正在自动修正」
+3. 自动执行：更新所有蓝本 \`platform\` → 重读 \`.testpilot/platforms/android.md\` → 修正不符规范的选择器和动作
+4. **不需要等用户确认，直接修正并告知结果**
 
 ---
 
