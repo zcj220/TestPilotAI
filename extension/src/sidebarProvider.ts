@@ -1290,19 +1290,19 @@ ${commonRules}`;
       background:var(--input-bg); border:1px solid var(--input-border);
       padding:1px 7px; border-radius:8px;
     }
-    /* 右上角齿轮按钮 */
+    /* 齿轮按钮（随内容滚动） */
     .gear-btn {
-      position:fixed; top:2px; right:6px; z-index:999;
       width:26px; min-width:26px; padding:2px; margin:0;
       background:transparent; border:none;
       font-size:15px; line-height:1; cursor:pointer;
       color:var(--muted); border-radius:4px;
+      flex-shrink:0;
     }
     .gear-btn:hover { background:var(--input-bg); color:var(--fg); border:none; }
     .gear-btn.active-gear { color:var(--btn-bg); }
     /* 设置浮动下拉菜单 */
     .settings-dropdown {
-      position:fixed; top:30px; right:6px; z-index:1000;
+      position:absolute; top:100%; right:0; z-index:1000;
       min-width:210px;
       background:var(--input-bg); color:var(--fg);
       border:1px solid var(--input-border);
@@ -1458,38 +1458,42 @@ ${commonRules}`;
   </style>
 </head>
 <body>
-  <!-- 右上角设置按钮 + 浮动下拉菜单 -->
-  <button class="gear-btn" id="btnGearSettings" title="设置">⚙️</button>
-  <div id="settingsDropdown" class="settings-dropdown">
-    <div class="sdrop-section">个性化设置</div>
-    <div class="sdrop-item" id="settingsThemeRow">
-      <span>🌓 界面主题</span>
-      <label class="toggle-switch" onclick="event.stopPropagation()">
-        <input type="checkbox" id="themeToggle" />
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    <div class="sdrop-sublabel" id="themeLabel">🌙 深色模式</div>
-    <div class="sdrop-divider"></div>
-    <div class="sdrop-item disabled">
-      <span>🌐 界面语言</span>
-      <span class="badge-soon">即将推出</span>
-    </div>
-    <div class="sdrop-item disabled">
-      <span>🔤 字体大小</span>
-      <span class="badge-soon">即将推出</span>
-    </div>
-    <div class="sdrop-item disabled">
-      <span>🔑 账户登录</span>
-      <span class="badge-soon">即将推出</span>
-    </div>
-  </div>
   <!-- 引擎状态 -->
   <div class="section">
-    <h2>
-      <span class="status-dot disconnected" id="statusDot"></span>
-      引擎: <span id="engineStatus">未连接</span>
-    </h2>
+    <!-- 标题行：引擎字 + 齿轮设置按钮（随页面滚动） -->
+    <div style="display:flex;align-items:center;margin-bottom:8px;position:relative">
+      <h2 style="margin-bottom:0;flex:1">
+        <span class="status-dot disconnected" id="statusDot"></span>
+        引擎: <span id="engineStatus">未连接</span>
+      </h2>
+      <div style="position:relative;flex-shrink:0">
+        <button class="gear-btn" id="btnGearSettings" title="设置">⚙️</button>
+        <div id="settingsDropdown" class="settings-dropdown">
+          <div class="sdrop-section">个性化设置</div>
+          <div class="sdrop-item" id="settingsThemeRow">
+            <span>🌓 界面主题</span>
+            <label class="toggle-switch" onclick="event.stopPropagation()">
+              <input type="checkbox" id="themeToggle" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div class="sdrop-sublabel" id="themeLabel">🌙 深色模式</div>
+          <div class="sdrop-divider"></div>
+          <div class="sdrop-item disabled">
+            <span>🌐 界面语言</span>
+            <span class="badge-soon">即将推出</span>
+          </div>
+          <div class="sdrop-item disabled">
+            <span>🔤 字体大小</span>
+            <span class="badge-soon">即将推出</span>
+          </div>
+          <div class="sdrop-item disabled">
+            <span>🔑 账户登录</span>
+            <span class="badge-soon">即将推出</span>
+          </div>
+        </div>
+      </div>
+    </div>
     <!-- 项目选择器 -->
     <div style="display:flex;gap:4px;align-items:center;margin:6px 0">
       <select id="projectSelect" style="flex:1;font-size:12px;padding:4px 6px" disabled>
