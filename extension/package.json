@@ -2,7 +2,7 @@
   "name": "testpilot-ai",
   "displayName": "TestPilot AI",
   "description": "AI驱动的自动化测试机器人 — 像人类一样操作UI、发现Bug、自动修复",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "testpilot-ai",
   "engines": {
     "vscode": "^1.85.0"
