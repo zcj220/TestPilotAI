@@ -30,16 +30,39 @@
 |------|------|------|
 | `platform` | 固定 `"web"` | `"web"` |
 | `base_url` | 应用访问地址 | `"http://localhost:3000"` |
-| `start_command` | 启动命令（纯HTML留空） | `"npm start"` |
-| `start_cwd` | 启动目录（默认 `.`） | `"."` |
+| `start_command` | 启动命令（纯HTML留空） | `"npm run dev"` |
+| `start_cwd` | 启动目录，**必须填被测项目的绝对路径** | `"D:\\projects\\my-app"` |
 | `app_name` | 应用名称 | `"电商管理系统"` |
 | `description` | 50-200字功能描述 | |
+
+### 🚨 start_cwd 必须填绝对路径（最常见的致命错误）
+
+**`start_cwd` 绝对禁止填 `"."`**，引擎用相对路径 `.` 会解析为引擎自身的工作目录，导致在错误的地方执行 `npm run dev`，进程 `exit code 1` 退出，所有测试步骤全部 `ERR_CONNECTION_REFUSED`。
+
+| ❌ 错误写法（必然失败） | ✅ 正确写法 |
+|----------------------|----------|
+| `"start_cwd": "."` | `"start_cwd": "D:\\projects\\account_book"` |
+| `"start_cwd": "./my-app"` | `"start_cwd": "/home/user/projects/my-app"` |
+
+**如何获取绝对路径**：在被测项目根目录运行 `pwd`（Mac/Linux）或 `Get-Location`（Windows PowerShell），复制输出结果。
+
+### 🚨 启动前置条件检查（蓝本生成前必做）
+
+生成蓝本前必须确认以下条件，否则 `start_command` 会立即退出：
+
+1. **依赖已安装**：确认被测项目的 `node_modules` 存在；若不存在，先在项目目录运行 `npm install`
+2. **端口未占用**：确认 `base_url` 对应的端口（如 5173、3000）没有其他进程在监听
+3. **环境变量就绪**：项目如有 `.env` 文件，确认必填的环境变量已配置
+4. **启动命令可独立运行**：在被测项目目录下手动运行一次 `start_command`，确认能成功启动，再写入蓝本
+
+> ⚠️ 若应用启动失败（`exit code != 0`），引擎会等待 `startup_timeout` 秒后继续测试，所有步骤将因 `ERR_CONNECTION_REFUSED` 全部失败。**启动失败必须先手动排查，不要靠 AI 自动修复。**
 
 ### 反面禁止
 
 - ❌ `base_url` 不能留空（Web 必须有地址）
 - ❌ 不要填 `app_package`、`app_activity`、`bundle_id`（那是手机平台的字段）
 - ❌ `start_command` 不要填 `python manage.py runserver 0.0.0.0:8000`，应该填 `python manage.py runserver`（不绑外网）
+- ❌ `start_cwd` 不能填 `"."`，必须填被测项目的**绝对路径**
 
 ---
 
@@ -242,8 +265,8 @@ Web 应用通常把登录 token 存在 localStorage/sessionStorage，**即使刷
   "description": "50-200字功能描述",
   "base_url": "http://localhost:3000",
   "platform": "web",
-  "start_command": "npm start",
-  "start_cwd": ".",
+  "start_command": "npm run dev",
+  "start_cwd": "C:\\projects\\your-app",
   "pages": [
     {
       "url": "/login",
@@ -285,6 +308,9 @@ Web 应用通常把登录 token 存在 localStorage/sessionStorage，**即使刷
 
 | 错误 | 后果 | 正确做法 |
 |------|------|---------|
+| **`start_cwd` 填 `"."`** | 引擎在错误目录启动，`exit code 1`，所有步骤 `ERR_CONNECTION_REFUSED` | 填被测项目绝对路径，如 `"D:\\projects\\my-app"` |
+| **依赖未安装就跑测试** | `npm run dev` 失败退出，30秒超时后继续跑，全部失败 | 先手动 `npm install`，确认项目能启动再测试 |
+| **端口已被占用** | 新进程启动失败，引擎等超时后继续，全部失败 | 手动确认端口空闲，或修改 `base_url` 端口 |
 | 对 `<select>` 用 `fill` | 引擎报错 | 用 `select` 动作 |
 | `expected` 写了 toast 文字 | 断言失败（文字已消失） | 断言页面持久化状态 |
 | 场景间依赖登录状态 | 后续场景全部失败 | 每个场景独立登录 |
