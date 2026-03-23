@@ -10,7 +10,7 @@ export default function Footer() {
           <div className="space-y-1">
             <div className="font-medium text-[#24292f] text-xs">温州芯造科技有限公司</div>
             <div className="text-xs">Wenzhou Xinzao Technology Co., Ltd</div>
-            <div className="text-xs">地址：浙江省温州市鹿城区矮登桥228号10标1011室D</div>
+            <div className="text-xs">地址：浙江省温州市鹿城区矮登桥128号11幢1011室D</div>
             <div className="text-xs mt-2">
               <a href="https://beian.miit.gov.cn" target="_blank" rel="noreferrer"
                 className="text-gray-400 hover:text-gray-600 no-underline hover:no-underline">
@@ -29,6 +29,9 @@ export default function Footer() {
             <Link to="/explore" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.explore')}</Link>
             <Link to="/pricing" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.pricing')}</Link>
             <Link to="/leaderboard" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.leaderboard')}</Link>
+            <Link to="/terms" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.terms')}</Link>
+            <Link to="/privacy" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.privacy')}</Link>
+            <Link to="/refund" className="text-gray-500 hover:text-gray-900 no-underline hover:no-underline">{t('footer.refund')}</Link>
             <a href="https://marketplace.visualstudio.com/items?itemName=testpilot-ai.testpilot-ai"
               target="_blank" rel="noreferrer"
               className="text-[#0969da] hover:text-[#0550ae] no-underline hover:no-underline font-medium">

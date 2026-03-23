@@ -12,6 +12,9 @@ import PricingPage from './pages/PricingPage';
 import LoginPage from './pages/LoginPage';
 import SharePage from './pages/SharePage';
 import DownloadPage from './pages/DownloadPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import RefundPage from './pages/RefundPage';
 
 export default function App() {
   return (
@@ -30,6 +33,9 @@ export default function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/share" element={<SharePage />} />
               <Route path="/download" element={<DownloadPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/refund" element={<RefundPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

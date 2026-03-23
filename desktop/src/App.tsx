@@ -11,6 +11,9 @@ import TeamPage from './pages/TeamPage';
 import DesktopTestPage from './pages/DesktopTestPage';
 import MiniProgramTestPage from './pages/MiniProgramTestPage';
 import MultiPlayerTestPage from './pages/MultiPlayerTestPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import RefundPage from './pages/RefundPage';
 
 export default function App() {
   return (
@@ -29,6 +32,9 @@ export default function App() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/help" element={<HelpPage />} />
         </Route>
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/refund" element={<RefundPage />} />
       </Routes>
     </BrowserRouter>
   );
