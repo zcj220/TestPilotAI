@@ -2432,6 +2432,15 @@ ${commonRules}`;
         var sig = (bug.step_number || "0") + "|" + (bug.title || "").substring(0, 40);
         bugRetryMap[sig] = (bugRetryMap[sig] || 0) + 1;
       });
+      // 通过的步骤清零对应sig（Bug已修复，不再计为顽固）
+      (report.steps || []).forEach(function(step) {
+        if (step.status === "passed") {
+          var prefix = String(step.step || "0") + "|";
+          Object.keys(bugRetryMap).forEach(function(sig) {
+            if (sig.startsWith(prefix)) { delete bugRetryMap[sig]; }
+          });
+        }
+      });
       saveBugRetryMap();
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
