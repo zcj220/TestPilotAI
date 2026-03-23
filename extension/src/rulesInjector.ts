@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 5;
+const TEMPLATE_VERSION = 6;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
@@ -276,6 +276,11 @@ function getTemplateContent(): string {
 
 **注意看：** 只有第1个场景做了完整的登录流程，后续场景直接在当前页面操作。navigate 步骤仍然保留（方便单独运行），但 flow 模式下引擎会自动跳过。
 
+**🚨 flow 非首场景禁止冗余步骤（必须遵守！）：**
+- flow 第2个及之后的场景，navigate 后面**直接写该场景自己的操作步骤**
+- **绝对禁止**在非首场景中重复写 wait→fill用户名→fill密码→click登录 等登录步骤
+- 引擎跳过 navigate 后从第2步开始执行，如果第2步是 \`fill 用户名\` 但页面已登录 → 找不到输入框 → 连续超时失败 → 场景被熔断
+
 ### flow 模式的行为
 
 | 行为 | \`flow: false\`（默认） | \`flow: true\` |
@@ -291,6 +296,7 @@ function getTemplateContent(): string {
 生成或修改蓝本后，**按顺序**逐项检查：
 
 - [ ] **【最重要】每个 page 都做了 flow 决策**：多场景共享登录状态 → \`"flow": true\`；需要干净状态的独立测试 → 不写 flow
+- [ ] **flow 非首场景没有冗余步骤**：只写 navigate + 该场景自己的操作，不重复登录流程
 - [ ] 所有用户可交互功能都有对应场景
 - [ ] 每个场景的第一步是 navigate（flow 模式下引擎自动跳过非首场景的 navigate）
 - [ ] \`platform\` 字段正确

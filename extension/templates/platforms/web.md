@@ -1,4 +1,4 @@
-<!-- TestPilot-Template-Version: 5 -->
+<!-- TestPilot-Template-Version: 6 -->
 # Web 平台蓝本规则（platform = "web"）
 
 > 本文件定义 Web 应用（React/Vue/Angular/纯HTML）蓝本的完整规则。
@@ -95,8 +95,23 @@
 3. **`.class`** — 稳定 class，如 `.submit-btn`、`.nav-link`
 4. **组合选择器** — 缩小范围，如 `.form-login #username`
 
+### 🚨 React/Vue/Angular 组件名陷阱（必读！）
+
+**JSX/模板中的自定义组件名（如 `<Select>`、`<Modal>`、`<Dropdown>`、`<DatePicker>`）不会出现在渲染后的 DOM class 中！**
+
+AI 常犯的错误：看到代码里 `<Select>` 组件就写 `div[class*='Select'] button`，但实际渲染后根节点可能是 `<div class="relative">`，DOM 中根本没有 "Select" 这个 class，选择器必然超时失败。
+
+| ❌ 错误（基于组件名猜测） | ✅ 正确（基于实际渲染 DOM） |
+|---|---|
+| `div[class*='Select'] button` | 打开 Select.tsx 源码，发现根节点是 `<div class="relative">`，trigger 是 `<button type="button">` → 用 `div.relative > button[type='button']` |
+| `div[class*='Modal']` | 打开 Modal.tsx，发现渲染 `<div class="fixed inset-0">` → 用 `.fixed.inset-0` |
+| `div[class*='DatePicker']` | 打开 DatePicker.tsx，发现渲染 `<div class="date-picker">` → 用 `.date-picker` |
+
+**强制要求**：对每个 `target`，必须打开该组件的源文件，查看其 `return (...)` 中根元素实际渲染的 class/id，然后用实际的 class 写选择器。**绝对禁止用组件名猜测 CSS class。**
+
 ### 绝对禁止的选择器
 
+- ❌ `div[class*='ComponentName']` — 组件名不等于 CSS class，见上方陷阱说明
 - ❌ `div:nth-child(N)` — 脆弱，DOM 结构变化即失效
 - ❌ `body > div > div > form > input` — 层级太深，随改随断
 - ❌ `accessibility_id:xxx` — 这是手机平台选择器，Web 不支持
@@ -255,6 +270,56 @@ Web 应用通常把登录 token 存在 localStorage/sessionStorage，**即使刷
 
 **重要：** flow 场景仍需写 navigate（方便单独运行），引擎在 flow 模式下自动跳过。
 
+### 🚨 flow 非首场景写法（极其重要，必须遵守！）
+
+**flow 模式下，第2个及之后的场景只写 navigate + 该场景自己的操作步骤，绝对禁止重复写登录步骤！**
+
+引擎会跳过非首场景的 navigate，直接从第2步开始执行。如果第2步是 `fill 用户名`，但页面此时已经登录在功能页上 → 找不到输入框 → 超时失败 → 连续3步失败 → 整个场景被熔断跳过 → 后续场景全部同样失败。
+
+| ❌ 错误写法（非首场景重复登录） | ✅ 正确写法（非首场景直接操作） |
+|---|---|
+| 场景2: navigate → wait → fill用户名 → fill密码 → click登录 → wait → click选择生活账本 | 场景2: navigate → click选择生活账本 → wait → assert_text |
+| 场景3: navigate → wait → fill用户名 → fill密码 → click登录 → wait → click选择公司账本 | 场景3: navigate → click选择公司账本 → wait → assert_text |
+
+**正确的 flow 蓝本示例：**
+```json
+{
+  "flow": true,
+  "scenarios": [
+    {
+      "name": "登录进入功能页",
+      "steps": [
+        {"action": "navigate", "value": "http://localhost:5173"},
+        {"action": "wait", "value": "2000"},
+        {"action": "fill", "target": "#username", "value": "admin"},
+        {"action": "fill", "target": "#password", "value": "123456"},
+        {"action": "click", "target": "#loginBtn"},
+        {"action": "wait", "value": "2000"},
+        {"action": "assert_text", "expected": "功能页标题"}
+      ]
+    },
+    {
+      "name": "操作A",
+      "steps": [
+        {"action": "navigate", "value": "http://localhost:5173", "description": "flow模式下自动跳过"},
+        {"action": "click", "target": ".action-a-btn"},
+        {"action": "assert_text", "expected": "操作A结果"}
+      ]
+    },
+    {
+      "name": "操作B",
+      "steps": [
+        {"action": "navigate", "value": "http://localhost:5173", "description": "flow模式下自动跳过"},
+        {"action": "click", "target": ".action-b-btn"},
+        {"action": "assert_text", "expected": "操作B结果"}
+      ]
+    }
+  ]
+}
+```
+
+**核心原则：flow 模式下，只有第1个场景做完整的导航+登录流程，后续场景的 navigate 后面直接写该场景自己的操作。**
+
 ---
 
 ## 七、完整 JSON 模板
@@ -316,3 +381,5 @@ Web 应用通常把登录 token 存在 localStorage/sessionStorage，**即使刷
 | 场景间依赖登录状态 | 后续场景全部失败 | 每个场景独立登录 |
 | 没有 wait 就断言异步结果 | 断言时数据还没到 | 按公式计算 wait |
 | 选择器用了 `div:nth-child(3)` | 页面改版就断 | 用 id 或稳定 class |
+| **flow 非首场景重复写登录步骤** | navigate 被跳过后第2步是 fill 用户名，但页面已登录，找不到输入框，连续失败熔断 | flow 非首场景只写 navigate + 自己的操作 |
+| **用组件名猜 CSS class** | `div[class*='Select']` 永远不匹配，组件实际渲染 `<div class="relative">` | 打开组件源码看实际渲染的 class |

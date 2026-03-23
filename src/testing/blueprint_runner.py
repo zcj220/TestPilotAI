@@ -185,9 +185,34 @@ class BlueprintRunner:
                         if s.action == "assert_text" and s.expected:
                             self._anomaly_detector.suppress_error_text(s.expected)
 
+                flow_first_nav_done = False  # 标记本场景是否已执行过navigate
                 for step_def in scenario.steps:
                     step_num += 1
                     desc = step_def.description or step_def.action
+
+                    # flow模式：非首场景的navigate自动跳过（保持前一场景页面状态）
+                    if is_flow and sc_idx > 0 and step_def.action == "navigate":
+                        if not flow_first_nav_done:
+                            flow_first_nav_done = True
+                            logger.info("  [步骤{}/{}] navigate | ⏭️ flow模式跳过（沿用上一场景页面状态）", step_num, blueprint.total_steps)
+                            try:
+                                step_action = ActionType(step_def.action)
+                            except ValueError:
+                                step_action = ActionType.SCREENSHOT
+                            result = StepResult(
+                                step=step_num, action=step_action,
+                                description=f"[flow跳过] {desc}",
+                                status=StepStatus.PASSED, duration_seconds=0,
+                            )
+                            self._hub.on_step_passed()
+                            self._hub.record_step(
+                                step_num, step_def.action, step_def.target, step_def.value,
+                                passed=True, error=None,
+                            )
+                            all_results.append(result)
+                            if self._on_step:
+                                await self._on_step(step_num, "done", desc)
+                            continue
 
                     # v2.0：控制器检查（暂停/停止/单步）
                     if self._controller:
