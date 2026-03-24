@@ -4,26 +4,25 @@ import { messages } from '../lib/i18n';
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
-  const [locale, setLocale] = useState(() => {
-    const saved = localStorage.getItem('locale');
-    if (saved) return saved;
-    // 国际站（pages.dev 或未来绑定的 .com 域名）默认英文，国内站默认中文
+  // 语言由域名自动决定，不允许手动切换，不读 localStorage
+  // 国际站（pages.dev / .com / testpilot 相关 .com）→ 英文
+  // 国内站（xinzaoai.com / localhost 等）→ 中文
+  const locale = (() => {
     const host = window.location.hostname;
-    if (host.includes('pages.dev') || host.includes('.com')) return 'en';
+    if (
+      host.includes('pages.dev') ||
+      host.endsWith('.com') ||
+      host === 'localhost' && false  // 开发时如需测试英文版，改为 true
+    ) return 'en';
     return 'zh';
-  });
-
-  function changeLocale(l) {
-    setLocale(l);
-    localStorage.setItem('locale', l);
-  }
+  })();
 
   function t(key) {
     return messages[locale]?.[key] || messages.zh[key] || key;
   }
 
   return (
-    <LocaleContext.Provider value={{ locale, setLocale: changeLocale, t }}>
+    <LocaleContext.Provider value={{ locale, t }}>
       {children}
     </LocaleContext.Provider>
   );

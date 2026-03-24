@@ -4,7 +4,7 @@ import { useLocale } from '../context/LocaleContext';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
-  const { t, locale, setLocale } = useLocale();
+  const { t, locale } = useLocale();
   const navigate = useNavigate();
 
   return (
@@ -27,16 +27,7 @@ export default function Navbar() {
 
           <div className="flex-1" />
 
-          <div className="flex items-center gap-3 text-sm">
-            {/* 语言切换 */}
-            <button
-              onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}
-              className="text-[#24292f] hover:text-black text-xs cursor-pointer px-1.5 py-0.5 rounded border border-[#d1d9e0] hover:bg-[#ebeef1]"
-            >
-              {locale === 'zh' ? 'EN' : '中文'}
-            </button>
-
-            {user ? (
+          <div className="flex items-center gap-3 text-sm">            {user ? (
               <>
                 <Link to="/dashboard" className="text-[#24292f] hover:text-black no-underline hover:no-underline">{t('nav.dashboard')}</Link>
                 <Link to={`/user/${user.id}`} className="text-[#24292f] hover:text-black no-underline hover:no-underline">{user.username}</Link>
