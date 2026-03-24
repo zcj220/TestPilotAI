@@ -252,9 +252,17 @@ class DesktopBlueprintRunner:
             return report
 
         cancelled = False
+        consecutive_scene_failures = 0
+        MAX_CONSECUTIVE_FAILURES = 3
+        blocking_bug_detected = False
+
         for page_idx, page in enumerate(blueprint.pages):
-            if cancelled:
+            if cancelled or blocking_bug_detected:
                 break
+
+            # ── 页面切换边界：重置连续失败计数 ──
+            consecutive_scene_failures = 0
+
             if page.url:
                 logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page.url)
                 try:
@@ -263,21 +271,37 @@ class DesktopBlueprintRunner:
                 except Exception as nav_err:
                     logger.error("页面导航失败: {} | {}", page.url, nav_err)
 
+            is_flow = getattr(page, 'flow', False)
             for scenario_idx, scenario in enumerate(page.scenarios):
-                if cancelled:
+                if cancelled or blocking_bug_detected:
                     break
-                logger.info("── 场景: {} ──", scenario.name)
+
+                flow_tag = " [连续流]" if is_flow else ""
+                logger.info("── 场景: {}{} ──", scenario.name, flow_tag)
                 # 场景切换时重置AI中枢连续失败计数
                 self._hub.on_scenario_start()
 
-                # 场景间等待UI稳定（第一个场景除外），防止Logout后截图时机太快
+                # flow模式：非首个场景跳过navigate步骤
+                steps_to_run = scenario.steps
+                if is_flow and scenario_idx > 0:
+                    filtered = []
+                    skip_nav = True
+                    for s in scenario.steps:
+                        if skip_nav and s.action == "navigate":
+                            logger.info("  [连续流] 跳过navigate步骤（保持当前窗口状态）")
+                            continue
+                        skip_nav = False
+                        filtered.append(s)
+                    steps_to_run = filtered if filtered else scenario.steps
+
+                # 场景间等待UI稳定（第一个场景除外）
                 if scenario_idx > 0:
                     await asyncio.sleep(1.5)
 
                 # 场景开始前预分析页面元素坐标（双保险）
                 scene_coords = await self._analyze_page_elements(scenario)
 
-                for step_def in scenario.steps:
+                for step_def in steps_to_run:
                     step_num += 1
                     desc = step_def.description or step_def.action
 
@@ -359,8 +383,8 @@ class DesktopBlueprintRunner:
                                 step_num, step_def.action, step_def.target, step_def.value,
                                 passed=False, error=result.error_message if result else None,
                             )
-                            remaining_idx = scenario.steps.index(step_def) + 1
-                            for skip_step in scenario.steps[remaining_idx:]:
+                            remaining_idx = steps_to_run.index(step_def) + 1
+                            for skip_step in steps_to_run[remaining_idx:]:
                                 step_num += 1
                                 skip_desc = skip_step.description or skip_step.action
                                 try:
@@ -394,7 +418,7 @@ class DesktopBlueprintRunner:
 
                     # navigate后清空预分析坐标
                     if step_def.action == "navigate" and not scene_coords:
-                        remaining_steps = scenario.steps[scenario.steps.index(step_def)+1:]
+                        remaining_steps = steps_to_run[steps_to_run.index(step_def)+1:]
                         if any(s.action in ("click", "fill") for s in remaining_steps):
                             from types import SimpleNamespace
                             fake_scenario = SimpleNamespace(steps=remaining_steps, name=scenario.name)
@@ -405,6 +429,54 @@ class DesktopBlueprintRunner:
 
                     if self._on_step:
                         await self._on_step(step_num, result.status.value, desc)
+
+                # ── 场景结束：检测连续失败（阻塞性Bug自动止损） ──
+                scene_has_bug = any(
+                    r.status in (StepStatus.FAILED, StepStatus.ERROR)
+                    for r in all_results[-len(steps_to_run):]
+                    if r.step > step_num - len(steps_to_run)
+                )
+                if scene_has_bug:
+                    consecutive_scene_failures += 1
+                    if consecutive_scene_failures >= MAX_CONSECUTIVE_FAILURES:
+                        remaining_scenarios = sum(
+                            len(s.scenarios) for s in blueprint.pages
+                        ) - (sum(len(p.scenarios) for p in blueprint.pages[:page_idx])
+                             + page.scenarios.index(scenario) + 1)
+
+                        if is_flow and remaining_scenarios > 0:
+                            logger.warning(
+                                "🔄 [连续流] 连续{}个场景失败，尝试重新连接窗口恢复...",
+                                MAX_CONSECUTIVE_FAILURES,
+                            )
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "warn",
+                                    f"🔄 连续流恢复：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"重新连接后继续剩余{remaining_scenarios}个场景",
+                                )
+                            try:
+                                await self._ctrl.connect()
+                                await asyncio.sleep(2)
+                                consecutive_scene_failures = 0
+                                logger.info("  ✅ 窗口重连恢复成功，继续测试")
+                            except Exception as e:
+                                logger.error("  ❌ 窗口恢复失败: {}，停止测试", str(e)[:80])
+                                blocking_bug_detected = True
+                        else:
+                            logger.warning(
+                                "🚨 检测到阻塞性Bug：连续{}个场景失败，剩余{}个场景已跳过",
+                                MAX_CONSECUTIVE_FAILURES, remaining_scenarios,
+                            )
+                            if self._on_step:
+                                await self._on_step(
+                                    step_num, "error",
+                                    f"🚨 阻塞性Bug：连续{MAX_CONSECUTIVE_FAILURES}个场景失败，"
+                                    f"剩余{remaining_scenarios}个场景已跳过",
+                                )
+                            blocking_bug_detected = True
+                else:
+                    consecutive_scene_failures = 0
 
         # ── 持久化页面指纹缓存 ──
         self._save_cache(blueprint)

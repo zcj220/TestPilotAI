@@ -150,7 +150,19 @@ class BlueprintRunner:
             if cancelled or blocking_bug_detected:
                 break
 
-            # v2.0：多页面自动导航（同一browser context，Cookie/Session自动保持）
+            # ── 页面切换边界：重置连续失败计数 + 清理浏览器状态 ──
+            consecutive_scene_failures = 0
+            if page_idx > 0:
+                try:
+                    await self._browser._context.clear_cookies()
+                    await self._browser.page.evaluate(
+                        "try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}"
+                    )
+                    logger.debug("页面切换：已清理 cookies/storage")
+                except Exception as e:
+                    logger.debug("页面切换清理失败（非致命）: {}", str(e)[:60])
+
+            # v2.0：多页面自动导航
             if page.url:
                 page_url = page.url
                 if not page_url.startswith("http"):
@@ -401,10 +413,14 @@ class BlueprintRunner:
                                     f"刷新页面后继续剩余{remaining_scenarios}个场景",
                                 )
                             try:
+                                await self._browser._context.clear_cookies()
+                                await self._browser.page.evaluate(
+                                    "try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}"
+                                )
                                 await self._browser.page.reload(wait_until="domcontentloaded")
                                 await asyncio.sleep(2)
                                 consecutive_scene_failures = 0
-                                logger.info("  ✅ 页面刷新恢复成功，继续测试")
+                                logger.info("  ✅ 清理状态+刷新恢复成功，继续测试")
                             except Exception as e:
                                 logger.error("  ❌ 页面恢复失败: {}，停止测试", str(e)[:80])
                                 blocking_bug_detected = True

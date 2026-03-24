@@ -375,6 +375,10 @@ class MobileBlueprintRunner:
         for page_idx, page in enumerate(blueprint.pages):
             if cancelled or blocking_bug_detected:
                 break
+
+            # ── 页面切换边界：重置连续失败计数 ──
+            consecutive_scene_failures = 0
+
             if page.url:
                 logger.info("── 页面 {}/{}: {} ──", page_idx + 1, len(blueprint.pages), page.url)
                 try:
