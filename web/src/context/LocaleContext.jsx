@@ -1,19 +1,15 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext } from 'react';
 import { messages } from '../lib/i18n';
 
 const LocaleContext = createContext(null);
 
 export function LocaleProvider({ children }) {
   // 语言由域名自动决定，不允许手动切换，不读 localStorage
-  // 国际站（pages.dev / .com / testpilot 相关 .com）→ 英文
-  // 国内站（xinzaoai.com / localhost 等）→ 中文
+  // 国际站：testpilotai.pages.dev → 英文
+  // 国内站：xinzaoai.com / localhost → 中文
   const locale = (() => {
     const host = window.location.hostname;
-    if (
-      host.includes('pages.dev') ||
-      host.endsWith('.com') ||
-      host === 'localhost' && false  // 开发时如需测试英文版，改为 true
-    ) return 'en';
+    if (host.includes('pages.dev')) return 'en';
     return 'zh';
   })();
 
