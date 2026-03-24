@@ -24,7 +24,7 @@ export function activate(context: vscode.ExtensionContext): void {
   client = new EngineClient();
 
   // 注册侧边栏
-  const sidebarProvider = new SidebarProvider(context.extensionUri, client);
+  const sidebarProvider = new SidebarProvider(context.extensionUri, client, context);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
   );

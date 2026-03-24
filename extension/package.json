@@ -264,6 +264,11 @@
           "type": "string",
           "default": "",
           "description": "TestPilot AI 项目根目录路径（包含 cli.py 的目录），留空则自动从工作区检测"
+        },
+        "testpilotAI.cloudApiUrl": {
+          "type": "string",
+          "default": "https://testpilot.xinzaoai.com",
+          "description": "TestPilot AI 云端 API 地址（登录/注册/经验库）"
         }
       }
     }

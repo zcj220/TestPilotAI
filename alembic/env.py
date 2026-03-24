@@ -15,6 +15,9 @@ from alembic import context
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 from src.auth.models import Base
 import src.community.models  # noqa: F401 — 确保社区模型被注册到 Base.metadata
 

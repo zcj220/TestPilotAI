@@ -392,4 +392,113 @@ export class EngineClient {
       req.end();
     });
   }
+
+  // ── 云端认证 API ─────────────────────────────────
+
+  /** 云端 API 基础地址 */
+  private get cloudUrl(): string {
+    return vscode.workspace
+      .getConfiguration("testpilotAI")
+      .get<string>("cloudApiUrl", "https://testpilot.xinzaoai.com");
+  }
+
+  /** 云端 POST（走 HTTPS，短超时） */
+  private async _cloudPost<T>(path: string, body: unknown, token?: string): Promise<T> {
+    const url = `${this.cloudUrl}${path}`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    const resp = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      let msg = `HTTP ${resp.status}`;
+      try { msg = JSON.parse(text).detail || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return resp.json() as Promise<T>;
+  }
+
+  /** 云端 GET */
+  private async _cloudGet<T>(path: string, token: string): Promise<T> {
+    const url = `${this.cloudUrl}${path}`;
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      let msg = `HTTP ${resp.status}`;
+      try { msg = JSON.parse(text).detail || msg; } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    return resp.json() as Promise<T>;
+  }
+
+  /** 云端登录 */
+  async cloudLogin(emailOrUsername: string, password: string): Promise<{
+    access_token: string;
+    token_type: string;
+    user: { id: number; email: string; username: string; role: string };
+  }> {
+    return this._cloudPost("/auth/login", {
+      email_or_username: emailOrUsername,
+      password,
+    });
+  }
+
+  /** 云端注册 */
+  async cloudRegister(email: string, username: string, password: string): Promise<{
+    access_token: string;
+    token_type: string;
+    user: { id: number; email: string; username: string; role: string };
+  }> {
+    return this._cloudPost("/auth/register", { email, username, password });
+  }
+
+  /** 获取当前用户信息 */
+  async cloudGetMe(token: string): Promise<{
+    id: number; email: string; username: string; role: string;
+    credits: number; plan: string;
+  }> {
+    return this._cloudGet("/auth/me", token);
+  }
+
+  // ── 云端经验库 API ───────────────────────────────
+
+  /** 直接分享经验到社区（Bug 自动上传） */
+  async cloudShareDirect(token: string, data: {
+    title: string;
+    platform: string;
+    framework: string;
+    error_type: string;
+    problem_desc: string;
+    solution_desc: string;
+    root_cause?: string;
+    code_snippet?: string;
+    tags?: string[];
+    difficulty?: string;
+    fix_pattern?: string;
+  }): Promise<{
+    ok: boolean;
+    experience: Record<string, unknown>;
+    score_breakdown: Record<string, unknown>;
+  }> {
+    return this._cloudPost("/api/v1/community/share/direct", data, token);
+  }
+
+  /** 根据错误类型获取经验建议 */
+  async cloudGetSuggestions(token: string, platform: string, errorType: string): Promise<{
+    items: Array<{ id: number; title: string; solution_desc: string; upvote_count: number }>;
+  }> {
+    const params = new URLSearchParams({ platform, error_type: errorType, limit: "5" });
+    return this._cloudGet(`/api/v1/community/experiences/suggest?${params}`, token);
+  }
 }

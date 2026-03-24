@@ -18,12 +18,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private _client: EngineClient;
+  private _context: vscode.ExtensionContext;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
     client: EngineClient,
+    context: vscode.ExtensionContext,
   ) {
     this._client = client;
+    this._context = context;
   }
 
   public resolveWebviewView(
@@ -96,6 +99,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             });
           }
           break;
+        case "login":
+          await this._handleLogin(msg);
+          break;
+        case "register":
+          await this._handleRegister(msg);
+          break;
+        case "logout":
+          await this._handleLogout();
+          break;
+        case "checkAuth":
+          await this._handleCheckAuth();
+          break;
+        case "shareBug":
+          await this._handleShareBug(msg);
+          break;
+        case "getSuggestions":
+          await this._handleGetSuggestions(msg);
+          break;
       }
     });
 
@@ -113,6 +134,98 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _postMessage(msg: unknown): void {
     if (this._view) {
       this._view.webview.postMessage(msg);
+    }
+  }
+
+  // ── 云端认证 ─────────────────────────────────────
+
+  private async _handleLogin(msg: { emailOrUsername: string; password: string }): Promise<void> {
+    try {
+      const result = await this._client.cloudLogin(msg.emailOrUsername, msg.password);
+      await this._context.secrets.store("testpilot.token", result.access_token);
+      await this._context.secrets.store("testpilot.username", result.user.username);
+      this._postMessage({
+        command: "authResult",
+        success: true,
+        user: result.user,
+      });
+    } catch (e: any) {
+      this._postMessage({
+        command: "authResult",
+        success: false,
+        error: e.message || "登录失败",
+      });
+    }
+  }
+
+  private async _handleRegister(msg: { email: string; username: string; password: string }): Promise<void> {
+    try {
+      const result = await this._client.cloudRegister(msg.email, msg.username, msg.password);
+      await this._context.secrets.store("testpilot.token", result.access_token);
+      await this._context.secrets.store("testpilot.username", result.user.username);
+      this._postMessage({
+        command: "authResult",
+        success: true,
+        user: result.user,
+      });
+    } catch (e: any) {
+      this._postMessage({
+        command: "authResult",
+        success: false,
+        error: e.message || "注册失败",
+      });
+    }
+  }
+
+  private async _handleLogout(): Promise<void> {
+    await this._context.secrets.delete("testpilot.token");
+    await this._context.secrets.delete("testpilot.username");
+    this._postMessage({ command: "authResult", success: false, user: null });
+  }
+
+  private async _handleCheckAuth(): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) {
+      this._postMessage({ command: "authResult", success: false, user: null });
+      return;
+    }
+    try {
+      const user = await this._client.cloudGetMe(token);
+      this._postMessage({ command: "authResult", success: true, user });
+    } catch {
+      // token 过期或无效，清除
+      await this._context.secrets.delete("testpilot.token");
+      await this._context.secrets.delete("testpilot.username");
+      this._postMessage({ command: "authResult", success: false, user: null });
+    }
+  }
+
+  private async _handleShareBug(msg: {
+    title: string; platform: string; framework: string;
+    error_type: string; problem_desc: string; solution_desc: string;
+    root_cause?: string; code_snippet?: string; tags?: string[];
+  }): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) {
+      this._postMessage({ command: "shareResult", success: false, error: "请先登录" });
+      return;
+    }
+    try {
+      const result = await this._client.cloudShareDirect(token, msg);
+      this._postMessage({ command: "shareResult", success: true, data: result });
+    } catch (e: any) {
+      this._postMessage({ command: "shareResult", success: false, error: e.message || "分享失败" });
+    }
+  }
+
+  private async _handleGetSuggestions(msg: { platform: string; errorType: string }): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) { return; }
+    try {
+      const result = await this._client.cloudGetSuggestions(token, msg.platform, msg.errorType);
+      this._postMessage({ command: "suggestionsResult", data: result });
+    } catch {
+      // 静默失败，建议是可选功能
     }
   }
 
@@ -1476,9 +1589,72 @@ ${commonRules}`;
     .step-num { color: var(--info); min-width: 20px; }
     .step-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .step-time { color: var(--info); font-size: 10px; min-width: 36px; text-align: right; }
+    /* 认证面板 */
+    .auth-panel {
+      padding: 16px 12px;
+    }
+    .auth-panel h2 {
+      font-size: 15px; margin: 0 0 12px; text-align: center;
+    }
+    .auth-panel .auth-input {
+      width: 100%; box-sizing: border-box;
+      padding: 7px 10px; margin-bottom: 8px;
+      background: var(--input-bg); color: var(--input-fg);
+      border: 1px solid var(--input-border); border-radius: 4px;
+      font-size: 13px; outline: none;
+    }
+    .auth-panel .auth-input:focus { border-color: var(--btn-bg); }
+    .auth-panel .auth-btn {
+      width: 100%; padding: 8px; margin-top: 4px;
+      background: var(--btn-bg); color: var(--btn-fg);
+      border: none; border-radius: 4px; cursor: pointer;
+      font-size: 13px; font-weight: 600;
+    }
+    .auth-panel .auth-btn:hover { background: var(--btn-hover); }
+    .auth-panel .auth-toggle {
+      display: block; text-align: center; margin-top: 12px;
+      font-size: 12px; color: var(--btn-bg); cursor: pointer;
+      text-decoration: underline; background: none; border: none;
+    }
+    .auth-panel .auth-error {
+      color: var(--error); font-size: 12px; margin: 6px 0; text-align: center;
+      display: none;
+    }
+    .auth-user-bar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 6px 12px; font-size: 12px;
+      border-bottom: 1px solid var(--input-border);
+    }
+    .auth-user-bar .username { color: var(--success); font-weight: 600; }
+    .auth-user-bar .logout-btn {
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 11px; text-decoration: underline;
+    }
+    .auth-user-bar .logout-btn:hover { color: var(--error); }
   </style>
 </head>
 <body>
+  <!-- 认证：已登录用户栏 -->
+  <div id="authUserBar" class="auth-user-bar" style="display:none">
+    <span>👤 <span class="username" id="authUsername"></span>
+      <span style="color:var(--muted);font-size:11px" id="authPlan"></span></span>
+    <button class="logout-btn" onclick="doLogout()">退出登录</button>
+  </div>
+  <!-- 认证：登录/注册面板 -->
+  <div id="authPanel" class="auth-panel" style="display:none">
+    <h2 id="authTitle">登录 TestPilot AI</h2>
+    <div id="authError" class="auth-error"></div>
+    <input id="authEmail" class="auth-input" type="text"
+      placeholder="邮箱" style="display:none" />
+    <input id="authUser" class="auth-input" type="text"
+      placeholder="用户名或邮箱" />
+    <input id="authPass" class="auth-input" type="password"
+      placeholder="密码" onkeydown="if(event.key==='Enter')doAuth()" />
+    <button class="auth-btn" onclick="doAuth()">登录</button>
+    <button class="auth-toggle" onclick="toggleAuthMode()">
+      没有账号？注册
+    </button>
+  </div>
   <!-- 引擎状态 -->
   <div class="section">
     <!-- 标题行：引擎字 + 齿轮设置按钮（随页面滚动） -->
@@ -1634,6 +1810,7 @@ ${commonRules}`;
         <option value="medium" selected>⭐⭐ 中等</option>
         <option value="hard">⭐⭐⭐ 困难</option>
       </select>
+      <div id="shareList" style="margin-top:6px"></div>
       <button id="btnShareExperience" style="margin-top:6px;background:#8b5cf6">📤 分享到社区</button>
       <div id="shareResult" style="font-size:11px;margin-top:4px;display:none"></div>
     </div>
@@ -1714,6 +1891,78 @@ ${commonRules}`;
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
+
+    // ── 认证逻辑 ──────────────────────────────
+    let authMode = 'login'; // 'login' | 'register'
+    const authPanel = document.getElementById('authPanel');
+    const authUserBar = document.getElementById('authUserBar');
+    const authTitle = document.getElementById('authTitle');
+    const authEmail = document.getElementById('authEmail');
+    const authUser = document.getElementById('authUser');
+    const authPass = document.getElementById('authPass');
+    const authError = document.getElementById('authError');
+    const authUsername = document.getElementById('authUsername');
+    const authPlan = document.getElementById('authPlan');
+
+    function showAuthError(msg) {
+      authError.textContent = msg;
+      authError.style.display = msg ? 'block' : 'none';
+    }
+
+    function toggleAuthMode() {
+      authMode = authMode === 'login' ? 'register' : 'login';
+      if (authMode === 'register') {
+        authTitle.textContent = '注册 TestPilot AI';
+        authEmail.style.display = 'block';
+        authEmail.placeholder = '邮箱';
+        authUser.placeholder = '用户名';
+        document.querySelector('.auth-btn').textContent = '注册';
+        document.querySelector('.auth-toggle').textContent = '已有账号？登录';
+      } else {
+        authTitle.textContent = '登录 TestPilot AI';
+        authEmail.style.display = 'none';
+        authUser.placeholder = '用户名或邮箱';
+        document.querySelector('.auth-btn').textContent = '登录';
+        document.querySelector('.auth-toggle').textContent = '没有账号？注册';
+      }
+      showAuthError('');
+    }
+
+    function doAuth() {
+      showAuthError('');
+      if (authMode === 'login') {
+        const u = authUser.value.trim();
+        const p = authPass.value;
+        if (!u || !p) { showAuthError('请填写用户名和密码'); return; }
+        vscode.postMessage({ command: 'login', emailOrUsername: u, password: p });
+      } else {
+        const e = authEmail.value.trim();
+        const u = authUser.value.trim();
+        const p = authPass.value;
+        if (!e || !u || !p) { showAuthError('请填写所有字段'); return; }
+        if (p.length < 6) { showAuthError('密码至少6位'); return; }
+        vscode.postMessage({ command: 'register', email: e, username: u, password: p });
+      }
+    }
+
+    function doLogout() {
+      vscode.postMessage({ command: 'logout' });
+    }
+
+    function setAuthState(loggedIn, user) {
+      if (loggedIn && user) {
+        authPanel.style.display = 'none';
+        authUserBar.style.display = 'flex';
+        authUsername.textContent = user.username || '';
+        authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
+      } else {
+        authPanel.style.display = 'block';
+        authUserBar.style.display = 'none';
+      }
+    }
+
+    // 启动时检查登录状态
+    vscode.postMessage({ command: 'checkAuth' });
 
     // Tab切换
     const tabBlueprint = document.getElementById("tabBlueprint");
@@ -2089,6 +2338,38 @@ ${commonRules}`;
         case "platformPrecheckResult": onPlatformPrecheckResult(msg.data); break;
         case "deviceStatusResult": onDeviceStatusResult(msg.data); break;
         case "connectDeviceResult": onConnectDeviceResult(msg.data); break;
+        case "authResult":
+          if (msg.success) {
+            setAuthState(true, msg.user);
+            showAuthError('');
+          } else {
+            setAuthState(false, null);
+            if (msg.error) { showAuthError(msg.error); }
+          }
+          break;
+        case "shareResult":
+          if (btnShareExperience) {
+            btnShareExperience.disabled = false;
+            btnShareExperience.textContent = "📤 分享到社区";
+          }
+          if (shareResult) {
+            shareResult.style.display = "block";
+            if (msg.success) {
+              shareResult.style.color = "#4ade80";
+              const score = msg.data && msg.data.score_breakdown ? msg.data.score_breakdown.total : "-";
+              shareResult.textContent = "✅ 分享成功！评分: " + score + "/10";
+              document.getElementById("shareErrorType").value = "";
+              document.getElementById("shareSolution").value = "";
+              document.getElementById("shareRootCause").value = "";
+            } else {
+              shareResult.style.color = "#f87171";
+              shareResult.textContent = "❌ " + (msg.error || "分享失败");
+            }
+          }
+          break;
+        case "suggestionsResult":
+          onSuggestionsResult(msg.data);
+          break;
       }
     });
 
@@ -2536,6 +2817,14 @@ ${commonRules}`;
         panels.forEach(p => p.classList.remove("active"));
         tabs[2].classList.add("active");
         document.getElementById("panelCommunity").classList.add("active");
+
+        // 自动获取社区相似经验建议
+        const sharePlatformEl = document.getElementById("sharePlatform");
+        vscode.postMessage({
+          command: "getSuggestions",
+          platform: sharePlatformEl ? sharePlatformEl.value : "web",
+          errorType: firstBug.title || firstBug.category || "test_bug",
+        });
       };
     }
 
@@ -2692,6 +2981,17 @@ ${commonRules}`;
       engineBaseUrl = remoteBaseUrl;
     }
 
+    function onSuggestionsResult(data) {
+      const list = document.getElementById("shareList");
+      if (!list || !data || !data.length) return;
+      list.innerHTML = "<div style='font-size:11px;color:var(--muted);margin-bottom:4px'>💡 社区相似经验：</div>" +
+        data.slice(0, 3).map(s =>
+          "<div style='font-size:11px;background:var(--bg-secondary);padding:4px 6px;border-radius:4px;margin-bottom:3px'>" +
+          "<b>" + escapeHtml(s.title || s.error_type || "") + "</b> " +
+          "<span style='color:var(--muted)'>" + escapeHtml((s.solution_desc || "").substring(0, 60)) + "</span></div>"
+        ).join("");
+    }
+
     async function loadCommunityExperiences() {
       await resolveBaseUrl();
       const platform = communityPlatform.value;
@@ -2820,81 +3120,20 @@ ${commonRules}`;
       }
 
       btnShareExperience.disabled = true;
-      btnShareExperience.textContent = "预览中...";
+      btnShareExperience.textContent = "上传中...";
       shareResult.style.display = "none";
 
-      const payload = {
+      vscode.postMessage({
+        command: "shareBug",
         title: errorType,
         platform,
+        framework: "",
         error_type: errorType,
         problem_desc: errorType + " - " + solution,
         solution_desc: solution,
         root_cause: rootCause,
-        difficulty,
-        tags: [platform, errorType.split(/[\s_]+/)[0]].filter(Boolean),
-      };
-
-      try {
-        const previewResp = await fetch(engineBaseUrl + "/community/share/preview", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        const preview = await previewResp.json();
-
-        if (!preview.validation.valid) {
-          shareResult.style.display = "block";
-          shareResult.style.color = "#f87171";
-          shareResult.textContent = "❌ 审核不通过: " + preview.validation.reasons.join("; ");
-          btnShareExperience.disabled = false;
-          btnShareExperience.textContent = "📤 分享到社区";
-          return;
-        }
-
-        shareResult.style.display = "block";
-        shareResult.style.color = "var(--muted)";
-        shareResult.innerHTML = "📊 价值评分: <b>" + preview.score + "/10</b> | 匿名化预览: " + escapeHtml((preview.anonymized.solution_desc || "").substring(0, 80)) + "...";
-
-        btnShareExperience.textContent = "✅ 确认分享";
-        btnShareExperience.onclick = async function confirmShare() {
-          btnShareExperience.disabled = true;
-          btnShareExperience.textContent = "上传中...";
-          try {
-            const resp = await fetch(engineBaseUrl + "/community/share/direct", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload),
-            });
-            const data = await resp.json();
-            shareResult.style.display = "block";
-            if (data.ok) {
-              shareResult.style.color = "#4ade80";
-              shareResult.textContent = "✅ 分享成功！评分: " + (data.score_breakdown ? data.score_breakdown.total : "-") + "/10";
-              document.getElementById("shareErrorType").value = "";
-              document.getElementById("shareSolution").value = "";
-              document.getElementById("shareRootCause").value = "";
-              loadCommunityExperiences();
-            } else {
-              shareResult.style.color = "#fbbf24";
-              shareResult.textContent = "⚠️ " + (data.error || "分享失败") + (data.reasons ? ": " + data.reasons.join("; ") : "");
-            }
-          } catch(err) {
-            shareResult.style.color = "#f87171";
-            shareResult.textContent = "上传失败: " + err.message;
-          } finally {
-            btnShareExperience.disabled = false;
-            btnShareExperience.textContent = "📤 分享到社区";
-            btnShareExperience.onclick = null;
-          }
-        };
-        btnShareExperience.disabled = false;
-      } catch(e) {
-        shareResult.style.display = "block";
-        shareResult.style.color = "#f87171";
-        shareResult.textContent = "预览失败: " + e.message;
-        btnShareExperience.disabled = false;
-        btnShareExperience.textContent = "📤 分享到社区";
-      }
+        tags: [platform, difficulty, errorType.split(/[\s_]+/)[0]].filter(Boolean),
+      });
     });
 
     // 初始检查 + 轮询（最长60秒/每5秒，连接后自动停止，解决Trae等IDE WebView渲染慢导致按钮状态不更新的问题）
