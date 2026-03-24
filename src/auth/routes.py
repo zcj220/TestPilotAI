@@ -20,6 +20,7 @@ class RegisterRequest(BaseModel):
     email: str = Field(..., description="邮箱")
     username: str = Field(..., min_length=2, max_length=50)
     password: str = Field(..., min_length=6, max_length=100)
+    email_code: str | None = Field(default=None, description="邮箱验证码（开启验证时必填）")
 
 class LoginRequest(BaseModel):
     email_or_username: str = Field(..., description="邮箱或用户名")
@@ -27,8 +28,15 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user: dict
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., description="Refresh Token")
+
+class SendCodeRequest(BaseModel):
+    email: str = Field(..., description="接收验证码的邮箱")
 
 class ProjectRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -69,17 +77,23 @@ def _project_dict(p) -> dict:
 
 @router.post("/auth/register", tags=["认证"])
 async def register(req: RegisterRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    # 开启邮箱验证时必须校验验证码
+    if service.REQUIRE_EMAIL_VERIFICATION:
+        if not req.email_code:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请先获取邮箱验证码")
+        if not service.verify_email_code(db, req.email, req.email_code):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误或已过期")
     try:
         user = service.register_user(db, req.email, req.username, req.password)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    token = service.create_access_token(user.id, user.username, user.role)
-    return TokenResponse(access_token=token, user=_user_dict(user))
+    access_token, refresh_token = service.create_token_pair(db, user)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token, user=_user_dict(user))
 
 @router.post("/auth/login", tags=["认证"])
 async def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    # 锁定检查
-    locked, remaining = service.is_account_locked(req.email_or_username)
+    # 锁定检查（DB持久化）
+    locked, remaining = service.is_account_locked(db, req.email_or_username)
     if locked:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -88,7 +102,7 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenRespon
 
     user = service.authenticate_user(db, req.email_or_username, req.password)
     if not user:
-        failures = service.record_login_failure(req.email_or_username)
+        failures = service.record_login_failure(db, req.email_or_username)
         remain_chances = max(0, service._MAX_FAILURES - failures)
         if remain_chances > 0:
             raise HTTPException(
@@ -101,13 +115,39 @@ async def login(req: LoginRequest, db: Session = Depends(get_db)) -> TokenRespon
                 detail=f"连续失败次数过多，账号已锁定 {service._LOCK_SECONDS // 60} 分钟"
             )
 
-    service.clear_login_failures(req.email_or_username)
-    token = service.create_access_token(user.id, user.username, user.role)
-    return TokenResponse(access_token=token, user=_user_dict(user))
+    service.clear_login_failures(db, req.email_or_username)
+    access_token, refresh_token = service.create_token_pair(db, user)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token, user=_user_dict(user))
 
 @router.get("/auth/me", tags=["认证"])
 async def get_me(user: User = Depends(get_current_user)) -> dict:
     return _user_dict(user)
+
+
+@router.post("/auth/refresh", tags=["认证"])
+async def refresh_token_endpoint(req: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    """用 Refresh Token 换取新的 Access Token + 新 Refresh Token（轮换机制）。"""
+    result = service.verify_and_rotate_refresh_token(db, req.refresh_token)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="refresh_token 无效或已过期，请重新登录",
+        )
+    access_token, new_refresh, user = result
+    return TokenResponse(access_token=access_token, refresh_token=new_refresh, user=_user_dict(user))
+
+
+@router.post("/auth/send-code", tags=["认证"])
+async def send_verification_code(req: SendCodeRequest, db: Session = Depends(get_db)) -> dict:
+    """向指定邮箱发送6位注册验证码（10分钟有效）。"""
+    code = service.create_verification_code(db, req.email)
+    sent = service.send_verification_email(req.email, code)
+    if not sent:
+        # SMTP 未配置时，开发模式下直接返回验证码（生产环境应删除此行）
+        if not service.REQUIRE_EMAIL_VERIFICATION:
+            return {"ok": True, "message": "开发模式：验证码已生成", "dev_code": code}
+        raise HTTPException(status_code=503, detail="邮件服务未配置，请联系管理员")
+    return {"ok": True, "message": f"验证码已发送至 {req.email}"}
 
 
 # ── 项目端点 ──

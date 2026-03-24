@@ -143,6 +143,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       const result = await this._client.cloudLogin(msg.emailOrUsername, msg.password);
       await this._context.secrets.store("testpilot.token", result.access_token);
+      if (result.refresh_token) {
+        await this._context.secrets.store("testpilot.refresh_token", result.refresh_token);
+      }
       await this._context.secrets.store("testpilot.username", result.user.username);
       this._postMessage({
         command: "authResult",
@@ -162,6 +165,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       const result = await this._client.cloudRegister(msg.email, msg.username, msg.password);
       await this._context.secrets.store("testpilot.token", result.access_token);
+      if (result.refresh_token) {
+        await this._context.secrets.store("testpilot.refresh_token", result.refresh_token);
+      }
       await this._context.secrets.store("testpilot.username", result.user.username);
       this._postMessage({
         command: "authResult",
@@ -179,6 +185,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   private async _handleLogout(): Promise<void> {
     await this._context.secrets.delete("testpilot.token");
+    await this._context.secrets.delete("testpilot.refresh_token");
     await this._context.secrets.delete("testpilot.username");
     this._postMessage({ command: "authResult", success: false, user: null });
   }
@@ -193,8 +200,21 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const user = await this._client.cloudGetMe(token);
       this._postMessage({ command: "authResult", success: true, user });
     } catch {
-      // token 过期或无效，清除
+      // Access Token 过期，尝试用 Refresh Token 自动续期
+      const refreshToken = await this._context.secrets.get("testpilot.refresh_token");
+      if (refreshToken) {
+        try {
+          const result = await this._client.cloudRefreshToken(refreshToken);
+          await this._context.secrets.store("testpilot.token", result.access_token);
+          await this._context.secrets.store("testpilot.refresh_token", result.refresh_token);
+          this._postMessage({ command: "authResult", success: true, user: result.user });
+          return;
+        } catch {
+          // Refresh Token 也失效，清除并要求重新登录
+        }
+      }
       await this._context.secrets.delete("testpilot.token");
+      await this._context.secrets.delete("testpilot.refresh_token");
       await this._context.secrets.delete("testpilot.username");
       this._postMessage({ command: "authResult", success: false, user: null });
     }

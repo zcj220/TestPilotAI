@@ -472,6 +472,21 @@ export class EngineClient {
     return this._cloudGet("/auth/me", token);
   }
 
+  /** 用 Refresh Token 换取新的 Access Token + 新 Refresh Token */
+  async cloudRefreshToken(refreshToken: string): Promise<{
+    access_token: string;
+    refresh_token: string;
+    token_type: string;
+    user: { id: number; email: string; username: string; role: string };
+  }> {
+    return this._cloudPost("/auth/refresh", { refresh_token: refreshToken });
+  }
+
+  /** 发送邮箱注册验证码 */
+  async cloudSendEmailCode(email: string): Promise<{ ok: boolean; message: string; dev_code?: string }> {
+    return this._cloudPost("/auth/send-code", { email });
+  }
+
   // ── 云端经验库 API ───────────────────────────────
 
   /** 直接分享经验到社区（Bug 自动上传） */

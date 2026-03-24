@@ -199,3 +199,60 @@ class TeamMember(Base):
 
     def __repr__(self) -> str:
         return f"<TeamMember team={self.team_id} user={self.user_id} role={self.role}>"
+
+
+# ── 安全增强（v14.0-E）──────────────────────────
+
+class LoginAttempt(Base):
+    """登录失败记录（持久化锁定，替代内存字典）。"""
+    __tablename__ = "login_attempts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    identifier: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    attempted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+    is_success: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("ix_login_attempts_id_time", "identifier", "attempted_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<LoginAttempt {self.identifier} at {self.attempted_at}>"
+
+
+class RefreshToken(Base):
+    """JWT Refresh Token（7天有效，刷新时自动轮换）。"""
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return f"<RefreshToken user={self.user_id} revoked={self.is_revoked}>"
+
+
+class EmailVerification(Base):
+    """邮箱验证码（注册时验证真实邮箱）。"""
+    __tablename__ = "email_verifications"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(String(10), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    def __repr__(self) -> str:
+        return f"<EmailVerification {self.email}>"

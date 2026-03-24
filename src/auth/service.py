@@ -8,8 +8,13 @@
 - 用量检查与记录
 """
 
+import hashlib
 import os
+import random
+import secrets
+import smtplib
 from datetime import datetime, timedelta, timezone
+from email.mime.text import MIMEText
 from typing import Optional
 
 import bcrypt as _bcrypt
@@ -17,18 +22,25 @@ from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from src.auth.models import User, Project, UsageRecord, ROLE_QUOTAS, ROLE_FREE
+from src.auth.models import (
+    User, Project, UsageRecord, ROLE_QUOTAS, ROLE_FREE,
+    LoginAttempt, RefreshToken, EmailVerification,
+)
 
 
 # JWT 配置
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "testpilot-dev-secret-change-in-production")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "1440"))  # 默认24小时
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "60"))   # Access Token：1小时
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "7"))  # Refresh Token：7天
 
-# 登录失败锁定配置（内存级，重启后重置；生产环境应换 Redis）
+# 登录失败锁定配置
 _MAX_FAILURES = 5          # 最多允许失败次数
 _LOCK_SECONDS = 900        # 锁定时长（秒）：15分钟
-_login_failures: dict[str, list[datetime]] = {}  # {key: [失败时间戳...]}
+
+# 邮箱验证码配置
+EMAIL_CODE_EXPIRE_MINUTES = 10
+REQUIRE_EMAIL_VERIFICATION = os.environ.get("REQUIRE_EMAIL_VERIFICATION", "false").lower() == "true"
 
 
 def hash_password(password: str) -> str:
@@ -95,39 +107,61 @@ def register_user(db: Session, email: str, username: str, password: str) -> User
     return user
 
 
-# ── 登录失败锁定 ──
+# ── 登录失败锁定（DB持久化，v14.0-E） ──
 
 def _lock_key(identifier: str) -> str:
     return identifier.lower().strip()
 
-def is_account_locked(identifier: str) -> tuple[bool, int]:
-    """检查账号是否被锁定。返回 (是否锁定, 剩余秒数)。"""
+def is_account_locked(db: Session, identifier: str) -> tuple[bool, int]:
+    """检查账号是否被锁定（DB持久化）。返回 (是否锁定, 剩余秒数)。"""
     key = _lock_key(identifier)
-    failures = _login_failures.get(key, [])
+    window_start = datetime.now(timezone.utc) - timedelta(seconds=_LOCK_SECONDS)
+    failures = (
+        db.query(LoginAttempt)
+        .filter(
+            LoginAttempt.identifier == key,
+            LoginAttempt.is_success == False,
+            LoginAttempt.attempted_at > window_start,
+        )
+        .order_by(LoginAttempt.attempted_at.desc())
+        .all()
+    )
     if len(failures) < _MAX_FAILURES:
         return False, 0
-    latest = failures[-1]
+    latest = failures[0].attempted_at
+    if latest.tzinfo is None:
+        latest = latest.replace(tzinfo=timezone.utc)
     elapsed = (datetime.now(timezone.utc) - latest).total_seconds()
     if elapsed < _LOCK_SECONDS:
         return True, int(_LOCK_SECONDS - elapsed)
-    # 锁定已过期，清除记录
-    _login_failures.pop(key, None)
     return False, 0
 
-def record_login_failure(identifier: str) -> int:
-    """记录一次登录失败，返回当前失败次数。"""
+def record_login_failure(db: Session, identifier: str) -> int:
+    """记录一次登录失败（DB持久化），返回当前窗口内失败次数。"""
     key = _lock_key(identifier)
-    now = datetime.now(timezone.utc)
-    # 只保留最近窗口内的失败（避免无限积累）
-    window_start = now - timedelta(seconds=_LOCK_SECONDS)
-    recent = [t for t in _login_failures.get(key, []) if t > window_start]
-    recent.append(now)
-    _login_failures[key] = recent
-    return len(recent)
+    db.add(LoginAttempt(identifier=key, is_success=False))
+    db.commit()
+    window_start = datetime.now(timezone.utc) - timedelta(seconds=_LOCK_SECONDS)
+    return (
+        db.query(LoginAttempt)
+        .filter(
+            LoginAttempt.identifier == key,
+            LoginAttempt.is_success == False,
+            LoginAttempt.attempted_at > window_start,
+        )
+        .count()
+    )
 
-def clear_login_failures(identifier: str) -> None:
-    """登录成功后清除失败记录。"""
-    _login_failures.pop(_lock_key(identifier), None)
+def clear_login_failures(db: Session, identifier: str) -> None:
+    """登录成功后清除该账号在当前窗口内的失败记录。"""
+    key = _lock_key(identifier)
+    window_start = datetime.now(timezone.utc) - timedelta(seconds=_LOCK_SECONDS)
+    db.query(LoginAttempt).filter(
+        LoginAttempt.identifier == key,
+        LoginAttempt.is_success == False,
+        LoginAttempt.attempted_at > window_start,
+    ).delete(synchronize_session=False)
+    db.commit()
 
 
 def authenticate_user(db: Session, email_or_username: str, password: str) -> Optional[User]:
@@ -380,3 +414,109 @@ def get_credits_history(db: Session, user_id: int, limit: int = 20) -> list[dict
         .all()
     )
     return [r.to_dict() for r in records]
+
+
+# ── JWT Refresh Token（v14.0-E）──────────────────────────────────────────────
+
+def create_token_pair(db: Session, user: User) -> tuple[str, str]:
+    """生成 access_token（1小时）+ refresh_token（7天）。
+
+    Returns: (access_token, raw_refresh_token)
+    """
+    access_token = create_access_token(user.id, user.username, user.role)
+    raw_refresh = secrets.token_hex(48)  # 96字符随机字符串，仅返回给客户端一次
+    token_hash = hashlib.sha256(raw_refresh.encode()).hexdigest()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    db.add(RefreshToken(user_id=user.id, token_hash=token_hash, expires_at=expires_at))
+    db.commit()
+    return access_token, raw_refresh
+
+
+def verify_and_rotate_refresh_token(
+    db: Session, raw_token: str
+) -> Optional[tuple[str, str, "User"]]:
+    """验证 refresh_token，验证通过则：旧 token 作废，生成新的 access+refresh 对。
+
+    Returns: (access_token, new_refresh_token, user) or None
+    """
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    rt = db.query(RefreshToken).filter(
+        RefreshToken.token_hash == token_hash,
+        RefreshToken.is_revoked == False,
+    ).first()
+    if not rt:
+        return None
+    expires = rt.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
+        return None
+    user = get_user_by_id(db, rt.user_id)
+    if not user:
+        return None
+    rt.is_revoked = True  # 旧 token 作废（轮换机制）
+    db.commit()
+    access_token, new_refresh = create_token_pair(db, user)
+    return access_token, new_refresh, user
+
+
+# ── 邮箱验证码（v14.0-E）────────────────────────────────────────────────────
+
+def create_verification_code(db: Session, email: str) -> str:
+    """为邮箱生成6位验证码，自动作废该邮箱旧的未使用验证码。"""
+    db.query(EmailVerification).filter(
+        EmailVerification.email == email,
+        EmailVerification.is_used == False,
+    ).update({"is_used": True}, synchronize_session=False)
+    db.commit()
+    code = f"{random.randint(0, 999999):06d}"
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=EMAIL_CODE_EXPIRE_MINUTES)
+    db.add(EmailVerification(email=email, code=code, expires_at=expires_at))
+    db.commit()
+    return code
+
+
+def verify_email_code(db: Session, email: str, code: str) -> bool:
+    """验证邮箱验证码，成功后标记为已使用。"""
+    now = datetime.now(timezone.utc)
+    record = db.query(EmailVerification).filter(
+        EmailVerification.email == email,
+        EmailVerification.code == code,
+        EmailVerification.is_used == False,
+        EmailVerification.expires_at > now,
+    ).first()
+    if not record:
+        return False
+    record.is_used = True
+    db.commit()
+    return True
+
+
+def send_verification_email(email: str, code: str) -> bool:
+    """发送验证码邮件（需配置 SMTP_HOST / SMTP_USER / SMTP_PASS 环境变量）。"""
+    smtp_host = os.environ.get("SMTP_HOST", "")
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    smtp_user = os.environ.get("SMTP_USER", "")
+    smtp_pass = os.environ.get("SMTP_PASS", "")
+    from_email = os.environ.get("SMTP_FROM", smtp_user)
+    if not smtp_host or not smtp_user:
+        logger.warning("SMTP 未配置，跳过发送验证码邮件 → {}", email)
+        return False
+    body = (
+        f"您的 TestPilot AI 验证码是：{code}\n\n"
+        f"有效期 {EMAIL_CODE_EXPIRE_MINUTES} 分钟，请勿泄露给他人。"
+    )
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = f"【TestPilot AI】注册验证码 {code}"
+    msg["From"] = from_email
+    msg["To"] = email
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.sendmail(from_email, [email], msg.as_string())
+        logger.info("验证码邮件已发送 → {}", email)
+        return True
+    except Exception as e:
+        logger.error("发送验证码邮件失败 {} → {}", email, e)
+        return False
