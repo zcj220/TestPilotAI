@@ -325,12 +325,31 @@ class AnomalyDetector:
                 }
 
                 // 3. 内容被截断检测（overflow:hidden + scrollWidth > clientWidth）
+                // 智能过滤：圆角卡片 + 溢出仅来自绝对定位装饰元素 → 不报
                 const truncated = [];
                 for (let i = 0; i < Math.min(all.length, 800); i++) {
                     const el = all[i];
                     const style = getComputedStyle(el);
                     if (style.overflow === 'hidden' || style.overflowX === 'hidden') {
                         if (el.scrollWidth > el.clientWidth + 5) {
+                            // 过滤：有圆角且溢出仅由绝对/固定定位子元素造成 → 装饰性裁切
+                            const br = parseFloat(style.borderRadius) || 0;
+                            if (br > 0) {
+                                const children = el.children;
+                                let onlyAbsOverflow = true;
+                                for (let j = 0; j < children.length; j++) {
+                                    const cs = getComputedStyle(children[j]);
+                                    const pos = cs.position;
+                                    if (pos === 'absolute' || pos === 'fixed') continue;
+                                    const cr = children[j].getBoundingClientRect();
+                                    const pr = el.getBoundingClientRect();
+                                    if (cr.right > pr.right + 2 || cr.left < pr.left - 2) {
+                                        onlyAbsOverflow = false;
+                                        break;
+                                    }
+                                }
+                                if (onlyAbsOverflow) continue;
+                            }
                             const tag = el.tagName.toLowerCase();
                             const cls = el.className ? ('.' + String(el.className).split(' ')[0]) : '';
                             const id = el.id ? ('#' + el.id) : '';
