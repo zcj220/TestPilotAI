@@ -248,6 +248,24 @@ class BlueprintRunner:
 
                     # ── AI中枢决策：步骤失败时统一走 L1→L3 决策链 ──
                     if bug:
+                        # Web DOM 辅助：读取页面可交互元素列表，供 L2 诊断
+                        dom_ctx = None
+                        try:
+                            dom_ctx = await self._browser.page.evaluate("""() => {
+                                const tags = ['button','input','select','textarea','a'];
+                                const els = tags.flatMap(tag => [...document.querySelectorAll(tag)].map(el => {
+                                    const r = el.getBoundingClientRect();
+                                    if (r.width === 0 && r.height === 0) return null;
+                                    const text = (el.innerText || el.value || el.placeholder || '').trim().slice(0, 30);
+                                    return {tag, text, id: el.id || '', cls: (el.className || '').toString().slice(0, 40),
+                                            x: +((r.left + r.width/2) / window.innerWidth).toFixed(2),
+                                            y: +((r.top + r.height/2) / window.innerHeight).toFixed(2)};
+                                })).filter(Boolean).slice(0, 30);
+                                return JSON.stringify(els);
+                            }""")
+                        except Exception:
+                            pass
+
                         ctx = StepContext(
                             step_num=step_num,
                             total_steps=blueprint.total_steps,
@@ -259,6 +277,7 @@ class BlueprintRunner:
                             platform="web",
                             screenshot_fn=self._hub_screenshot,
                             click_fn=self._hub_click,
+                            dom_context=dom_ctx,
                         )
                         decision = await self._hub.on_step_failed(ctx)
 

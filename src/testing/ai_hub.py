@@ -88,6 +88,8 @@ class StepContext:
     # Runner 提供的能力回调（由各平台 Runner 注入）
     screenshot_fn: Optional[Callable[..., Coroutine]] = field(default=None, repr=False)
     click_fn: Optional[Callable[..., Coroutine]] = field(default=None, repr=False)
+    _cached_screenshot: Optional[str] = field(default=None, repr=False)  # L1/L2 截图缓存
+    dom_context: Optional[str] = field(default=None, repr=False)  # Web DOM 元素列表（C1）
 
 
 @dataclass
@@ -204,6 +206,13 @@ class AIHub:
         if rule_decision:
             return rule_decision
 
+        # ── 预截图：L1/L2 共用同一张截图，避免重复截图和API调用 ──
+        if ctx.screenshot_fn and not ctx._cached_screenshot:
+            try:
+                ctx._cached_screenshot = await ctx.screenshot_fn("failure_capture")
+            except Exception as e:
+                logger.debug("预截图失败（非致命）: {}", str(e)[:60])
+
         # ── L1 弹窗自愈（仅对可能被弹窗遮挡的操作）──
         if ctx.action in ("click", "fill", "assert_text", "assert_visible"):
             decision = await self._try_l1_popup_heal(ctx)
@@ -294,22 +303,20 @@ class AIHub:
 
         start = time.time()
         try:
-            # 1. 截图
-            screenshot_path = await ctx.screenshot_fn("popup_detect")
+            # 1. 截图（优先复用缓存）
+            screenshot_path = ctx._cached_screenshot
+            if not screenshot_path:
+                screenshot_path = await ctx.screenshot_fn("popup_detect")
             if not screenshot_path:
                 return HubDecision(action=HubAction.NONE, reason="截图失败")
 
-            # 2. AI 分析是否有弹窗（像人一样观察）
+            # 2. AI 分析是否有弹窗
             prompt = (
-                "你是一个测试工程师，正在手动测试一个应用。现在你看到了这个截图。\n\n"
-                "请你仔细看一下：主界面上方有没有弹出一个对话框/弹窗/提示框？\n"
-                "（比如确认删除、报错提示、登录过期、权限提示等等）\n\n"
-                "如果有弹窗：找到能关闭它的按钮（OK、确定、取消、关闭、Yes、No、X等），\n"
-                "告诉我按钮的中心位置。坐标用0~1的比例值，(0,0)是左上角，(1,1)是右下角。\n\n"
-                "返回JSON：\n"
-                '有弹窗：{"popup": true, "button": "确定", "x": 0.5, "y": 0.7}\n'
-                '没弹窗：{"popup": false}\n\n'
-                "只返回JSON，不要解释。"
+                "看截图：主界面上方有没有弹出对话框/弹窗/提示框？\n"
+                "有→找关闭按钮(确定/取消/关闭/X等)，给归一化坐标(0~1)。\n"
+                '有弹窗：{"popup":true,"button":"确定","x":0.5,"y":0.7}\n'
+                '没弹窗：{"popup":false}\n'
+                "只返回JSON。"
             )
 
             loop = asyncio.get_event_loop()
@@ -317,6 +324,7 @@ class AIHub:
                 None, lambda: self._ai.analyze_screenshot(
                     str(screenshot_path), prompt,
                     reasoning_effort="low", timeout=20,
+                    max_tokens=300,
                 )
             )
 
@@ -381,7 +389,9 @@ class AIHub:
 
         start = time.time()
         try:
-            screenshot_path = await ctx.screenshot_fn("l2_diagnose")
+            screenshot_path = ctx._cached_screenshot
+            if not screenshot_path:
+                screenshot_path = await ctx.screenshot_fn("l2_diagnose")
             if not screenshot_path:
                 return HubDecision(action=HubAction.NONE, reason="截图失败")
 
@@ -396,41 +406,28 @@ class AIHub:
             # 拼接步骤历史
             history = self._build_history_context()
 
-            prompt = (
-                "你是一个正在做手动测试的测试工程师。\n"
-                f"你正在测试的场景叫：「{ctx.scenario_name}」\n\n"
-            )
+            prompt = f"场景「{ctx.scenario_name}」"
             if history:
-                prompt += f"{history}\n\n"
+                prompt += f"\n{history}"
+
+            # Web DOM 辅助：将页面可交互元素列表注入 prompt
+            if ctx.dom_context:
+                prompt += f"\n【DOM元素】{ctx.dom_context}"
+
             is_click_action = ctx.action == "click"
             coord_hint = (
-                "\n如果 fault=test 且目标元素在截图中确实可见（只是选择器写错了），"
-                "请同时提供该元素的归一化坐标（0.0~1.0，左上角为原点）："
-                '"recover_x": 0.xx, "recover_y": 0.xx（引擎会用坐标直接点击作为兜底）。'
-                "如果元素不可见或不确定坐标，请省略这两个字段。"
+                "若fault=test且元素可见只是选择器错，给归一化坐标recover_x/recover_y(0~1)。"
             ) if is_click_action else ""
 
             prompt += (
-                f"然后你想做第{ctx.step_num}步：{action_desc}\n"
-                f"但是失败了。报错：{(ctx.error_message or '未知')[:200]}\n\n"
-                "现在请你看看这张截图，就像你自己坐在电脑前一样，告诉我：\n"
-                "- 画面上是什么情况？\n"
-                "- 为什么这一步做不了？\n"
-                "- 这个失败是【应用自己的Bug】还是【测试脚本的问题】？\n\n"
-                "判断标准：\n"
-                "- app = 应用的Bug：页面显示了错误的数据、功能不正常、页面崩溃/白屏、\n"
-                "         计算结果不对、该出现的内容缺失（应用自身没实现好）\n"
-                "- test = 测试脚本的问题：选择器找不到元素（但页面看起来正常）、\n"
-                "         页面还在加载、弹窗遮挡、动画没播完、时序太快\n\n"
+                f"\n第{ctx.step_num}步：{action_desc} → 失败：{(ctx.error_message or '未知')[:150]}\n"
+                "看截图判断失败原因。\n"
+                "fault: app=应用Bug(数据错/崩溃/功能缺失) | test=脚本问题(选择器错/加载中/弹窗遮挡)\n"
                 + coord_hint +
-                "\n\n返回JSON：\n"
-                '{"diagnosis": "一句话说清楚原因", "fault": "app"或"test"或"unknown", "suggestion": "retry"或"skip"或"recover"或"none", "recover_selector": "可选，CSS选择器", "recover_x": 可选归一化X, "recover_y": 可选归一化Y}\n'
-                "suggestion含义：\n"
-                "  retry=再试一次可能好（如页面还在加载）\n"
-                "  skip=跳过这一步\n"
-                "  recover=页面状态不对，先点击recover_selector指定的元素恢复再重试\n"
-                "    例如：页面已登录但需要登录表单→recover_selector填退出按钮的CSS选择器\n"
-                "  none=不确定\n\n"
+                "\n返回JSON（diagnosis不超过80字，其他字段尽量简短）：\n"
+                '{"diagnosis":"原因","fault":"app/test/unknown",'
+                '"suggestion":"retry/skip/recover/none",'
+                '"recover_selector":"可选CSS","recover_x":可选,"recover_y":可选}\n'
                 "只返回JSON。"
             )
 
@@ -439,6 +436,7 @@ class AIHub:
                 None, lambda: self._ai.analyze_screenshot(
                     str(screenshot_path), prompt,
                     reasoning_effort="low", timeout=40,
+                    max_tokens=500,
                 )
             )
 

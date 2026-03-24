@@ -173,7 +173,7 @@ class BrowserAutomator:
             BrowserNavigationError: 页面导航失败
         """
         step = self._next_step()
-        logger.info("[步骤{}] 导航到: {}", step, url)
+        logger.debug("[ctrl-{}] 导航到: {}", step, url)
 
         try:
             response = await self.page.goto(url, wait_until=wait_until)
@@ -183,7 +183,7 @@ class BrowserAutomator:
                     step,
                     response.status,
                 )
-            logger.info("[步骤{}] 导航完成 | 标题: {}", step, await self.page.title())
+            logger.debug("[ctrl-{}] 导航完成 | 标题: {}", step, await self.page.title())
         except Exception as e:
             raise BrowserNavigationError(
                 message=f"导航到 {url} 失败",
@@ -200,7 +200,7 @@ class BrowserAutomator:
             BrowserActionError: 元素不存在或无法点击
         """
         step = self._next_step()
-        logger.info("[步骤{}] 点击元素: {}", step, selector)
+        logger.debug("[ctrl-{}] 点击元素: {}", step, selector)
 
         try:
             await self.page.click(selector)
@@ -224,7 +224,7 @@ class BrowserAutomator:
         step = self._next_step()
         # 日志中隐藏可能的密码
         display_text = text if len(text) <= 20 else text[:10] + "..."
-        logger.info("[步骤{}] 输入文本: {} -> '{}'", step, selector, display_text)
+        logger.debug("[ctrl-{}] 输入文本: {} -> '{}'", step, selector, display_text)
 
         try:
             await self.page.fill(selector, text)
@@ -246,7 +246,7 @@ class BrowserAutomator:
             BrowserActionError: 选择操作失败
         """
         step = self._next_step()
-        logger.info("[步骤{}] 选择选项: {} -> '{}'", step, selector, value)
+        logger.debug("[ctrl-{}] 选择选项: {} -> '{}'", step, selector, value)
 
         try:
             await self.page.select_option(selector, value)
