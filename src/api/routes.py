@@ -489,6 +489,38 @@ def create_router(
             blueprint.base_url, req.blueprint_path,
         )
 
+        # v14.0-D：积分校验（仅云端登录模式，游客直接跳过）
+        _credit_ctx: dict = {}  # 存储校验通过的积分信息，供测试完成后扣减
+        if req.cloud_token:
+            try:
+                from src.auth.database import SessionLocal
+                from src.auth import service as _auth_svc
+                _payload = _auth_svc.decode_token(req.cloud_token)
+                if _payload and "sub" in _payload:
+                    _cloud_uid = int(_payload["sub"])
+                    _required = _auth_svc.calc_blueprint_credits(blueprint.total_steps)
+                    _db = SessionLocal()
+                    try:
+                        _chk = _auth_svc.check_credits(_db, _cloud_uid, _required)
+                    finally:
+                        _db.close()
+                    if not _chk["ok"]:
+                        raise HTTPException(
+                            status_code=402,
+                            detail=(
+                                f"credits_insufficient"
+                                f"|balance={_chk['balance']}"
+                                f"|required={_required}"
+                                f"|plan={_chk['plan']}"
+                            ),
+                        )
+                    _credit_ctx = {"user_id": _cloud_uid, "required": _required, "app": blueprint.app_name}
+                    logger.info("积分校验通过 | user_id={} required={} balance={}", _cloud_uid, _required, _chk['balance'])
+            except HTTPException:
+                raise
+            except Exception as _ce:
+                logger.warning("积分校验失败（允许继续，游客模式）: {}", _ce)
+
         # 确保浏览器已启动
         if browser_automator._page is None:
             try:
@@ -583,6 +615,26 @@ def create_router(
                 except Exception as ws_err:
                     logger.warning("WS推送test_done失败（不影响结果）: {}", str(ws_err)[:100])
                 result_holder["data"] = report_dict
+
+                # v14.0-D：测试完成后扣减积分
+                if _credit_ctx:
+                    try:
+                        from src.auth.database import SessionLocal
+                        from src.auth import service as _auth_svc2
+                        _db2 = SessionLocal()
+                        try:
+                            _auth_svc2.deduct_credits(
+                                _db2,
+                                _credit_ctx["user_id"],
+                                _credit_ctx["required"],
+                                "blueprint_test",
+                                _credit_ctx["app"],
+                            )
+                        finally:
+                            _db2.close()
+                    except Exception as _de:
+                        logger.warning("积分扣减失败（不影响测试结果）: {}", _de)
+
             except Exception as e:
                 logger.error("蓝本测试执行失败: {}", e)
                 result_holder["error"] = str(e)

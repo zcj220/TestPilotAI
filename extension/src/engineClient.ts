@@ -128,6 +128,7 @@ export class EngineClient {
   async startBlueprintTest(params: {
     blueprint_path: string;
     base_url?: string;
+    cloud_token?: string;
   }): Promise<TestReportResponse> {
     return this._post<TestReportResponse>("/api/v1/test/blueprint", params);
   }
@@ -500,5 +501,20 @@ export class EngineClient {
   }> {
     const params = new URLSearchParams({ platform, error_type: errorType, limit: "5" });
     return this._cloudGet(`/api/v1/community/experiences/suggest?${params}`, token);
+  }
+
+  /** 查询当前用户积分余额 */
+  async cloudGetCreditsBalance(token: string): Promise<{
+    balance: number; credits_used: number; plan: string;
+  }> {
+    return this._cloudGet("/api/v1/credits/balance", token);
+  }
+
+  /** 查询积分变动历史 */
+  async cloudGetCreditsHistory(token: string, limit = 20): Promise<{
+    history: Array<{ id: number; amount: number; reason: string; detail: string; balance_after: number; created_at: string }>;
+    total: number;
+  }> {
+    return this._cloudGet(`/api/v1/credits/history?limit=${limit}`, token);
   }
 }

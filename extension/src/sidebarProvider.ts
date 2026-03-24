@@ -310,6 +310,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         report = await this._client.startBlueprintTest({
           blueprint_path: msg.blueprint_path,
           base_url: msg.base_url || undefined,
+          cloud_token: (await this._context.secrets.get("testpilot.token")) || undefined,
         });
       }
 
@@ -322,7 +323,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const jsonMatch = raw.match(/\{[\s\S]*"detail"\s*:\s*"([^"]+)"/);
         if (jsonMatch) { message = jsonMatch[1]; }
       } catch { /* 解析失败用原始信息 */ }
-      this._postMessage({ command: "testError", data: { error: message } });
+
+      // v14.0-D：积分不足特殊处理
+      if (message.startsWith("credits_insufficient")) {
+        const balM = message.match(/balance=(\d+)/);
+        const reqM = message.match(/required=(\d+)/);
+        const balance = balM ? parseInt(balM[1]) : 0;
+        const required = reqM ? parseInt(reqM[1]) : 1;
+        this._postMessage({
+          command: "creditsInsufficient",
+          data: { balance, required },
+        });
+      } else {
+        this._postMessage({ command: "testError", data: { error: message } });
+      }
     }
   }
 
@@ -367,6 +381,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             report = await this._client.startBlueprintTest({
               blueprint_path: bp,
               base_url: msg.base_url || undefined,
+              cloud_token: (await this._context.secrets.get("testpilot.token")) || undefined,
             });
           }
 
@@ -1638,6 +1653,7 @@ ${commonRules}`;
   <div id="authUserBar" class="auth-user-bar" style="display:none">
     <span>👤 <span class="username" id="authUsername"></span>
       <span style="color:var(--muted);font-size:11px" id="authPlan"></span></span>
+    <span id="authCredits" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
     <button class="logout-btn" onclick="doLogout()">退出登录</button>
   </div>
   <!-- 认证：登录/注册面板 -->
@@ -1955,6 +1971,14 @@ ${commonRules}`;
         authUserBar.style.display = 'flex';
         authUsername.textContent = user.username || '';
         authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
+        // 积分显示
+        const creditsEl = document.getElementById('authCredits');
+        if (creditsEl && user.credits !== undefined) {
+          const low = user.credits < 10;
+          creditsEl.textContent = '💰 ' + user.credits + '分';
+          creditsEl.style.color = low ? 'var(--error)' : 'var(--muted)';
+          creditsEl.title = '剩余积分：' + user.credits + '（每10步消耗 1 积分）';
+        }
       } else {
         authPanel.style.display = 'block';
         authUserBar.style.display = 'none';
@@ -2330,6 +2354,7 @@ ${commonRules}`;
         case "batchTestStarted": onBatchTestStarted(msg.count); break;
         case "testResult": onTestResult(msg.data); break;
         case "testError": onTestError(msg.data); break;
+        case "creditsInsufficient": onCreditsInsufficient(msg.data); break;
         case "progress": onProgress(msg.data); break;
         case "controlResult": addLog("控制: " + msg.data.action + " → " + msg.data.state, "info"); break;
         case "controlError": addLog("控制失败: " + msg.data.error, "error"); break;
@@ -2894,6 +2919,22 @@ ${commonRules}`;
       if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
       controlSection.classList.add("hidden");
       addLog("测试失败: " + data.error, "error");
+    }
+
+    function onCreditsInsufficient(data) {
+      if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
+      controlSection.classList.add("hidden");
+      const balance = data.balance || 0;
+      const required = data.required || 1;
+      addLog(
+        "❌ 积分不足（剩余 " + balance + " 分，需要 " + required + " 分）。" +
+        "每10步消耗1积分。",
+        "error"
+      );
+      addLog(
+        "👉 <a href='https://testpilot.xinzaoai.com/pricing' style='color:#60a5fa'>点击升级套餐</a> 获取更多积分",
+        "warn"
+      );
     }
 
     function onProgress(wsMsg) {

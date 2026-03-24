@@ -158,3 +158,25 @@ async def get_usage(days: int = 30, user: User = Depends(get_current_user), db: 
 @router.get("/usage/check", tags=["用量"])
 async def check_quota(action: str = "test", user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
     return service.check_quota(db, user.id, action)
+
+
+# ── 积分端点 ──
+
+@router.get("/credits/balance", tags=["积分"])
+async def get_credits_balance(user: User = Depends(get_current_user)) -> dict:
+    """查询当前用户积分余额。"""
+    return {
+        "balance": user.credits,
+        "credits_used": user.credits_used,
+        "plan": user.plan,
+    }
+
+@router.get("/credits/history", tags=["积分"])
+async def get_credits_history_endpoint(
+    limit: int = 20,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> dict:
+    """查询积分变动历史（最新在前）。"""
+    records = service.get_credits_history(db, user.id, limit)
+    return {"history": records, "total": len(records)}

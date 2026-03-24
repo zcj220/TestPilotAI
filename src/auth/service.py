@@ -312,3 +312,71 @@ def get_usage_summary(db: Session, user_id: int, days: int = 30) -> dict:
             "storage_limit_mb": user.storage_limit_mb if user else 0,
         },
     }
+
+
+# ── 积分系统 ──
+
+def calc_blueprint_credits(step_count: int) -> int:
+    """计算蓝本测试所需积分：每10步1积分，向上取整，最少1积分。"""
+    import math
+    return max(1, math.ceil(step_count / 10))
+
+
+def check_credits(db: Session, user_id: int, required: int) -> dict:
+    """检查用户积分是否足够。
+
+    Returns:
+        {"ok": bool, "balance": int, "required": int, "plan": str}
+    """
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return {"ok": False, "balance": 0, "required": required, "plan": "free"}
+    return {
+        "ok": user.credits >= required,
+        "balance": user.credits,
+        "required": required,
+        "plan": user.plan,
+    }
+
+
+def deduct_credits(db: Session, user_id: int, amount: int, reason: str, detail: str = "") -> dict:
+    """扣减用户积分并记录流水。
+
+    Returns:
+        {"ok": bool, "balance": int}
+    """
+    from src.community.models import CreditTransaction
+    user = get_user_by_id(db, user_id)
+    if not user:
+        return {"ok": False, "balance": 0}
+    if user.credits < amount:
+        return {"ok": False, "balance": user.credits}
+
+    user.credits -= amount
+    user.credits_used += amount
+    balance_after = user.credits
+
+    tx = CreditTransaction(
+        user_id=user_id,
+        amount=-amount,
+        reason=reason,
+        detail=detail[:200],
+        balance_after=balance_after,
+    )
+    db.add(tx)
+    db.commit()
+    logger.info("积分扣减 | user_id={} amount={} reason={} balance_after={}", user_id, amount, reason, balance_after)
+    return {"ok": True, "balance": balance_after}
+
+
+def get_credits_history(db: Session, user_id: int, limit: int = 20) -> list[dict]:
+    """获取积分变动历史（最新在前）。"""
+    from src.community.models import CreditTransaction
+    records = (
+        db.query(CreditTransaction)
+        .filter(CreditTransaction.user_id == user_id)
+        .order_by(CreditTransaction.created_at.desc())
+        .limit(max(1, min(limit, 100)))
+        .all()
+    )
+    return [r.to_dict() for r in records]

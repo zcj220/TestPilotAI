@@ -89,6 +89,10 @@ class RunBlueprintRequest(BaseModel):
         default=None,
         description="AI 思考深度：minimal / low / medium / high",
     )
+    cloud_token: Optional[str] = Field(
+        default=None,
+        description="云端用户JWT token，提供后启用积分校验与扣减",
+    )
 
 
 class RunMobileBlueprintRequest(BaseModel):
