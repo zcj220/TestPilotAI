@@ -38,7 +38,7 @@ async function diagnoseSelector(page, selector) {
   for (const attr of unsupportedAttrs) {
     if (selector.includes(`[${attr}`)) {
       hints.push(`\n❌ 小程序不支持事件绑定属性选择器 [${attr}=...]`);
-      hints.push(`\n✅ 改用 placeholder 或 class 选择器，如: input[placeholder*='用户名'] 或 button.btn-primary`);
+      hints.push(`\n✅ 改用 placeholder 或 class 选择器`);
       break;
     }
   }
@@ -52,29 +52,31 @@ async function diagnoseSelector(page, selector) {
   // 检测3：是否用了 :contains() 伪类
   if (selector.includes(':contains(')) {
     hints.push(`\n❌ 小程序不支持 :contains() 伪类`);
-    hints.push(`\n✅ 改用 class 选择器或在 description 中描述元素文字`);
+    hints.push(`\n✅ 改用 class 选择器`);
   }
   
-  // 检测4：列出页面上实际存在的元素（前10个）
+  // 检测4：列出页面上实际存在的可交互元素（最多30个，含文本）
   try {
-    const allEls = await page.$$('view, button, input, text, picker, switch');
+    const allEls = await page.$$('button, input, textarea, picker, switch, navigator, view, text');
     if (allEls && allEls.length > 0) {
-      const sample = allEls.slice(0, 10);
+      const sample = allEls.slice(0, 30);
       const tags = [];
       for (const el of sample) {
         const tagName = await el.tagName().catch(() => 'unknown');
         const className = await el.attribute('class').catch(() => '');
         const placeholder = await el.attribute('placeholder').catch(() => '');
+        const text = await el.text().catch(() => '');
+        const shortText = (text || '').slice(0, 20);
         if (placeholder) {
-          tags.push(`${tagName}[placeholder="${placeholder}"]`);
+          tags.push(`${tagName}.${(className||'').split(' ')[0]}[ph="${placeholder}"]`);
         } else if (className) {
-          tags.push(`${tagName}.${className.split(' ')[0]}`);
-        } else {
-          tags.push(tagName);
+          tags.push(`${tagName}.${className.split(' ')[0]}${shortText ? '("'+shortText+'")' : ''}`);
+        } else if (shortText) {
+          tags.push(`${tagName}("${shortText}")`);
         }
       }
       if (tags.length > 0) {
-        hints.push(`\n📋 页面实际元素示例: ${tags.slice(0, 5).join(', ')}`);
+        hints.push(`\n📋 页面元素(${allEls.length}个): ${tags.slice(0, 15).join(', ')}`);
       }
     }
   } catch (e) {
@@ -82,6 +84,28 @@ async function diagnoseSelector(page, selector) {
   }
   
   return hints.join('');
+}
+
+/**
+ * 获取页面可交互元素列表（结构化，附加到失败步骤的结果中）
+ */
+async function listPageElements(page) {
+  try {
+    const els = await page.$$('button, input, textarea, picker, switch, navigator');
+    if (!els || els.length === 0) return [];
+    const items = [];
+    for (let i = 0; i < Math.min(els.length, 30); i++) {
+      const el = els[i];
+      const tag = await el.tagName().catch(() => '');
+      const cls = await el.attribute('class').catch(() => '');
+      const text = await el.text().catch(() => '');
+      const ph = await el.attribute('placeholder').catch(() => '');
+      if (tag) items.push({ tag, class: cls || '', text: (text || '').slice(0, 30), placeholder: ph || '' });
+    }
+    return items;
+  } catch (e) {
+    return [];
+  }
 }
 
 // ── 读取输入 ──
@@ -399,7 +423,12 @@ async function executeStep(step, stepNum) {
     }
     return { step: stepNum, action: step.action, status: 'passed', duration: (Date.now() - start) / 1000, description: step.description || '' };
   } catch (e) {
-    return { step: stepNum, action: step.action, status: 'failed', duration: (Date.now() - start) / 1000, error: e.message, description: step.description || '' };
+    // 失败时收集页面元素列表（供后续 AI 诊断使用）
+    let pageElements = [];
+    try {
+      if (page) pageElements = await listPageElements(page);
+    } catch (_) {}
+    return { step: stepNum, action: step.action, status: 'failed', duration: (Date.now() - start) / 1000, error: e.message, description: step.description || '', page_elements: pageElements };
   }
 }
 

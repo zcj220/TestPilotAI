@@ -167,8 +167,40 @@ async function handleAction(action, params) {
 
       case 'getWxml': {
         currentPage = await miniProgram.currentPage();
-        const wxml = await currentPage.data();
-        return { success: true, wxml: JSON.stringify(wxml, null, 2) };
+        // 用 $$('*') 遍历元素树，拼成结构化信息（page.data() 只返回数据对象，不是 WXML）
+        const allEls = await currentPage.$$('view, button, input, text, picker, switch, image, navigator, scroll-view, swiper, form, label, checkbox, radio, slider, textarea');
+        const tree = [];
+        const limit = 50;
+        for (let i = 0; i < Math.min(allEls.length, limit); i++) {
+          const el = allEls[i];
+          const tag = await el.tagName().catch(() => '');
+          const cls = await el.attribute('class').catch(() => '');
+          const txt = await el.text().catch(() => '');
+          const ph = await el.attribute('placeholder').catch(() => '');
+          tree.push({ tag, class: cls || '', text: (txt || '').slice(0, 30), placeholder: ph || '' });
+        }
+        return { success: true, wxml: JSON.stringify(tree, null, 2) };
+      }
+
+      case 'listElements': {
+        // 列出页面可交互元素（供 AI 诊断使用）
+        currentPage = await miniProgram.currentPage();
+        const interactiveTags = 'button, input, textarea, picker, switch, navigator, view[bindtap], view[catchtap]';
+        const iEls = await currentPage.$$(interactiveTags).catch(() => []);
+        // 兜底：如果事件选择器不支持，用基础标签
+        const els = (iEls && iEls.length > 0) ? iEls
+          : await currentPage.$$('button, input, textarea, picker, switch, navigator').catch(() => []);
+        const items = [];
+        const max = 30;
+        for (let i = 0; i < Math.min(els.length, max); i++) {
+          const el = els[i];
+          const tag = await el.tagName().catch(() => '');
+          const cls = await el.attribute('class').catch(() => '');
+          const text = await el.text().catch(() => '');
+          const ph = await el.attribute('placeholder').catch(() => '');
+          if (tag) items.push({ tag, class: cls || '', text: (text || '').slice(0, 30), placeholder: ph || '' });
+        }
+        return { success: true, elements: items };
       }
 
       case 'getPageData': {

@@ -286,9 +286,17 @@ class MiniProgramController(BaseController):
             raise RuntimeError(f"截图失败: {result.get('error')}")
 
     async def get_page_source(self) -> str:
-        """获取小程序当前页面的 WXML 结构。"""
+        """获取小程序当前页面的元素结构（修复：返回元素树而非 page.data()）。"""
         result = await self._call_bridge("getWxml", {})
         return result.get("wxml", "<empty>")
+
+    async def list_elements(self) -> str:
+        """获取页面可交互元素列表（供 AI 诊断使用）。"""
+        result = await self._call_bridge("listElements", {})
+        elements = result.get("elements", [])
+        if not elements:
+            return ""
+        return json.dumps(elements, ensure_ascii=False)
 
     async def get_text(self, selector: str) -> str:
         """获取小程序元素文本。"""
