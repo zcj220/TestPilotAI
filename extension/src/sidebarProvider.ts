@@ -2690,6 +2690,7 @@ ${commonRules}`;
     }
 
     var wasConnected = false;  // 防止重复触发连接成功日志和扫描
+    var hasLoggedDisconnected = false;  // 只打一次"未连接"日志，避免轮询刷屏
     function updateEngineStatus(data) {
       if (data.connected) {
         isStarting = false;
@@ -2700,6 +2701,7 @@ ${commonRules}`;
         btnStopEngine.classList.remove("hidden");
         btnStopEngine.textContent = "⏹ 断开引擎";
         btnStopEngine.disabled = false;
+        hasLoggedDisconnected = false;  // 重置，以便断线后重连时再次提示
         if (!wasConnected) {
           wasConnected = true;
           addLog("引擎连接成功 | v" + data.version, "success");
@@ -2712,8 +2714,12 @@ ${commonRules}`;
           btnLaunchEngine.classList.remove("hidden");
           btnStopEngine.classList.add("hidden");
           wasConnected = false;
+          if (!hasLoggedDisconnected) {
+            hasLoggedDisconnected = true;
+            addLog("引擎未连接，点击「🚀 一键启动引擎」按钮启动", "error");
+          }
         }
-        addLog(isStarting ? "引擎尚未就绪，继续等待..." : "引擎未连接，点击「🚀 一键启动引擎」按钮启动", isStarting ? "warn" : "error");
+        // isStarting 状态下的轮询不重复打日志，仅更新状态文字即可
       }
     }
 
