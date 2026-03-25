@@ -2,7 +2,7 @@
   "name": "testpilot-ai",
   "displayName": "TestPilot AI",
   "description": "AI-powered automated testing robot — operates UI like a human, finds bugs, and auto-fixes them. Supports Web, Android, iOS, Mini Program & Desktop.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "wenzhouxinzao",
   "engines": {
     "vscode": "^1.85.0"
