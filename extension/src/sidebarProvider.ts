@@ -1679,7 +1679,7 @@ ${commonRules}`;
           <div class="sdrop-section">个性化设置</div>
           <div class="sdrop-item" id="settingsThemeRow">
             <span>🌓 界面主题</span>
-            <label class="toggle-switch" onclick="event.stopPropagation()">
+            <label class="toggle-switch" id="themeToggleLabel">
               <input type="checkbox" id="themeToggle" />
               <span class="toggle-slider"></span>
             </label>
@@ -1695,24 +1695,24 @@ ${commonRules}`;
             <span class="badge-soon">即将推出</span>
           </div>
           <div class="sdrop-divider"></div>
-          <div class="sdrop-item" id="settingsAuthRow" onclick="toggleSettingsAuth()">
+          <div class="sdrop-item" id="settingsAuthRow">
             <span id="settingsAuthLabel">🔑 账户登录</span>
             <span id="settingsAuthArrow" style="font-size:10px;color:var(--muted)">▾</span>
           </div>
           <div id="settingsAuthPanel" class="sdrop-auth-panel">
             <div id="authError" class="auth-error"></div>
             <input id="authUser" type="text" placeholder="用户名或邮箱" autocomplete="username" />
-            <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAuth()" />
+            <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" />
             <div style="display:flex;gap:6px;margin-top:4px">
-              <button class="sdrop-login-btn" onclick="doAuth()">登录</button>
-              <button class="sdrop-register-btn" onclick="openRegister()">前往注册 ↗</button>
+              <button class="sdrop-login-btn" id="authLoginBtn">登录</button>
+              <button class="sdrop-register-btn" id="authRegisterBtn">前往注册 ↗</button>
             </div>
           </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
                 <span style="color:var(--muted)" id="authPlan"></span></span>
-              <button onclick="doLogout()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出</button>
+              <button id="authLogoutBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出</button>
             </div>
             <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
           </div>
@@ -1955,6 +1955,19 @@ ${commonRules}`;
     function doLogout() {
       vscode.postMessage({ command: 'logout' });
     }
+
+    // ── 认证相关事件绑定（CSP 禁止内联 onclick，必须用 addEventListener） ──
+    const settingsAuthRow = document.getElementById('settingsAuthRow');
+    if (settingsAuthRow) settingsAuthRow.addEventListener('click', toggleSettingsAuth);
+    if (authPass) authPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
+    const authLoginBtn = document.getElementById('authLoginBtn');
+    if (authLoginBtn) authLoginBtn.addEventListener('click', doAuth);
+    const authRegisterBtn = document.getElementById('authRegisterBtn');
+    if (authRegisterBtn) authRegisterBtn.addEventListener('click', openRegister);
+    const authLogoutBtn = document.getElementById('authLogoutBtn');
+    if (authLogoutBtn) authLogoutBtn.addEventListener('click', doLogout);
+    const themeToggleLabel = document.getElementById('themeToggleLabel');
+    if (themeToggleLabel) themeToggleLabel.addEventListener('click', (e) => e.stopPropagation());
 
     function setAuthState(loggedIn, user) {
       const authPanel = document.getElementById('settingsAuthPanel');

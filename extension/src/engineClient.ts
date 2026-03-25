@@ -446,8 +446,9 @@ export class EngineClient {
   /** 云端登录 */
   async cloudLogin(emailOrUsername: string, password: string): Promise<{
     access_token: string;
+    refresh_token?: string;
     token_type: string;
-    user: { id: number; email: string; username: string; role: string };
+    user: { id: number; email: string; username: string; role: string; plan?: string; credits?: number };
   }> {
     return this._cloudPost("/auth/login", {
       email_or_username: emailOrUsername,
@@ -458,8 +459,9 @@ export class EngineClient {
   /** 云端注册 */
   async cloudRegister(email: string, username: string, password: string): Promise<{
     access_token: string;
+    refresh_token?: string;
     token_type: string;
-    user: { id: number; email: string; username: string; role: string };
+    user: { id: number; email: string; username: string; role: string; plan?: string; credits?: number };
   }> {
     return this._cloudPost("/auth/register", { email, username, password });
   }
