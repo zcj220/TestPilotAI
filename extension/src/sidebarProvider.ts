@@ -1634,6 +1634,19 @@ ${commonRules}`;
       display: none; padding: 8px 12px;
       border-top: 1px solid var(--input-border);
     }
+    .sdrop-auth-tab-bar {
+      display: flex; margin-bottom: 8px; gap: 0;
+      border: 1px solid var(--input-border); border-radius: 4px; overflow: hidden;
+    }
+    .sdrop-tab-btn {
+      flex: 1; padding: 4px 0; font-size: 11px; font-weight: 600;
+      background: none; color: var(--muted);
+      border: none; cursor: pointer; transition: all 0.15s;
+    }
+    .sdrop-tab-btn.active {
+      background: var(--btn-bg); color: var(--btn-fg);
+    }
+    .sdrop-tab-btn:not(.active):hover { background: var(--input-border); }
     .sdrop-auth-panel input {
       width: 100%; box-sizing: border-box;
       padding: 5px 7px; margin-bottom: 5px;
@@ -1642,18 +1655,25 @@ ${commonRules}`;
       font-size: 11px; outline: none;
     }
     .sdrop-auth-panel input:focus { border-color: var(--btn-bg); }
+    .sdrop-pass-wrap {
+      position: relative; margin-bottom: 5px;
+    }
+    .sdrop-pass-wrap input {
+      width: 100%; box-sizing: border-box; padding-right: 28px; margin-bottom: 0;
+    }
+    .sdrop-eye-btn {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      font-size: 13px; line-height: 1; padding: 2px; color: var(--muted);
+      opacity: 0.6; transition: opacity 0.1s;
+    }
+    .sdrop-eye-btn:hover { opacity: 1; }
     .sdrop-login-btn {
-      flex: 1; padding: 5px; font-size: 11px; font-weight: 600;
+      width: 100%; padding: 6px; font-size: 11px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
-      border: none; border-radius: 3px; cursor: pointer;
+      border: none; border-radius: 3px; cursor: pointer; margin-top: 4px;
     }
     .sdrop-login-btn:hover { background: var(--btn-hover); }
-    .sdrop-register-btn {
-      padding: 5px 8px; font-size: 11px;
-      background: none; color: var(--btn-bg);
-      border: 1px solid var(--btn-bg); border-radius: 3px; cursor: pointer;
-    }
-    .sdrop-register-btn:hover { background: var(--btn-bg); color: var(--btn-fg); }
     .auth-error {
       color: var(--error); font-size: 11px; margin: 0 0 5px; display: none;
     }
@@ -1696,23 +1716,49 @@ ${commonRules}`;
           </div>
           <div class="sdrop-divider"></div>
           <div class="sdrop-item" id="settingsAuthRow">
-            <span id="settingsAuthLabel">🔑 账户登录</span>
-            <span id="settingsAuthArrow" style="font-size:10px;color:var(--muted)">▾</span>
+            <span id="settingsAuthLabel">🔑 账号</span>
+            <span style="display:flex;align-items:center;gap:4px">
+              <span id="authStatusDot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0"></span>
+              <span id="settingsAuthArrow" style="font-size:10px;color:var(--muted)">▾</span>
+            </span>
           </div>
           <div id="settingsAuthPanel" class="sdrop-auth-panel">
-            <div id="authError" class="auth-error"></div>
-            <input id="authUser" type="text" placeholder="用户名或邮箱" autocomplete="username" />
-            <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" />
-            <div style="display:flex;gap:6px;margin-top:4px">
+            <!-- 登录/注册切换 Tab -->
+            <div class="sdrop-auth-tab-bar">
+              <button class="sdrop-tab-btn active" id="tabAuthLogin">登录</button>
+              <button class="sdrop-tab-btn" id="tabAuthRegister">注册</button>
+            </div>
+            <!-- 登录表单 -->
+            <div id="loginForm">
+              <div id="authError" class="auth-error"></div>
+              <input id="authUser" type="text" placeholder="用户名或邮箱" autocomplete="username" />
+              <div class="sdrop-pass-wrap">
+                <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" />
+                <button class="sdrop-eye-btn" id="authPassEye" title="显示/隐藏密码">👁</button>
+              </div>
               <button class="sdrop-login-btn" id="authLoginBtn">登录</button>
-              <button class="sdrop-register-btn" id="authRegisterBtn">前往注册 ↗</button>
+            </div>
+            <!-- 注册表单 -->
+            <div id="registerForm" style="display:none">
+              <div id="regError" class="auth-error"></div>
+              <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
+              <input id="regUser" type="text" placeholder="用户名" autocomplete="username" />
+              <div class="sdrop-pass-wrap">
+                <input id="regPass" type="password" placeholder="密码" autocomplete="new-password" />
+                <button class="sdrop-eye-btn" id="regPassEye" title="显示/隐藏密码">👁</button>
+              </div>
+              <div class="sdrop-pass-wrap">
+                <input id="regConfirm" type="password" placeholder="确认密码" autocomplete="new-password" />
+                <button class="sdrop-eye-btn" id="regConfirmEye" title="显示/隐藏密码">👁</button>
+              </div>
+              <button class="sdrop-login-btn" id="authRegisterSubmit">注册账号</button>
             </div>
           </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
                 <span style="color:var(--muted)" id="authPlan"></span></span>
-              <button id="authLogoutBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出</button>
+              <button id="authLogoutBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出登录</button>
             </div>
             <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
           </div>
@@ -1920,7 +1966,7 @@ ${commonRules}`;
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
 
-    // ── 认证逻辑（登录UI位于设置菜单内） ──────────────────────────────
+    // ── 认证逻辑（登录/注册UI位于设置菜单内） ──────────────────────────────
     const authUser = document.getElementById('authUser');
     const authPass = document.getElementById('authPass');
     const authError = document.getElementById('authError');
@@ -1930,6 +1976,51 @@ ${commonRules}`;
     function showAuthError(msg) {
       if (authError) { authError.textContent = msg; authError.style.display = msg ? 'block' : 'none'; }
     }
+    function showRegError(msg) {
+      const el = document.getElementById('regError');
+      if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
+    }
+
+    // 眼睛切换
+    function bindEye(eyeId, inputId) {
+      const eye = document.getElementById(eyeId);
+      const inp = document.getElementById(inputId);
+      if (!eye || !inp) return;
+      eye.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const show = inp.type === 'password';
+        inp.type = show ? 'text' : 'password';
+        eye.textContent = show ? '🙈' : '👁';
+      });
+    }
+    bindEye('authPassEye', 'authPass');
+    bindEye('regPassEye', 'regPass');
+    bindEye('regConfirmEye', 'regConfirm');
+
+    // 登录/注册 Tab 切换
+    function switchAuthTab(tab) {
+      const loginForm = document.getElementById('loginForm');
+      const regForm = document.getElementById('registerForm');
+      const tabL = document.getElementById('tabAuthLogin');
+      const tabR = document.getElementById('tabAuthRegister');
+      if (tab === 'login') {
+        if (loginForm) loginForm.style.display = '';
+        if (regForm) regForm.style.display = 'none';
+        if (tabL) { tabL.classList.add('active'); }
+        if (tabR) { tabR.classList.remove('active'); }
+        setTimeout(() => authUser && authUser.focus(), 50);
+      } else {
+        if (loginForm) loginForm.style.display = 'none';
+        if (regForm) regForm.style.display = '';
+        if (tabL) { tabL.classList.remove('active'); }
+        if (tabR) { tabR.classList.add('active'); }
+        setTimeout(() => { const el = document.getElementById('regEmail'); if (el) el.focus(); }, 50);
+      }
+    }
+    const tabAuthLogin = document.getElementById('tabAuthLogin');
+    const tabAuthRegister = document.getElementById('tabAuthRegister');
+    if (tabAuthLogin) tabAuthLogin.addEventListener('click', (e) => { e.stopPropagation(); switchAuthTab('login'); });
+    if (tabAuthRegister) tabAuthRegister.addEventListener('click', (e) => { e.stopPropagation(); switchAuthTab('register'); });
 
     function toggleSettingsAuth() {
       const panel = document.getElementById('settingsAuthPanel');
@@ -1940,16 +2031,24 @@ ${commonRules}`;
       if (!open) setTimeout(() => authUser && authUser.focus(), 50);
     }
 
-    function openRegister() {
-      vscode.postMessage({ command: 'openExternal', url: 'https://testpilotai.pages.dev/register' });
-    }
-
     function doAuth() {
       showAuthError('');
-      const u = authUser.value.trim();
-      const p = authPass.value;
+      const u = authUser ? authUser.value.trim() : '';
+      const p = authPass ? authPass.value : '';
       if (!u || !p) { showAuthError('请填写用户名和密码'); return; }
       vscode.postMessage({ command: 'login', emailOrUsername: u, password: p });
+    }
+
+    function doRegister() {
+      showRegError('');
+      const email = (document.getElementById('regEmail')).value.trim();
+      const user = (document.getElementById('regUser')).value.trim();
+      const pass = (document.getElementById('regPass')).value;
+      const confirm = (document.getElementById('regConfirm')).value;
+      if (!email || !user || !pass) { showRegError('请填写所有字段'); return; }
+      if (pass !== confirm) { showRegError('两次密码不一致'); return; }
+      if (pass.length < 6) { showRegError('密码至少6位'); return; }
+      vscode.postMessage({ command: 'register', email, username: user, password: pass });
     }
 
     function doLogout() {
@@ -1962,8 +2061,8 @@ ${commonRules}`;
     if (authPass) authPass.addEventListener('keydown', (e) => { if (e.key === 'Enter') doAuth(); });
     const authLoginBtn = document.getElementById('authLoginBtn');
     if (authLoginBtn) authLoginBtn.addEventListener('click', doAuth);
-    const authRegisterBtn = document.getElementById('authRegisterBtn');
-    if (authRegisterBtn) authRegisterBtn.addEventListener('click', openRegister);
+    const authRegisterSubmit = document.getElementById('authRegisterSubmit');
+    if (authRegisterSubmit) authRegisterSubmit.addEventListener('click', doRegister);
     const authLogoutBtn = document.getElementById('authLogoutBtn');
     if (authLogoutBtn) authLogoutBtn.addEventListener('click', doLogout);
     const themeToggleLabel = document.getElementById('themeToggleLabel');
@@ -1974,11 +2073,13 @@ ${commonRules}`;
       const userRow = document.getElementById('settingsUserRow');
       const authLabel = document.getElementById('settingsAuthLabel');
       const authArrow = document.getElementById('settingsAuthArrow');
+      const statusDot = document.getElementById('authStatusDot');
       if (loggedIn && user) {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'block';
         if (authLabel) authLabel.textContent = '👤 ' + (user.username || '');
         if (authArrow) authArrow.style.display = 'none';
+        if (statusDot) { statusDot.style.background = 'var(--success)'; statusDot.title = '已登录'; }
         if (authUsername) authUsername.textContent = user.username || '';
         if (authPlan) authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
         const creditsEl = document.getElementById('authCredits');
@@ -1990,7 +2091,8 @@ ${commonRules}`;
       } else {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'none';
-        if (authLabel) authLabel.textContent = '🔑 账户登录';
+        if (authLabel) authLabel.textContent = '🔑 账号';
+        if (statusDot) { statusDot.style.background = 'var(--muted)'; statusDot.title = '未登录'; }
         if (authArrow) { authArrow.textContent = '▾'; authArrow.style.display = ''; }
       }
     }
@@ -2377,9 +2479,15 @@ ${commonRules}`;
           if (msg.success) {
             setAuthState(true, msg.user);
             showAuthError('');
+            showRegError('');
           } else {
             setAuthState(false, null);
-            if (msg.error) { showAuthError(msg.error); }
+            const regFormEl = document.getElementById('registerForm');
+            const isRegTab = regFormEl && regFormEl.style.display !== 'none';
+            if (msg.error) {
+              if (isRegTab) showRegError(msg.error);
+              else showAuthError(msg.error);
+            }
           }
           break;
         case "shareResult":

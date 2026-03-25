@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { LocaleProvider } from './context/LocaleContext';
 import Layout from './components/Layout';
@@ -31,6 +31,7 @@ export default function App() {
               <Route path="/leaderboard" element={<LeaderboardPage />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<Navigate to="/login?tab=register" replace />} />
               <Route path="/share" element={<SharePage />} />
               <Route path="/download" element={<DownloadPage />} />
               <Route path="/terms" element={<TermsPage />} />

@@ -17,8 +17,15 @@ async function request(method, path, body) {
     window.location.href = '/login';
     return null;
   }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.detail || '请求失败');
+  // 安全解析：空 body 或非 JSON 时不崩溃
+  const text = await res.text();
+  let data = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch {
+      if (!res.ok) throw new Error(`服务器返回非JSON响应 (HTTP ${res.status})`);
+    }
+  }
+  if (!res.ok) throw new Error((data && data.detail) || `请求失败 (HTTP ${res.status})`);
   return data;
 }
 
