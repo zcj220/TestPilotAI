@@ -1670,14 +1670,15 @@ ${commonRules}`;
     .sdrop-tab-btn:not(.active):hover { background: var(--input-border); }
     .sdrop-auth-panel input {
       width: 100%; box-sizing: border-box;
-      padding: 5px 7px; margin-bottom: 5px;
+      height: 28px; padding: 0 7px; margin-bottom: 5px;
       background: var(--input-bg); color: var(--input-fg);
       border: 1px solid var(--input-border); border-radius: 3px;
-      font-size: 11px; outline: none;
+      font-size: 11px; outline: none; line-height: 26px;
     }
     .sdrop-auth-panel input:focus { border-color: var(--btn-bg); }
     .sdrop-pass-wrap {
       display: flex; align-items: center; margin-bottom: 5px;
+      height: 28px; box-sizing: border-box;
       border: 1px solid var(--input-border); border-radius: 3px;
       background: var(--input-bg);
       transition: border-color 0.1s;
@@ -1687,11 +1688,13 @@ ${commonRules}`;
     .sdrop-auth-panel .sdrop-pass-wrap input {
       flex: 1; margin-bottom: 0; padding-right: 4px;
       border: none; background: transparent; outline: none;
+      height: 100%;
     }
     .sdrop-auth-panel .sdrop-pass-wrap input:focus { border-color: transparent; }
     .sdrop-eye-btn {
       flex-shrink: 0; width: 24px; height: 100%;
       display: flex; align-items: center; justify-content: center;
+      padding: 0; margin: 0;
       background: none; border: none; cursor: pointer;
       font-size: 11px; color: var(--muted); opacity: 0.55;
       outline: none; -webkit-tap-highlight-color: transparent;
@@ -1703,16 +1706,17 @@ ${commonRules}`;
     .sdrop-code-row { display: flex; gap: 4px; margin-bottom: 5px; }
     .sdrop-code-row input { flex: 1; min-width: 0; width: auto; margin-bottom: 0; }
     .sdrop-send-code-btn {
-      flex-shrink: 0; padding: 5px 8px; font-size: 10px; font-weight: 600;
+      flex-shrink: 0; height: 28px; padding: 0 8px; font-size: 10px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
       border: none; border-radius: 3px; cursor: pointer;
-      white-space: nowrap;
+      white-space: nowrap; line-height: 28px;
     }
     .sdrop-send-code-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .sdrop-login-btn {
-      width: 100%; padding: 6px; font-size: 11px; font-weight: 600;
+      width: 100%; height: 28px; padding: 0 6px; font-size: 11px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
       border: none; border-radius: 3px; cursor: pointer; margin-top: 4px;
+      line-height: 28px;
     }
     .sdrop-login-btn:hover { background: var(--btn-hover); }
     .auth-error {
@@ -1778,11 +1782,11 @@ ${commonRules}`;
             <!-- 注册表单 -->
             <div id="registerForm" style="display:none">
               <div id="regError" class="auth-error"></div>
+              <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
               <div class="sdrop-code-row">
-                <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
-                <button class="sdrop-send-code-btn" id="btnSendCode">发送验证码</button>
+                <input id="regCode" type="text" placeholder="邮箱验证码（6位）" autocomplete="off" maxlength="6" />
+                <button class="sdrop-send-code-btn" id="btnSendCode">发送</button>
               </div>
-              <input id="regCode" type="text" placeholder="邮箱验证码（6位）" autocomplete="off" maxlength="6" />
               <input id="regUser" type="text" placeholder="用户名" autocomplete="username" />
               <div class="sdrop-pass-wrap">
                 <input id="regPass" type="password" placeholder="密码" autocomplete="new-password" />
@@ -2112,7 +2116,7 @@ ${commonRules}`;
         if (btn) btn.textContent = _codeCountdown + 's';
         if (_codeCountdown <= 0) {
           clearInterval(_codeTimer);
-          if (btn) { btn.disabled = false; btn.textContent = '发送验证码'; }
+          if (btn) { btn.disabled = false; btn.textContent = '发送'; }
         }
       }, 1000);
     }
@@ -2558,7 +2562,7 @@ ${commonRules}`;
             // 发送失败：重置倒计时
             if (_codeTimer) { clearInterval(_codeTimer); _codeTimer = null; }
             _codeCountdown = 0;
-            if (btn) { btn.disabled = false; btn.textContent = '发送验证码'; }
+            if (btn) { btn.disabled = false; btn.textContent = '发送'; }
             showRegError(msg.error || '发送失败');
           } else {
             // 开发模式：dev_code 直接填入验证码框方便测试
