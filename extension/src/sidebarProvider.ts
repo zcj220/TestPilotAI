@@ -298,6 +298,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     autoRepair: boolean;
     projectPath: string;
   }): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) {
+      this._postMessage({ command: "testError", data: { error: "请先登录账号后再运行测试" } });
+      return;
+    }
     try {
       this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
@@ -327,6 +332,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     platform?: string;
     mobile_session_id?: string;
   }): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) {
+      this._postMessage({ command: "testError", data: { error: "请先登录账号后再运行测试" } });
+      return;
+    }
     try {
       // 测试前确保 WebSocket 已连接，保证步骤进度能实时推送到 WebView
       this._client.ensureWsConnected();
@@ -392,6 +402,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     platform?: string;
     mobile_session_id?: string;
   }): Promise<void> {
+    const token = await this._context.secrets.get("testpilot.token");
+    if (!token) {
+      this._postMessage({ command: "testError", data: { error: "请先登录账号后再运行测试" } });
+      return;
+    }
     try {
       this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
@@ -778,37 +793,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     const lines: string[] = [];
     if (projectDir) {
       lines.push(`当前项目路径：${projectDir.replace(/\\/g, "/")}`);
-      lines.push(`请直接读取该目录下的源代码生成蓝本，无需再次询问项目路径。`);
       lines.push(``);
     }
     lines.push(`请为当前【${pName}】项目生成或更新测试蓝本。`);
     lines.push(``);
-    lines.push(`⚠️ 生成前请先按顺序完成以下步骤（缺一不可）：`);
-    lines.push(`1. 阅读 AGENTS.md（蓝本通用规则）`);
-    lines.push(`2. 阅读 .testpilot/platforms/${platform}.md（${pName}平台专属规则、选择器规范和完整模板）`);
-    lines.push(`3. 通读项目源代码，确认已实现的功能列表`);
-    lines.push(`4. 检查 testpilot/ 目录是否已有蓝本文件：`);
-    lines.push(`   - 若【没有蓝本】：按规则从零生成完整蓝本，保存到 testpilot/ 目录`);
-    lines.push(`     ⚠️ 生成时 start_cwd 必须填当前项目的绝对路径，禁止填 "." 或相对路径`);
-    lines.push(`   - 若【已有蓝本】：必须按以下步骤做增量更新（禁止跳过任意一步）：`);
-    lines.push(`     a. 校验配置字段（必须逐项检查）：`);
-    lines.push(`        - start_cwd：必须是绝对路径（如 D:\\projects\\my-app 或 /home/user/my-app），禁止是 "." 或相对路径`);
-    lines.push(`        - base_url：必须非空且格式正确（如 http://localhost:5173）`);
-    lines.push(`        - platform：必须与项目类型匹配`);
-    lines.push(`        - start_command：必须能在 start_cwd 目录下独立运行`);
-    lines.push(`     b. 读取现有蓝本，列出其中所有 target 选择器`);
-    lines.push(`     c. 对每个 target，打开对应的源文件（HTML/JSX/TSX/Vue），验证该选择器真实存在：`);
-    lines.push(`        - 找到对应 DOM 元素：保留`);
-    lines.push(`        - 搜不到或已失效：更正为源码中实际存在的选择器`);
-    lines.push(`        ⚠️【选择器陷阱】React/Vue/Angular 中 <Select>、<Modal>、<Dropdown> 等自定义组件名`);
-    lines.push(`           不会出现在渲染后的 DOM class 中！必须打开该组件的源文件查看其根元素实际渲染的 class/id。`);
-    lines.push(`           例如：JSX 里 <CategorySelect /> 渲染后根节点可能是 <div class="relative"> 而不是 <div class="CategorySelect">`);
-    lines.push(`     d. 检查每个页面下的场景数量：若某个 page 有 ≥2 个场景且都需要先登录后操作同一页面，`);
-    lines.push(`        必须给该 page 设置 "flow": true，避免每个场景都重复冷启动+登录（极大浪费时间）`);
-    lines.push(`     e. 检查源码中是否有新增功能未被现有蓝本覆盖，若有则补充对应场景`);
-    lines.push(`     f. 检查已删除的功能，删除对应场景`);
-    lines.push(`     g. 将更新后的完整蓝本覆盖写回原文件（禁止新建额外文件）`);
-    lines.push(`     ⚠️ 禁止仅凭印象或整体扫描就宣布"无需更新"——必须逐个搜索验证每个 target`);
+    lines.push(`请按顺序完成以下步骤：`);
+    lines.push(`1. 阅读本项目的 AGENTS.md`);
+    lines.push(`2. 阅读 .testpilot/platforms/${platform}.md`);
+    lines.push(`3. 扫描项目源码，确认已实现的功能`);
+    lines.push(`4. 按两个文件中的规则，生成或更新 testpilot/ 目录下的蓝本`);
 
     const prompt = lines.join("\n");
     await vscode.env.clipboard.writeText(prompt);
@@ -1412,22 +1405,22 @@ ${commonRules}`;
     content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src data:;">
   <title>TestPilot AI</title>
   <style>
-    body { position: relative; }
+    body { position: relative; background: var(--bg); }
     :root {
-      --bg: var(--vscode-sideBar-background, #1e1e1e);
-      --fg: var(--vscode-sideBar-foreground, #cccccc);
-      --input-bg: var(--vscode-input-background, #3c3c3c);
-      --input-border: var(--vscode-input-border, rgba(255,255,255,0.35));
-      --input-fg: var(--vscode-input-foreground, #cccccc);
-      --btn-bg: var(--vscode-button-background, #0e639c);
-      --btn-fg: var(--vscode-button-foreground, #ffffff);
-      --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
-      --muted: var(--vscode-descriptionForeground, rgba(204,204,204,0.55));
+      --bg: #1e1e1e;
+      --fg: #cccccc;
+      --input-bg: #3c3c3c;
+      --input-border: rgba(255,255,255,0.35);
+      --input-fg: #cccccc;
+      --btn-bg: #0e639c;
+      --btn-fg: #ffffff;
+      --btn-hover: #1177bb;
+      --muted: rgba(204,204,204,0.55);
       --success: #4ec9b0;
       --error: #f44747;
       --warn: #cca700;
-      --info: var(--vscode-descriptionForeground, #9d9d9d);
-      --editor-bg: var(--vscode-editor-background, #252526);
+      --info: #9d9d9d;
+      --editor-bg: #252526;
     }
     body.light-mode {
       --bg: #e8e8e8;
@@ -1525,7 +1518,7 @@ ${commonRules}`;
       padding:0 12px 6px; text-align:right;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: var(--vscode-font-family); font-size: 13px; color: var(--fg); padding: 12px; }
+    body { font-family: "Segoe UI", system-ui, -apple-system, sans-serif; font-size: 13px; color: var(--fg); padding: 12px; }
     h2 { font-size: 14px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
     .section { margin-bottom: 16px; }
     .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -1571,7 +1564,7 @@ ${commonRules}`;
       padding: 8px;
       max-height: 200px;
       overflow-y: auto;
-      font-family: var(--vscode-editor-font-family);
+      font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
       font-size: 12px;
       line-height: 1.5;
     }

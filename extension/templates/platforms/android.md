@@ -1,4 +1,4 @@
-<!-- TestPilot-Template-Version: 3 -->
+<!-- TestPilot-Template-Version: 7 -->
 # Android/Flutter 平台蓝本规则（platform = "android"）
 
 > 本文件定义 Android 原生应用和 Flutter 应用蓝本的完整规则。
@@ -225,6 +225,19 @@ wait 时间 = 代码中的异步延迟 + 2000ms（预留 Flutter 渲染 + Appium
 - 连续3个场景失败 → 尝试冷启动恢复后继续
 
 **重要：** flow 场景仍需写 navigate 步骤（方便单独运行），引擎在 flow 模式下自动跳过非首场景的 navigate。
+
+### 🚨 flow 非首场景写法（极其重要，必须遵守！）
+
+**flow 模式下，第2个及之后的场景只写 navigate + 该场景自己的操作步骤，绝对禁止重复写登录步骤！**
+
+引擎会跳过非首场景的 navigate，直接从第2步开始执行。如果第2步是 `fill 用户名`，但页面此时已经登录在功能页上 → 找不到输入框 → 超时失败 → 连续3步失败 → 整个场景被熔断跳过 → 后续场景全部同样失败。
+
+| ❌ 错误写法（非首场景重复登录） | ✅ 正确写法（非首场景直接操作） |
+|---|---|
+| 场景2: navigate → wait → fill用户名 → fill密码 → click登录 → wait → 实际操作 | 场景2: navigate → 实际操作 → assert_text |
+| 场景3: navigate → wait → fill用户名 → fill密码 → click登录 → wait → 实际操作 | 场景3: navigate → 实际操作 → assert_text |
+
+**核心原则：flow 模式下，只有第1个场景做完整的冷启动+登录流程，后续场景的 navigate 后面直接写该场景自己的操作。**
 
 ---
 

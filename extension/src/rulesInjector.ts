@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 6;
+const TEMPLATE_VERSION = 7;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
@@ -210,131 +210,13 @@ function getTemplateContent(): string {
 
 ---
 
-## 三点五、连续流模式（flow）— 强制决策
+## 四、所有详细规则 → 参见平台规则文件（必须阅读！）
 
-### ⚠️ 必须执行的决策步骤
+**蓝本的选择器、动作表、完整模板、连续流模式（flow）写法、自检清单、描述规范、踩坑清单等全部详细规则，都在平台专属规则文件中定义。**
 
-生成蓝本时，你**必须**对每个 \`page\` 做出 flow 决策，不允许跳过：
+确定 \`platform\` 后，**立即打开并通读** \`.testpilot/platforms/{platform}.md\`，严格遵守该文件中的所有规则。
 
-**判断规则（按顺序检查）：**
-1. 该 page 下有 ≥2 个场景，且这些场景都需要先登录才能操作？→ **\`"flow": true\`**
-2. 该 page 下有 ≥2 个场景是同一页面内的 Tab 切换或连续操作？→ **\`"flow": true\`**
-3. 该 page 下的场景需要互相独立的干净状态（如：正确登录 vs 错误登录 vs 空字段）？→ **\`"flow": false\`**（可省略，默认就是 false）
-
-**常见错误（你必须避免）：**
-- ❌ 记账台有8个场景（添加交易、删除交易、切换类型…），每个都独立冷启动+登录 → **严重浪费！必须 flow: true**
-- ❌ 报表页有6个场景（看利润表、看费用表、下载报表…），每个都冷启动+登录+跳转到报表页 → **严重浪费！必须 flow: true**
-- ✅ 登录页有4个场景（正确登录、空用户名、错密码、注册），每个需要干净状态 → flow: false，正确
-
-**简单总结：如果多个场景都要先登录再操作同一个页面，那这个 page 必须设 \`"flow": true\`。**
-
-### 启用方式
-
-在 \`page\` 对象中添加 \`"flow": true\`：
-
-\`\`\`json
-{
-  "pages": [
-    {
-      "url": "",
-      "title": "记账台",
-      "flow": true,
-      "scenarios": [
-        {
-          "name": "登录进入记账台",
-          "steps": [
-            {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "冷启动应用"},
-            {"action": "wait", "value": "3000"},
-            {"action": "fill", "target": "...", "value": "admin"},
-            {"action": "click", "target": "...", "description": "登录"},
-            {"action": "wait", "value": "3000"},
-            {"action": "assert_text", "expected": "记账台"}
-          ]
-        },
-        {
-          "name": "添加一笔交易",
-          "steps": [
-            {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow模式下自动跳过）"},
-            {"action": "fill", "target": "...", "value": "50.00", "description": "输入金额"},
-            {"action": "click", "target": "...", "description": "提交"},
-            {"action": "assert_text", "expected": "50.00"}
-          ]
-        },
-        {
-          "name": "删除交易",
-          "steps": [
-            {"action": "navigate", "value": "com.example.app/.MainActivity", "description": "（flow模式下自动跳过）"},
-            {"action": "click", "target": "...", "description": "删除"},
-            {"action": "assert_text", "expected": "已删除"}
-          ]
-        }
-      ]
-    }
-  ]
-}
-\`\`\`
-
-**注意看：** 只有第1个场景做了完整的登录流程，后续场景直接在当前页面操作。navigate 步骤仍然保留（方便单独运行），但 flow 模式下引擎会自动跳过。
-
-**🚨 flow 非首场景禁止冗余步骤（必须遵守！）：**
-- flow 第2个及之后的场景，navigate 后面**直接写该场景自己的操作步骤**
-- **绝对禁止**在非首场景中重复写 wait→fill用户名→fill密码→click登录 等登录步骤
-- 引擎跳过 navigate 后从第2步开始执行，如果第2步是 \`fill 用户名\` 但页面已登录 → 找不到输入框 → 连续超时失败 → 场景被熔断
-
-### flow 模式的行为
-
-| 行为 | \`flow: false\`（默认） | \`flow: true\` |
-|------|----------------------|---------------|
-| 场景首步 navigate | 执行（冷启动） | **仅第1个场景执行**，后续场景的 navigate 自动跳过 |
-| 场景间状态 | 清除（应用重启） | **保持**（前一场景的页面状态） |
-| 连续失败止损 | 3个场景连续失败 → 终止 | 3个场景连续失败 → **冷启动恢复**后继续 |
-
----
-
-## 四、蓝本通用自检清单
-
-生成或修改蓝本后，**按顺序**逐项检查：
-
-- [ ] **【最重要】每个 page 都做了 flow 决策**：多场景共享登录状态 → \`"flow": true\`；需要干净状态的独立测试 → 不写 flow
-- [ ] **flow 非首场景没有冗余步骤**：只写 navigate + 该场景自己的操作，不重复登录流程
-- [ ] 所有用户可交互功能都有对应场景
-- [ ] 每个场景的第一步是 navigate（flow 模式下引擎自动跳过非首场景的 navigate）
-- [ ] \`platform\` 字段正确
-- [ ] **已阅读对应平台规则文件**，选择器/动作/模板符合平台要求
-- [ ] \`target\` 选择器在源码中确实存在（已搜索验证）
-- [ ] \`expected\` 是界面上实际渲染的持久化文字（不是瞬态提示、不是变量名、不是注释）
-- [ ] 异步操作后有足够的 \`wait\` 时间（已检查代码中的延迟/API调用）
-- [ ] 页面跳转后有 \`wait\` + \`assert_text\` 验证到达目标页
-- [ ] 每个操作后有断言验证结果（不能只操作不验证）
-
----
-
-## 五、description 最佳实践
-
-每个步骤的 \`description\` 应包含位置和预期变化：
-
-\`\`\`
-✅ "点击提交按钮，点击后表单数据提交到后端，页面显示'提交成功'提示"
-✅ "在页面中部的用户名输入框输入admin，输入后输入框显示admin"
-❌ "点击按钮"
-❌ "输入用户名"
-\`\`\`
-
----
-
-## 六、选择器、动作表、模板、注意事项 → 参见平台规则
-
-**禁止在不阅读平台规则的情况下编写蓝本。** 以下内容在各平台规则文件中定义，不在本文件重复：
-
-- 该平台的封闭式动作表（只允许列出的动作）
-- 该平台的选择器格式、优先级、禁止列表
-- 该平台的完整 JSON 模板
-- 该平台的瞬态 UI 不可断言清单
-- 该平台的等待时间计算公式
-- 该平台的踩坑清单和常见错误
-- 该平台的代码稽核要求
-
-请在确定 \`platform\` 后，立即打开 \`.testpilot/platforms/{platform}.md\` 阅读完整规则。
+**禁止在不阅读平台规则文件的情况下编写蓝本。**
 `;
 }
 
@@ -478,6 +360,16 @@ export function injectRules(
       }
     }
     
+    // 额外：扫描所有已存在的规则文件，如果版本过旧也一并更新（防止跨IDE版本漂移）
+    for (const [, ruleFile] of Object.entries(IDE_RULES_MAP)) {
+      if (!filesToInject.includes(ruleFile)) {
+        const ruleFullPath = path.join(workspaceRoot, ruleFile);
+        if (fs.existsSync(ruleFullPath)) {
+          filesToInject.push(ruleFile);
+        }
+      }
+    }
+
     outputChannel?.appendLine(`[TestPilot AI] 检测到IDE: ${detectedIDEs.join(", ")}`);
   }
 

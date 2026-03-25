@@ -15,7 +15,7 @@ esbuild.build({
 }).then(() => {
   // 自动同步到所有已安装的 IDE 扩展目录（开发便利）
   const home = process.env.USERPROFILE || "";
-  const extName = "wenzhouxinzao.testpilot-ai-1.3.0";
+  const extName = "wenzhouxinzao.testpilot-ai-1.4.0";
   const ideDirs = [
     path.join(home, ".vscode", "extensions", extName),
     path.join(home, ".trae-cn", "extensions", extName),
