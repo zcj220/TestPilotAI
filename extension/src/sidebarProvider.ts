@@ -105,6 +105,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "register":
           await this._handleRegister(msg);
           break;
+        case "sendCode":
+          await this._handleSendCode(msg);
+          break;
         case "logout":
           await this._handleLogout();
           break;
@@ -166,9 +169,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  private async _handleRegister(msg: { email: string; username: string; password: string }): Promise<void> {
+  private async _handleRegister(msg: { email: string; username: string; password: string; emailCode?: string }): Promise<void> {
     try {
-      const result = await this._client.cloudRegister(msg.email, msg.username, msg.password);
+      const result = await this._client.cloudRegister(msg.email, msg.username, msg.password, msg.emailCode);
       await this._context.secrets.store("testpilot.token", result.access_token);
       if (result.refresh_token) {
         await this._context.secrets.store("testpilot.refresh_token", result.refresh_token);
@@ -184,6 +187,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         command: "authResult",
         success: false,
         error: e.message || "注册失败",
+      });
+    }
+  }
+
+  private async _handleSendCode(msg: { email: string }): Promise<void> {
+    try {
+      const result = await this._client.cloudSendEmailCode(msg.email);
+      this._postMessage({
+        command: "sendCodeResult",
+        success: true,
+        message: result.message,
+        devCode: result.dev_code,  // 开发模式下返回，方便调试
+      });
+    } catch (e: any) {
+      this._postMessage({
+        command: "sendCodeResult",
+        success: false,
+        error: e.message || "发送失败，请稍后重试",
       });
     }
   }
@@ -1658,16 +1679,28 @@ ${commonRules}`;
     .sdrop-pass-wrap {
       position: relative; margin-bottom: 5px;
     }
-    .sdrop-pass-wrap input {
-      width: 100%; box-sizing: border-box; padding-right: 28px; margin-bottom: 0;
+    /* 三层选择器权重高于 .sdrop-auth-panel input，确保 margin-bottom:0 生效 */
+    .sdrop-auth-panel .sdrop-pass-wrap input {
+      margin-bottom: 0; padding-right: 26px;
     }
     .sdrop-eye-btn {
-      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      position: absolute; right: 4px; top: 0; bottom: 0;
+      display: flex; align-items: center;
       background: none; border: none; cursor: pointer;
-      font-size: 13px; line-height: 1; padding: 2px; color: var(--muted);
+      font-size: 12px; padding: 0 2px; color: var(--muted);
       opacity: 0.6; transition: opacity 0.1s;
     }
     .sdrop-eye-btn:hover { opacity: 1; }
+    /* 发送验证码按钮 */
+    .sdrop-code-row { display: flex; gap: 4px; margin-bottom: 5px; }
+    .sdrop-code-row input { flex: 1; margin-bottom: 0; }
+    .sdrop-send-code-btn {
+      flex-shrink: 0; padding: 5px 6px; font-size: 10px; font-weight: 600;
+      background: none; color: var(--btn-bg);
+      border: 1px solid var(--btn-bg); border-radius: 3px; cursor: pointer;
+      white-space: nowrap; min-width: 44px;
+    }
+    .sdrop-send-code-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .sdrop-login-btn {
       width: 100%; padding: 6px; font-size: 11px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
@@ -1741,7 +1774,11 @@ ${commonRules}`;
             <!-- 注册表单 -->
             <div id="registerForm" style="display:none">
               <div id="regError" class="auth-error"></div>
-              <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
+              <div class="sdrop-code-row">
+                <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
+                <button class="sdrop-send-code-btn" id="btnSendCode">获取</button>
+              </div>
+              <input id="regCode" type="text" placeholder="邮箱验证码（6位）" autocomplete="off" maxlength="6" />
               <input id="regUser" type="text" placeholder="用户名" autocomplete="username" />
               <div class="sdrop-pass-wrap">
                 <input id="regPass" type="password" placeholder="密码" autocomplete="new-password" />
@@ -2042,13 +2079,37 @@ ${commonRules}`;
     function doRegister() {
       showRegError('');
       const email = (document.getElementById('regEmail')).value.trim();
+      const code = (document.getElementById('regCode')).value.trim();
       const user = (document.getElementById('regUser')).value.trim();
       const pass = (document.getElementById('regPass')).value;
       const confirm = (document.getElementById('regConfirm')).value;
       if (!email || !user || !pass) { showRegError('请填写所有字段'); return; }
       if (pass !== confirm) { showRegError('两次密码不一致'); return; }
       if (pass.length < 6) { showRegError('密码至少6位'); return; }
-      vscode.postMessage({ command: 'register', email, username: user, password: pass });
+      vscode.postMessage({ command: 'register', email, username: user, password: pass, emailCode: code || undefined });
+    }
+
+    // 发送验证码（60s 倒计时）
+    let _codeCountdown = 0;
+    let _codeTimer = null;
+    function doSendCode() {
+      const emailEl = document.getElementById('regEmail');
+      const email = emailEl ? emailEl.value.trim() : '';
+      if (!email || !email.includes('@')) { showRegError('请先填写正确的邮箱地址'); return; }
+      showRegError('');
+      vscode.postMessage({ command: 'sendCode', email });
+      // 立即开始倒计时
+      const btn = document.getElementById('btnSendCode');
+      _codeCountdown = 60;
+      if (btn) btn.disabled = true;
+      _codeTimer = setInterval(() => {
+        _codeCountdown--;
+        if (btn) btn.textContent = _codeCountdown + 's';
+        if (_codeCountdown <= 0) {
+          clearInterval(_codeTimer);
+          if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+        }
+      }, 1000);
     }
 
     function doLogout() {
@@ -2063,6 +2124,8 @@ ${commonRules}`;
     if (authLoginBtn) authLoginBtn.addEventListener('click', doAuth);
     const authRegisterSubmit = document.getElementById('authRegisterSubmit');
     if (authRegisterSubmit) authRegisterSubmit.addEventListener('click', doRegister);
+    const btnSendCode = document.getElementById('btnSendCode');
+    if (btnSendCode) btnSendCode.addEventListener('click', (e) => { e.stopPropagation(); doSendCode(); });
     const authLogoutBtn = document.getElementById('authLogoutBtn');
     if (authLogoutBtn) authLogoutBtn.addEventListener('click', doLogout);
     const themeToggleLabel = document.getElementById('themeToggleLabel');
@@ -2490,6 +2553,23 @@ ${commonRules}`;
             }
           }
           break;
+        case "sendCodeResult": {
+          const btn = document.getElementById('btnSendCode');
+          if (!msg.success) {
+            // 发送失败：重置倒计时
+            if (_codeTimer) { clearInterval(_codeTimer); _codeTimer = null; }
+            _codeCountdown = 0;
+            if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+            showRegError(msg.error || '发送失败');
+          } else {
+            // 开发模式：dev_code 直接填入验证码框方便测试
+            if (msg.devCode) {
+              const codeEl = document.getElementById('regCode');
+              if (codeEl) codeEl.value = msg.devCode;
+            }
+          }
+          break;
+        }
         case "shareResult":
           if (btnShareExperience) {
             btnShareExperience.disabled = false;

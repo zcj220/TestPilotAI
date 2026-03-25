@@ -457,13 +457,15 @@ export class EngineClient {
   }
 
   /** 云端注册 */
-  async cloudRegister(email: string, username: string, password: string): Promise<{
+  async cloudRegister(email: string, username: string, password: string, emailCode?: string): Promise<{
     access_token: string;
     refresh_token?: string;
     token_type: string;
     user: { id: number; email: string; username: string; role: string; plan?: string; credits?: number };
   }> {
-    return this._cloudPost("/auth/register", { email, username, password });
+    const body: Record<string, string> = { email, username, password };
+    if (emailCode) body.email_code = emailCode;
+    return this._cloudPost("/auth/register", body);
   }
 
   /** 获取当前用户信息 */
