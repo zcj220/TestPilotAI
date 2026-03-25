@@ -1702,16 +1702,15 @@ ${commonRules}`;
     }
     .sdrop-eye-btn:hover { opacity: 1; }
     .sdrop-eye-btn:focus { outline: none; }
-    /* 发送验证码按钮 */
-    .sdrop-code-row { display: flex; gap: 4px; margin-bottom: 5px; }
-    .sdrop-code-row input { flex: 1; min-width: 0; width: auto; margin-bottom: 0; }
+    /* 发送验证码 — 嵌入式蓝字按钮 */
     .sdrop-send-code-btn {
-      flex-shrink: 0; height: 28px; padding: 0 8px; font-size: 10px; font-weight: 600;
-      background: var(--btn-bg); color: var(--btn-fg);
-      border: none; border-radius: 3px; cursor: pointer;
-      white-space: nowrap; line-height: 28px;
+      flex-shrink: 0; padding: 0 8px; height: 100%;
+      background: none; border: none; cursor: pointer;
+      font-size: 11px; font-weight: 600; color: var(--btn-bg);
+      white-space: nowrap; outline: none;
     }
     .sdrop-send-code-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .sdrop-send-code-btn:hover:not(:disabled) { opacity: 0.75; }
     .sdrop-login-btn {
       width: 100%; height: 28px; padding: 0 6px; font-size: 11px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
@@ -1783,7 +1782,7 @@ ${commonRules}`;
             <div id="registerForm" style="display:none">
               <div id="regError" class="auth-error"></div>
               <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
-              <div class="sdrop-code-row">
+              <div class="sdrop-pass-wrap">
                 <input id="regCode" type="text" placeholder="邮箱验证码（6位）" autocomplete="off" maxlength="6" />
                 <button class="sdrop-send-code-btn" id="btnSendCode">发送</button>
               </div>
