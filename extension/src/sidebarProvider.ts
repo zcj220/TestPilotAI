@@ -1677,20 +1677,28 @@ ${commonRules}`;
     }
     .sdrop-auth-panel input:focus { border-color: var(--btn-bg); }
     .sdrop-pass-wrap {
-      position: relative; margin-bottom: 5px;
+      display: flex; align-items: center; margin-bottom: 5px;
+      border: 1px solid var(--input-border); border-radius: 3px;
+      background: var(--input-bg);
+      transition: border-color 0.1s;
     }
-    /* 三层选择器权重高于 .sdrop-auth-panel input，确保 margin-bottom:0 生效 */
+    .sdrop-pass-wrap:focus-within { border-color: var(--btn-bg); }
+    /* input 自身不再画边框，由 wrap 统一控制 */
     .sdrop-auth-panel .sdrop-pass-wrap input {
-      margin-bottom: 0; padding-right: 26px;
+      flex: 1; margin-bottom: 0; padding-right: 4px;
+      border: none; background: transparent; outline: none;
     }
+    .sdrop-auth-panel .sdrop-pass-wrap input:focus { border-color: transparent; }
     .sdrop-eye-btn {
-      position: absolute; right: 4px; top: 0; bottom: 0;
-      display: flex; align-items: center;
+      flex-shrink: 0; width: 24px; height: 100%;
+      display: flex; align-items: center; justify-content: center;
       background: none; border: none; cursor: pointer;
-      font-size: 12px; padding: 0 2px; color: var(--muted);
-      opacity: 0.6; transition: opacity 0.1s;
+      font-size: 11px; color: var(--muted); opacity: 0.55;
+      outline: none; -webkit-tap-highlight-color: transparent;
+      transition: opacity 0.1s; user-select: none;
     }
     .sdrop-eye-btn:hover { opacity: 1; }
+    .sdrop-eye-btn:focus { outline: none; }
     /* 发送验证码按钮 */
     .sdrop-code-row { display: flex; gap: 4px; margin-bottom: 5px; }
     .sdrop-code-row input { flex: 1; margin-bottom: 0; }
@@ -2027,7 +2035,8 @@ ${commonRules}`;
         e.stopPropagation();
         const show = inp.type === 'password';
         inp.type = show ? 'text' : 'password';
-        eye.textContent = show ? '🙈' : '👁';
+        eye.textContent = show ? '○' : '●';
+        eye.title = show ? '隐藏密码' : '显示密码';
       });
     }
     bindEye('authPassEye', 'authPass');
