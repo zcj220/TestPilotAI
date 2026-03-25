@@ -117,6 +117,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         case "getSuggestions":
           await this._handleGetSuggestions(msg);
           break;
+        case "openExternal":
+          if (msg.url && typeof msg.url === 'string' && msg.url.startsWith('https://')) {
+            vscode.env.openExternal(vscode.Uri.parse(msg.url));
+          }
+          break;
       }
     });
 
@@ -1624,73 +1629,42 @@ ${commonRules}`;
     .step-num { color: var(--info); min-width: 20px; }
     .step-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .step-time { color: var(--info); font-size: 10px; min-width: 36px; text-align: right; }
-    /* 认证面板 */
-    .auth-panel {
-      padding: 16px 12px;
+    /* 设置菜单内登录子面板 */
+    .sdrop-auth-panel {
+      display: none; padding: 8px 12px;
+      border-top: 1px solid var(--input-border);
     }
-    .auth-panel h2 {
-      font-size: 15px; margin: 0 0 12px; text-align: center;
-    }
-    .auth-panel .auth-input {
+    .sdrop-auth-panel input {
       width: 100%; box-sizing: border-box;
-      padding: 7px 10px; margin-bottom: 8px;
+      padding: 5px 7px; margin-bottom: 5px;
       background: var(--input-bg); color: var(--input-fg);
-      border: 1px solid var(--input-border); border-radius: 4px;
-      font-size: 13px; outline: none;
+      border: 1px solid var(--input-border); border-radius: 3px;
+      font-size: 11px; outline: none;
     }
-    .auth-panel .auth-input:focus { border-color: var(--btn-bg); }
-    .auth-panel .auth-btn {
-      width: 100%; padding: 8px; margin-top: 4px;
+    .sdrop-auth-panel input:focus { border-color: var(--btn-bg); }
+    .sdrop-login-btn {
+      flex: 1; padding: 5px; font-size: 11px; font-weight: 600;
       background: var(--btn-bg); color: var(--btn-fg);
-      border: none; border-radius: 4px; cursor: pointer;
-      font-size: 13px; font-weight: 600;
+      border: none; border-radius: 3px; cursor: pointer;
     }
-    .auth-panel .auth-btn:hover { background: var(--btn-hover); }
-    .auth-panel .auth-toggle {
-      display: block; text-align: center; margin-top: 12px;
-      font-size: 12px; color: var(--btn-bg); cursor: pointer;
-      text-decoration: underline; background: none; border: none;
+    .sdrop-login-btn:hover { background: var(--btn-hover); }
+    .sdrop-register-btn {
+      padding: 5px 8px; font-size: 11px;
+      background: none; color: var(--btn-bg);
+      border: 1px solid var(--btn-bg); border-radius: 3px; cursor: pointer;
     }
-    .auth-panel .auth-error {
-      color: var(--error); font-size: 12px; margin: 6px 0; text-align: center;
-      display: none;
+    .sdrop-register-btn:hover { background: var(--btn-bg); color: var(--btn-fg); }
+    .auth-error {
+      color: var(--error); font-size: 11px; margin: 0 0 5px; display: none;
     }
-    .auth-user-bar {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 6px 12px; font-size: 12px;
-      border-bottom: 1px solid var(--input-border);
+    .sdrop-user-row {
+      padding: 6px 12px; font-size: 11px;
+      border-top: 1px solid var(--input-border);
     }
-    .auth-user-bar .username { color: var(--success); font-weight: 600; }
-    .auth-user-bar .logout-btn {
-      background: none; border: none; color: var(--muted);
-      cursor: pointer; font-size: 11px; text-decoration: underline;
-    }
-    .auth-user-bar .logout-btn:hover { color: var(--error); }
   </style>
 </head>
 <body>
-  <!-- 认证：已登录用户栏 -->
-  <div id="authUserBar" class="auth-user-bar" style="display:none">
-    <span>👤 <span class="username" id="authUsername"></span>
-      <span style="color:var(--muted);font-size:11px" id="authPlan"></span></span>
-    <span id="authCredits" style="font-size:11px;color:var(--muted);margin-left:4px"></span>
-    <button class="logout-btn" onclick="doLogout()">退出登录</button>
-  </div>
-  <!-- 认证：登录/注册面板 -->
-  <div id="authPanel" class="auth-panel" style="display:none">
-    <h2 id="authTitle">登录 TestPilot AI</h2>
-    <div id="authError" class="auth-error"></div>
-    <input id="authEmail" class="auth-input" type="text"
-      placeholder="邮箱" style="display:none" />
-    <input id="authUser" class="auth-input" type="text"
-      placeholder="用户名或邮箱" />
-    <input id="authPass" class="auth-input" type="password"
-      placeholder="密码" onkeydown="if(event.key==='Enter')doAuth()" />
-    <button class="auth-btn" onclick="doAuth()">登录</button>
-    <button class="auth-toggle" onclick="toggleAuthMode()">
-      没有账号？注册
-    </button>
-  </div>
+
   <!-- 引擎状态 -->
   <div class="section">
     <!-- 标题行：引擎字 + 齿轮设置按钮（随页面滚动） -->
@@ -1720,9 +1694,27 @@ ${commonRules}`;
             <span>🔤 字体大小</span>
             <span class="badge-soon">即将推出</span>
           </div>
-          <div class="sdrop-item disabled">
-            <span>🔑 账户登录</span>
-            <span class="badge-soon">即将推出</span>
+          <div class="sdrop-divider"></div>
+          <div class="sdrop-item" id="settingsAuthRow" onclick="toggleSettingsAuth()">
+            <span id="settingsAuthLabel">🔑 账户登录</span>
+            <span id="settingsAuthArrow" style="font-size:10px;color:var(--muted)">▾</span>
+          </div>
+          <div id="settingsAuthPanel" class="sdrop-auth-panel">
+            <div id="authError" class="auth-error"></div>
+            <input id="authUser" type="text" placeholder="用户名或邮箱" autocomplete="username" />
+            <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAuth()" />
+            <div style="display:flex;gap:6px;margin-top:4px">
+              <button class="sdrop-login-btn" onclick="doAuth()">登录</button>
+              <button class="sdrop-register-btn" onclick="openRegister()">前往注册 ↗</button>
+            </div>
+          </div>
+          <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
+                <span style="color:var(--muted)" id="authPlan"></span></span>
+              <button onclick="doLogout()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出</button>
+            </div>
+            <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
           </div>
         </div>
       </div>
@@ -1928,12 +1920,7 @@ ${commonRules}`;
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
 
-    // ── 认证逻辑 ──────────────────────────────
-    let authMode = 'login'; // 'login' | 'register'
-    const authPanel = document.getElementById('authPanel');
-    const authUserBar = document.getElementById('authUserBar');
-    const authTitle = document.getElementById('authTitle');
-    const authEmail = document.getElementById('authEmail');
+    // ── 认证逻辑（登录UI位于设置菜单内） ──────────────────────────────
     const authUser = document.getElementById('authUser');
     const authPass = document.getElementById('authPass');
     const authError = document.getElementById('authError');
@@ -1941,44 +1928,28 @@ ${commonRules}`;
     const authPlan = document.getElementById('authPlan');
 
     function showAuthError(msg) {
-      authError.textContent = msg;
-      authError.style.display = msg ? 'block' : 'none';
+      if (authError) { authError.textContent = msg; authError.style.display = msg ? 'block' : 'none'; }
     }
 
-    function toggleAuthMode() {
-      authMode = authMode === 'login' ? 'register' : 'login';
-      if (authMode === 'register') {
-        authTitle.textContent = '注册 TestPilot AI';
-        authEmail.style.display = 'block';
-        authEmail.placeholder = '邮箱';
-        authUser.placeholder = '用户名';
-        document.querySelector('.auth-btn').textContent = '注册';
-        document.querySelector('.auth-toggle').textContent = '已有账号？登录';
-      } else {
-        authTitle.textContent = '登录 TestPilot AI';
-        authEmail.style.display = 'none';
-        authUser.placeholder = '用户名或邮箱';
-        document.querySelector('.auth-btn').textContent = '登录';
-        document.querySelector('.auth-toggle').textContent = '没有账号？注册';
-      }
-      showAuthError('');
+    function toggleSettingsAuth() {
+      const panel = document.getElementById('settingsAuthPanel');
+      const arrow = document.getElementById('settingsAuthArrow');
+      const open = panel && panel.style.display === 'block';
+      if (panel) panel.style.display = open ? 'none' : 'block';
+      if (arrow) arrow.textContent = open ? '▾' : '▴';
+      if (!open) setTimeout(() => authUser && authUser.focus(), 50);
+    }
+
+    function openRegister() {
+      vscode.postMessage({ command: 'openExternal', url: 'https://testpilotai.pages.dev/register' });
     }
 
     function doAuth() {
       showAuthError('');
-      if (authMode === 'login') {
-        const u = authUser.value.trim();
-        const p = authPass.value;
-        if (!u || !p) { showAuthError('请填写用户名和密码'); return; }
-        vscode.postMessage({ command: 'login', emailOrUsername: u, password: p });
-      } else {
-        const e = authEmail.value.trim();
-        const u = authUser.value.trim();
-        const p = authPass.value;
-        if (!e || !u || !p) { showAuthError('请填写所有字段'); return; }
-        if (p.length < 6) { showAuthError('密码至少6位'); return; }
-        vscode.postMessage({ command: 'register', email: e, username: u, password: p });
-      }
+      const u = authUser.value.trim();
+      const p = authPass.value;
+      if (!u || !p) { showAuthError('请填写用户名和密码'); return; }
+      vscode.postMessage({ command: 'login', emailOrUsername: u, password: p });
     }
 
     function doLogout() {
@@ -1986,22 +1957,28 @@ ${commonRules}`;
     }
 
     function setAuthState(loggedIn, user) {
+      const authPanel = document.getElementById('settingsAuthPanel');
+      const userRow = document.getElementById('settingsUserRow');
+      const authLabel = document.getElementById('settingsAuthLabel');
+      const authArrow = document.getElementById('settingsAuthArrow');
       if (loggedIn && user) {
-        authPanel.style.display = 'none';
-        authUserBar.style.display = 'flex';
-        authUsername.textContent = user.username || '';
-        authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
-        // 积分显示
+        if (authPanel) authPanel.style.display = 'none';
+        if (userRow) userRow.style.display = 'block';
+        if (authLabel) authLabel.textContent = '👤 ' + (user.username || '');
+        if (authArrow) authArrow.style.display = 'none';
+        if (authUsername) authUsername.textContent = user.username || '';
+        if (authPlan) authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
         const creditsEl = document.getElementById('authCredits');
         if (creditsEl && user.credits !== undefined) {
           const low = user.credits < 10;
           creditsEl.textContent = '💰 ' + user.credits + '分';
           creditsEl.style.color = low ? 'var(--error)' : 'var(--muted)';
-          creditsEl.title = '剩余积分：' + user.credits + '（每10步消耗 1 积分）';
         }
       } else {
-        authPanel.style.display = 'block';
-        authUserBar.style.display = 'none';
+        if (authPanel) authPanel.style.display = 'none';
+        if (userRow) userRow.style.display = 'none';
+        if (authLabel) authLabel.textContent = '🔑 账户登录';
+        if (authArrow) { authArrow.textContent = '▾'; authArrow.style.display = ''; }
       }
     }
 

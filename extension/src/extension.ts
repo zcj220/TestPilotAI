@@ -26,7 +26,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // 注册侧边栏
   const sidebarProvider = new SidebarProvider(context.extensionUri, client, context);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider),
+    vscode.window.registerWebviewViewProvider(SidebarProvider.viewType, sidebarProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
   );
 
   // 尝试连接 WebSocket
