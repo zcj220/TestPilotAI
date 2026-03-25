@@ -1704,15 +1704,17 @@ ${commonRules}`;
     .sdrop-eye-btn:focus { outline: none; }
     /* 发送验证码——绝对定位文字按钮 */
     .sdrop-code-wrap { position: relative; margin-bottom: 5px; }
-    .sdrop-code-wrap input { width: 100%; box-sizing: border-box; padding-right: 38px; }
+    .sdrop-code-wrap input { width: 100%; box-sizing: border-box; padding-right: 34px; }
     .sdrop-send-code-btn {
       position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-      background: none; border: none; padding: 0;
-      font-size: 11px; font-weight: 600; color: var(--btn-bg);
+      width: auto; display: inline-block;
+      background: none !important; border: none; padding: 0; margin: 0;
+      font-size: 11px; font-weight: normal; color: var(--muted);
       cursor: pointer; outline: none; line-height: 1;
-      -webkit-tap-highlight-color: transparent;
+      appearance: none; -webkit-appearance: none;
+      -webkit-tap-highlight-color: transparent; box-shadow: none;
     }
-    .sdrop-send-code-btn:hover:not(:disabled) { opacity: 0.65; }
+    .sdrop-send-code-btn:hover:not(:disabled) { color: var(--btn-bg); }
     .sdrop-send-code-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .sdrop-login-btn {
       width: 100%; height: 28px; padding: 0 6px; font-size: 11px; font-weight: 600;
