@@ -1657,7 +1657,7 @@ ${commonRules}`;
     }
     .sdrop-auth-tab-bar {
       display: flex; margin-bottom: 8px; gap: 0;
-      border: 1px solid var(--input-border); border-radius: 4px; overflow: hidden;
+      border-radius: 4px; overflow: hidden;
     }
     .sdrop-tab-btn {
       flex: 1; padding: 4px 0; font-size: 11px; font-weight: 600;
@@ -1701,12 +1701,12 @@ ${commonRules}`;
     .sdrop-eye-btn:focus { outline: none; }
     /* 发送验证码按钮 */
     .sdrop-code-row { display: flex; gap: 4px; margin-bottom: 5px; }
-    .sdrop-code-row input { flex: 1; margin-bottom: 0; }
+    .sdrop-code-row input { flex: 1; min-width: 0; width: auto; margin-bottom: 0; }
     .sdrop-send-code-btn {
-      flex-shrink: 0; padding: 5px 6px; font-size: 10px; font-weight: 600;
-      background: none; color: var(--btn-bg);
-      border: 1px solid var(--btn-bg); border-radius: 3px; cursor: pointer;
-      white-space: nowrap; min-width: 44px;
+      flex-shrink: 0; padding: 5px 8px; font-size: 10px; font-weight: 600;
+      background: var(--btn-bg); color: var(--btn-fg);
+      border: none; border-radius: 3px; cursor: pointer;
+      white-space: nowrap;
     }
     .sdrop-send-code-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .sdrop-login-btn {
@@ -1758,10 +1758,6 @@ ${commonRules}`;
           <div class="sdrop-divider"></div>
           <div class="sdrop-item" id="settingsAuthRow">
             <span id="settingsAuthLabel">🔑 账号</span>
-            <span style="display:flex;align-items:center;gap:4px">
-              <span id="authStatusDot" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0"></span>
-              <span id="settingsAuthArrow" style="font-size:10px;color:var(--muted)">▾</span>
-            </span>
           </div>
           <div id="settingsAuthPanel" class="sdrop-auth-panel">
             <!-- 登录/注册切换 Tab -->
@@ -1775,7 +1771,7 @@ ${commonRules}`;
               <input id="authUser" type="text" placeholder="用户名或邮箱" autocomplete="username" />
               <div class="sdrop-pass-wrap">
                 <input id="authPass" type="password" placeholder="密码" autocomplete="current-password" />
-                <button class="sdrop-eye-btn" id="authPassEye" title="显示/隐藏密码">👁</button>
+                <button class="sdrop-eye-btn" id="authPassEye" title="显示/隐藏密码"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
               </div>
               <button class="sdrop-login-btn" id="authLoginBtn">登录</button>
             </div>
@@ -1784,17 +1780,17 @@ ${commonRules}`;
               <div id="regError" class="auth-error"></div>
               <div class="sdrop-code-row">
                 <input id="regEmail" type="email" placeholder="邮箱地址" autocomplete="email" />
-                <button class="sdrop-send-code-btn" id="btnSendCode">获取</button>
+                <button class="sdrop-send-code-btn" id="btnSendCode">发送验证码</button>
               </div>
               <input id="regCode" type="text" placeholder="邮箱验证码（6位）" autocomplete="off" maxlength="6" />
               <input id="regUser" type="text" placeholder="用户名" autocomplete="username" />
               <div class="sdrop-pass-wrap">
                 <input id="regPass" type="password" placeholder="密码" autocomplete="new-password" />
-                <button class="sdrop-eye-btn" id="regPassEye" title="显示/隐藏密码">👁</button>
+                <button class="sdrop-eye-btn" id="regPassEye" title="显示/隐藏密码"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
               </div>
               <div class="sdrop-pass-wrap">
                 <input id="regConfirm" type="password" placeholder="确认密码" autocomplete="new-password" />
-                <button class="sdrop-eye-btn" id="regConfirmEye" title="显示/隐藏密码">👁</button>
+                <button class="sdrop-eye-btn" id="regConfirmEye" title="显示/隐藏密码"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
               </div>
               <button class="sdrop-login-btn" id="authRegisterSubmit">注册账号</button>
             </div>
@@ -2027,6 +2023,8 @@ ${commonRules}`;
     }
 
     // 眼睛切换
+    const SVG_EYE_OPEN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+    const SVG_EYE_CLOSED = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
     function bindEye(eyeId, inputId) {
       const eye = document.getElementById(eyeId);
       const inp = document.getElementById(inputId);
@@ -2035,7 +2033,7 @@ ${commonRules}`;
         e.stopPropagation();
         const show = inp.type === 'password';
         inp.type = show ? 'text' : 'password';
-        eye.textContent = show ? '○' : '●';
+        eye.innerHTML = show ? SVG_EYE_CLOSED : SVG_EYE_OPEN;
         eye.title = show ? '隐藏密码' : '显示密码';
       });
     }
@@ -2070,10 +2068,8 @@ ${commonRules}`;
 
     function toggleSettingsAuth() {
       const panel = document.getElementById('settingsAuthPanel');
-      const arrow = document.getElementById('settingsAuthArrow');
       const open = panel && panel.style.display === 'block';
       if (panel) panel.style.display = open ? 'none' : 'block';
-      if (arrow) arrow.textContent = open ? '▾' : '▴';
       if (!open) setTimeout(() => authUser && authUser.focus(), 50);
     }
 
@@ -2116,7 +2112,7 @@ ${commonRules}`;
         if (btn) btn.textContent = _codeCountdown + 's';
         if (_codeCountdown <= 0) {
           clearInterval(_codeTimer);
-          if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+          if (btn) { btn.disabled = false; btn.textContent = '发送验证码'; }
         }
       }, 1000);
     }
@@ -2144,14 +2140,10 @@ ${commonRules}`;
       const authPanel = document.getElementById('settingsAuthPanel');
       const userRow = document.getElementById('settingsUserRow');
       const authLabel = document.getElementById('settingsAuthLabel');
-      const authArrow = document.getElementById('settingsAuthArrow');
-      const statusDot = document.getElementById('authStatusDot');
       if (loggedIn && user) {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'block';
         if (authLabel) authLabel.textContent = '👤 ' + (user.username || '');
-        if (authArrow) authArrow.style.display = 'none';
-        if (statusDot) { statusDot.style.background = 'var(--success)'; statusDot.title = '已登录'; }
         if (authUsername) authUsername.textContent = user.username || '';
         if (authPlan) authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
         const creditsEl = document.getElementById('authCredits');
@@ -2164,8 +2156,6 @@ ${commonRules}`;
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'none';
         if (authLabel) authLabel.textContent = '🔑 账号';
-        if (statusDot) { statusDot.style.background = 'var(--muted)'; statusDot.title = '未登录'; }
-        if (authArrow) { authArrow.textContent = '▾'; authArrow.style.display = ''; }
       }
     }
 
@@ -2568,7 +2558,7 @@ ${commonRules}`;
             // 发送失败：重置倒计时
             if (_codeTimer) { clearInterval(_codeTimer); _codeTimer = null; }
             _codeCountdown = 0;
-            if (btn) { btn.disabled = false; btn.textContent = '获取'; }
+            if (btn) { btn.disabled = false; btn.textContent = '发送验证码'; }
             showRegError(msg.error || '发送失败');
           } else {
             // 开发模式：dev_code 直接填入验证码框方便测试
