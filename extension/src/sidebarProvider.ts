@@ -1810,10 +1810,6 @@ ${commonRules}`;
             </div>
           </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
-            <div>
-              <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
-                <span style="color:var(--muted)" id="authPlan"></span></span>
-            </div>
             <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
             <button id="authLogoutBtn" class="sdrop-logout-btn">注销</button>
           </div>
