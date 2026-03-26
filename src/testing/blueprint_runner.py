@@ -10,6 +10,7 @@
 import asyncio
 import base64
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Coroutine, Any, Optional
 
@@ -479,6 +480,8 @@ class BlueprintRunner:
         report.passed_steps = sum(1 for r in all_results if r.status == StepStatus.PASSED)
         report.failed_steps = sum(1 for r in all_results if r.status == StepStatus.FAILED)
         report.error_steps = sum(1 for r in all_results if r.status == StepStatus.ERROR)
+
+        report.end_time = datetime.now(timezone.utc)
 
         # 生成Markdown报告（含修复统计）
         report.report_markdown = self._generate_markdown(

@@ -225,8 +225,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     try {
       const user = await this._client.cloudGetMe(token);
       this._postMessage({ command: "authResult", success: true, user });
-    } catch {
-      // Access Token 过期，尝试用 Refresh Token 自动续期
+    } catch (e: any) {
+      const errMsg = String(e?.message || "");
+      const isAuthError = /HTTP\s+(401|403)/i.test(errMsg);
+
+      if (!isAuthError) {
+        // 网络错误（服务器不可达等）：保持登录状态，使用缓存用户名
+        const username = await this._context.secrets.get("testpilot.username");
+        if (username) {
+          this._postMessage({
+            command: "authResult",
+            success: true,
+            user: { id: 0, email: "", username, role: "user", credits: -1, plan: "" },
+          });
+          return;
+        }
+      }
+
+      // Auth 错误(401/403)：尝试用 Refresh Token 自动续期
       const refreshToken = await this._context.secrets.get("testpilot.refresh_token");
       if (refreshToken) {
         try {
@@ -1800,7 +1816,7 @@ ${commonRules}`;
             <div style="display:flex;align-items:center;justify-content:space-between">
               <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
                 <span style="color:var(--muted)" id="authPlan"></span></span>
-              <button id="authLogoutBtn" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;text-decoration:underline">退出登录</button>
+              <button id="authLogoutBtn" style="background:none;border:1px solid var(--input-border);color:var(--fg);cursor:pointer;font-size:11px;padding:2px 10px;border-radius:3px">注销</button>
             </div>
             <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
           </div>

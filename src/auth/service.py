@@ -32,7 +32,7 @@ from src.auth.models import (
 SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "testpilot-dev-secret-change-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "60"))   # Access Token：1小时
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "7"))  # Refresh Token：7天
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", "30"))  # Refresh Token：30天
 
 # 登录失败锁定配置
 _MAX_FAILURES = 5          # 最多允许失败次数
