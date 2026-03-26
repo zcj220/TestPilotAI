@@ -15,15 +15,25 @@ esbuild.build({
 }).then(() => {
   // 自动同步到所有已安装的 IDE 扩展目录（开发便利）
   const home = process.env.USERPROFILE || "";
-  const extName = "wenzhouxinzao.testpilot-ai-1.4.0";
-  const ideDirs = [
-    path.join(home, ".vscode", "extensions", extName),
-    path.join(home, ".trae-cn", "extensions", extName),
-    path.join(home, ".cursor", "extensions", extName),
-    path.join(home, ".windsurf", "extensions", extName),
-    path.join(home, ".vscodium", "extensions", extName),
-    path.join(home, ".vscode-insiders", "extensions", extName),
+  const extPrefix = "wenzhouxinzao.testpilot-ai-";
+  const ideRoots = [
+    path.join(home, ".vscode", "extensions"),
+    path.join(home, ".trae-cn", "extensions"),
+    path.join(home, ".cursor", "extensions"),
+    path.join(home, ".windsurf", "extensions"),
+    path.join(home, ".vscodium", "extensions"),
+    path.join(home, ".vscode-insiders", "extensions"),
   ];
+  // 动态扫描已安装目录（不写死版本号）
+  const ideDirs = [];
+  for (const root of ideRoots) {
+    if (!fs.existsSync(root)) continue;
+    for (const name of fs.readdirSync(root)) {
+      if (name.startsWith(extPrefix)) {
+        ideDirs.push(path.join(root, name));
+      }
+    }
+  }
 
   function syncToDir(installed) {
     // 同步 extension.js
