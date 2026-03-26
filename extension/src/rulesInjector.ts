@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 8;
+const TEMPLATE_VERSION = 9;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
