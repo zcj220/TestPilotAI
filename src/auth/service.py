@@ -511,10 +511,17 @@ def send_verification_email(email: str, code: str) -> bool:
     msg["From"] = from_email
     msg["To"] = email
     try:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, [email], msg.as_string())
+        if smtp_port == 465:
+            # 端口 465：直接 SSL
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10) as server:
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_email, [email], msg.as_string())
+        else:
+            # 端口 587：STARTTLS
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=10) as server:
+                server.starttls()
+                server.login(smtp_user, smtp_pass)
+                server.sendmail(from_email, [email], msg.as_string())
         logger.info("验证码邮件已发送 → {}", email)
         return True
     except Exception as e:
