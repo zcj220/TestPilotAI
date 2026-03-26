@@ -1776,6 +1776,22 @@ ${commonRules}`;
             <span>🔤 字体大小</span>
             <span class="badge-soon">即将推出</span>
           </div>
+          <!-- 积分情况（登录后显示） -->
+          <div class="sdrop-item" id="settingsCreditsRow" style="display:none" title="点击展开积分详情">
+            <span>💰 积分情况</span>
+            <span id="authCreditsLabel" style="font-size:11px;color:var(--muted)"></span>
+          </div>
+          <div id="settingsCreditsPanel" style="display:none;padding:6px 12px 4px;font-size:11px;background:var(--editor-bg);border-top:1px solid var(--input-border)">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+              <span style="color:var(--muted)">剩余积分</span>
+              <span id="creditsPanelBalance" style="font-weight:600">-</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+              <span style="color:var(--muted)">当前套餐</span>
+              <span id="creditsPanelPlan" style="color:var(--muted)">免费版</span>
+            </div>
+            <div style="font-size:10px;color:var(--muted);border-top:1px solid var(--input-border);padding-top:4px">充値和升级套餐即将推出</div>
+          </div>
           <div class="sdrop-item" id="settingsStepIntervalRow" title="每步执行后额外等待的毫秒数，适合页面响应慢的情况">
             <span>⏱ 步骤间隔</span>
             <div style="display:flex;align-items:center;gap:3px">
@@ -1830,10 +1846,6 @@ ${commonRules}`;
               </div>
               <button class="sdrop-login-btn" id="authRegisterSubmit">注册账号</button>
             </div>
-          </div>
-          <div id="settingsCreditsRow" class="sdrop-item" style="display:none;cursor:default">
-            <span id="authCreditsLabel" style="font-size:11px;color:var(--muted)">💰 积分加载中...</span>
-            <span id="authPlanLabel" style="font-size:11px;color:var(--muted)"></span>
           </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
             <button id="authLogoutBtn" class="sdrop-logout-btn">注销</button>
@@ -2102,6 +2114,9 @@ ${commonRules}`;
     if (tabAuthRegister) tabAuthRegister.addEventListener('click', (e) => { e.stopPropagation(); switchAuthTab('register'); });
 
     function toggleSettingsAuth() {
+      // 已登录状态：账号行点击不弹登录面板
+      const userRow = document.getElementById('settingsUserRow');
+      if (userRow && userRow.style.display !== 'none') { return; }
       const panel = document.getElementById('settingsAuthPanel');
       const open = panel && panel.style.display === 'block';
       if (panel) panel.style.display = open ? 'none' : 'block';
@@ -2168,6 +2183,12 @@ ${commonRules}`;
     if (btnSendCode) btnSendCode.addEventListener('click', (e) => { e.stopPropagation(); doSendCode(); });
     const authLogoutBtn = document.getElementById('authLogoutBtn');
     if (authLogoutBtn) authLogoutBtn.addEventListener('click', doLogout);
+    // 积分情况行点击展开/收起
+    const settingsCreditsRow = document.getElementById('settingsCreditsRow');
+    if (settingsCreditsRow) settingsCreditsRow.addEventListener('click', () => {
+      const panel = document.getElementById('settingsCreditsPanel');
+      if (panel) panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+    });
     const themeToggleLabel = document.getElementById('themeToggleLabel');
     if (themeToggleLabel) themeToggleLabel.addEventListener('click', (e) => e.stopPropagation());
     const notifyToggleLabel = document.getElementById('notifyToggleLabel');
@@ -2179,32 +2200,38 @@ ${commonRules}`;
       const authPanel = document.getElementById('settingsAuthPanel');
       const userRow = document.getElementById('settingsUserRow');
       const authLabel = document.getElementById('settingsAuthLabel');
+      const creditsRowEl = document.getElementById('settingsCreditsRow');
       if (loggedIn && user) {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'block';
+        if (creditsRowEl) creditsRowEl.style.display = 'flex';
         if (authLabel) authLabel.textContent = '👤 ' + (user.username || '');
         if (authUsername) authUsername.textContent = user.username || '';
         if (authPlan) authPlan.textContent = '';
+        // 积分情况行显示剖剩积分
         const creditsLabelEl = document.getElementById('authCreditsLabel');
-        const planLabelEl = document.getElementById('authPlanLabel');
-        const creditsRowEl = document.getElementById('settingsCreditsRow');
-        if (creditsRowEl) creditsRowEl.style.display = 'flex';
-        if (planLabelEl) planLabelEl.textContent = user.plan ? user.plan : '';
-        if (creditsLabelEl && user.credits !== undefined) {
-          if (user.credits === -1) {
-            creditsLabelEl.textContent = '💰 积分加载中...';
-            creditsLabelEl.style.color = 'var(--muted)';
-          } else {
-            const low = user.credits < 10;
-            creditsLabelEl.textContent = '💰 积分: ' + user.credits + ' 分';
+        const creditsPanelBalance = document.getElementById('creditsPanelBalance');
+        const creditsPanelPlan = document.getElementById('creditsPanelPlan');
+        if (user.credits !== undefined && user.credits !== -1) {
+          const low = user.credits < 10;
+          if (creditsLabelEl) {
+            creditsLabelEl.textContent = user.credits + ' 分';
             creditsLabelEl.style.color = low ? 'var(--error)' : 'var(--muted)';
           }
+          if (creditsPanelBalance) {
+            creditsPanelBalance.textContent = user.credits + ' 分';
+            creditsPanelBalance.style.color = low ? 'var(--error)' : 'var(--fg)';
+          }
+        } else {
+          if (creditsLabelEl) { creditsLabelEl.textContent = ''; }
         }
+        if (creditsPanelPlan) creditsPanelPlan.textContent = user.plan || '免费版';
       } else {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'none';
-        const creditsRowHide = document.getElementById('settingsCreditsRow');
-        if (creditsRowHide) creditsRowHide.style.display = 'none';
+        if (creditsRowEl) creditsRowEl.style.display = 'none';
+        const creditsPanel = document.getElementById('settingsCreditsPanel');
+        if (creditsPanel) creditsPanel.style.display = 'none';
         if (authLabel) authLabel.textContent = '🔑 账号';
       }
     }
