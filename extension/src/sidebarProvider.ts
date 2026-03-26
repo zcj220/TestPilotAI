@@ -125,6 +125,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             vscode.env.openExternal(vscode.Uri.parse(msg.url));
           }
           break;
+        case "notifyComplete": {
+          const label = msg.name ? `「${msg.name}」` : '测试';
+          vscode.window.showInformationMessage(`✅ TestPilot: ${label} 完成，通过率 ${msg.passRate}`);
+          break;
+        }
       }
     });
 
@@ -1769,6 +1774,21 @@ ${commonRules}`;
             <span>🔤 字体大小</span>
             <span class="badge-soon">即将推出</span>
           </div>
+          <div class="sdrop-item" id="settingsStepIntervalRow" title="每步执行后额外等待的毫秒数，适合页面响应慢的情况">
+            <span>⏱ 步骤间隔</span>
+            <div style="display:flex;align-items:center;gap:3px">
+              <input type="number" id="stepIntervalInput" min="0" max="9999" step="100"
+                style="width:50px;font-size:11px;padding:1px 4px;text-align:right;border:1px solid var(--input-border);background:var(--input-bg);color:var(--fg);border-radius:3px" value="0" />
+              <span style="font-size:11px;color:var(--muted)">ms</span>
+            </div>
+          </div>
+          <div class="sdrop-item" id="settingsNotifyRow">
+            <span>🔔 完成通知</span>
+            <label class="toggle-switch" id="notifyToggleLabel">
+              <input type="checkbox" id="notifyToggle" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
           <div class="sdrop-divider"></div>
           <div class="sdrop-item" id="settingsAuthRow">
             <span id="settingsAuthLabel">🔑 账号</span>
@@ -2145,6 +2165,10 @@ ${commonRules}`;
     if (authLogoutBtn) authLogoutBtn.addEventListener('click', doLogout);
     const themeToggleLabel = document.getElementById('themeToggleLabel');
     if (themeToggleLabel) themeToggleLabel.addEventListener('click', (e) => e.stopPropagation());
+    const notifyToggleLabel = document.getElementById('notifyToggleLabel');
+    if (notifyToggleLabel) notifyToggleLabel.addEventListener('click', (e) => e.stopPropagation());
+    const stepIntervalInput = document.getElementById('stepIntervalInput');
+    if (stepIntervalInput) stepIntervalInput.addEventListener('click', (e) => e.stopPropagation());
 
     function setAuthState(loggedIn, user) {
       const authPanel = document.getElementById('settingsAuthPanel');
@@ -2158,9 +2182,14 @@ ${commonRules}`;
         if (authPlan) authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
         const creditsEl = document.getElementById('authCredits');
         if (creditsEl && user.credits !== undefined) {
-          const low = user.credits < 10;
-          creditsEl.textContent = '💰 ' + user.credits + '分';
-          creditsEl.style.color = low ? 'var(--error)' : 'var(--muted)';
+          if (user.credits === -1) {
+            creditsEl.textContent = '💰 积分加载中...';
+            creditsEl.style.color = 'var(--muted)';
+          } else {
+            const low = user.credits < 10;
+            creditsEl.textContent = '💰 积分: ' + user.credits + ' 分';
+            creditsEl.style.color = low ? 'var(--error)' : 'var(--muted)';
+          }
         }
       } else {
         if (authPanel) authPanel.style.display = 'none';
@@ -2171,6 +2200,26 @@ ${commonRules}`;
 
     // 启动时检查登录状态
     vscode.postMessage({ command: 'checkAuth' });
+
+    // 步骤间隔：读取保存值并绑定
+    const stepIntervalEl = document.getElementById('stepIntervalInput');
+    if (stepIntervalEl) {
+      try { stepIntervalEl.value = localStorage.getItem('tp-step-interval') || '0'; } catch(e) {}
+      stepIntervalEl.addEventListener('change', (e) => {
+        const val = Math.max(0, Math.min(9999, parseInt(e.target.value) || 0));
+        e.target.value = val;
+        try { localStorage.setItem('tp-step-interval', String(val)); } catch(e) {}
+      });
+    }
+
+    // 完成通知：读取保存值并绑定
+    const notifyToggleEl = document.getElementById('notifyToggle');
+    if (notifyToggleEl) {
+      try { notifyToggleEl.checked = localStorage.getItem('tp-notify') === '1'; } catch(e) {}
+      notifyToggleEl.addEventListener('change', (e) => {
+        try { localStorage.setItem('tp-notify', e.target.checked ? '1' : '0'); } catch(e) {}
+      });
+    }
 
     // Tab切换
     const tabBlueprint = document.getElementById("tabBlueprint");
@@ -2985,6 +3034,15 @@ ${commonRules}`;
       controlSection.classList.add("hidden");
       screenshotSection.classList.add("hidden");
       addLog("测试完成!", "success");
+
+      // 完成通知（如已开启）
+      try {
+        const notifyOn = localStorage.getItem('tp-notify') === '1';
+        if (notifyOn) {
+          const passRate = report.pass_rate ? report.pass_rate.toFixed(0) + '%' : '?';
+          vscode.postMessage({ command: 'notifyComplete', passRate, name: report.test_name || '测试' });
+        }
+      } catch(e) {}
 
       // pass_rate from API is already percentage (e.g. 83), not decimal
       const passRateNum = report.pass_rate;
