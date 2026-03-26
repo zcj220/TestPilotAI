@@ -218,31 +218,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
   private async _handleCheckAuth(): Promise<void> {
     const token = await this._context.secrets.get("testpilot.token");
-    if (!token) {
+    const username = await this._context.secrets.get("testpilot.username");
+
+    if (!token || !username) {
       this._postMessage({ command: "authResult", success: false, user: null });
       return;
     }
+
+    // 离线优先：有 token 就立即显示已登录（同 Windsurf/Copilot 策略）
+    this._postMessage({
+      command: "authResult",
+      success: true,
+      user: { id: 0, email: "", username, role: "user", credits: -1, plan: "" },
+    });
+
+    // 后台静默更新用户信息（失败不退出登录，不清除 token）
     try {
       const user = await this._client.cloudGetMe(token);
       this._postMessage({ command: "authResult", success: true, user });
-    } catch (e: any) {
-      const errMsg = String(e?.message || "");
-      const isAuthError = /HTTP\s+(401|403)/i.test(errMsg);
-
-      if (!isAuthError) {
-        // 网络错误（服务器不可达等）：保持登录状态，使用缓存用户名
-        const username = await this._context.secrets.get("testpilot.username");
-        if (username) {
-          this._postMessage({
-            command: "authResult",
-            success: true,
-            user: { id: 0, email: "", username, role: "user", credits: -1, plan: "" },
-          });
-          return;
-        }
-      }
-
-      // Auth 错误(401/403)：尝试用 Refresh Token 自动续期
+    } catch {
       const refreshToken = await this._context.secrets.get("testpilot.refresh_token");
       if (refreshToken) {
         try {
@@ -250,15 +244,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           await this._context.secrets.store("testpilot.token", result.access_token);
           await this._context.secrets.store("testpilot.refresh_token", result.refresh_token);
           this._postMessage({ command: "authResult", success: true, user: result.user });
-          return;
         } catch {
-          // Refresh Token 也失效，清除并要求重新登录
+          // refresh 也失败，静默忽略，保持已登录状态
         }
       }
-      await this._context.secrets.delete("testpilot.token");
-      await this._context.secrets.delete("testpilot.refresh_token");
-      await this._context.secrets.delete("testpilot.username");
-      this._postMessage({ command: "authResult", success: false, user: null });
+      // 任何失败都不清除 token、不退出登录
     }
   }
 
@@ -1739,6 +1729,13 @@ ${commonRules}`;
       padding: 6px 12px; font-size: 11px;
       border-top: 1px solid var(--input-border);
     }
+    .sdrop-logout-btn {
+      width: 100%; height: 28px; padding: 0 6px; font-size: 11px;
+      background: transparent; color: var(--fg);
+      border: 1px solid var(--input-border); border-radius: 3px;
+      cursor: pointer; margin-top: 6px; line-height: 28px;
+    }
+    .sdrop-logout-btn:hover { background: var(--item-hover); }
   </style>
 </head>
 <body>
@@ -1813,12 +1810,12 @@ ${commonRules}`;
             </div>
           </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
-            <div style="display:flex;align-items:center;justify-content:space-between">
+            <div>
               <span style="color:var(--success);font-weight:600">👤 <span id="authUsername"></span>
                 <span style="color:var(--muted)" id="authPlan"></span></span>
-              <button id="authLogoutBtn" style="background:none;border:1px solid var(--input-border);color:var(--fg);cursor:pointer;font-size:11px;padding:2px 10px;border-radius:3px">注销</button>
             </div>
             <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
+            <button id="authLogoutBtn" class="sdrop-logout-btn">注销</button>
           </div>
         </div>
       </div>
