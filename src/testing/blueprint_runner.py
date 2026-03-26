@@ -52,12 +52,14 @@ class BlueprintRunner:
         controller: Optional[TestController] = None,
         on_screenshot: Optional["BlueprintRunner.ScreenshotCallback"] = None,
         on_step: Optional["BlueprintRunner.StepCallback"] = None,
+        step_interval_ms: int = 0,
     ) -> None:
         self._browser = browser
         self._ai = ai_client
         self._controller = controller
         self._on_screenshot = on_screenshot
         self._on_step = on_step
+        self._step_interval_ms = step_interval_ms
         self._anomaly_detector: AnomalyDetector | None = None
         self._log_slicer = LogSlicer()
         # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
@@ -691,6 +693,9 @@ class BlueprintRunner:
             # 操作后等待（处理异步加载/动画）
             if step_def.wait_after_ms and step_def.wait_after_ms > 0:
                 await asyncio.sleep(step_def.wait_after_ms / 1000.0)
+            # 全局步骤间隔（用户在设置中配置，在 wait_after_ms 之后额外叠加）
+            if self._step_interval_ms > 0:
+                await asyncio.sleep(self._step_interval_ms / 1000.0)
 
             # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
             # assert_text 已经用纯文本匹配验证过了，不需要再调AI浪费tokens

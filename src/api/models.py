@@ -93,6 +93,10 @@ class RunBlueprintRequest(BaseModel):
         default=None,
         description="云端用户JWT token，提供后启用积分校验与扣减",
     )
+    step_interval_ms: int = Field(
+        default=0,
+        description="每步执行后的全局额外等待毫秒数（叠加在蓝本 wait_after_ms 之后）",
+    )
 
 
 class RunMobileBlueprintRequest(BaseModel):

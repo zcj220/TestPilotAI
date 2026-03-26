@@ -342,6 +342,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     base_url?: string;
     platform?: string;
     mobile_session_id?: string;
+    step_interval_ms?: number;
   }): Promise<void> {
     const token = await this._context.secrets.get("testpilot.token");
     if (!token) {
@@ -378,6 +379,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           blueprint_path: msg.blueprint_path,
           base_url: msg.base_url || undefined,
           cloud_token: (await this._context.secrets.get("testpilot.token")) || undefined,
+          step_interval_ms: msg.step_interval_ms || 0,
         });
       }
 
@@ -1778,7 +1780,7 @@ ${commonRules}`;
             <span>⏱ 步骤间隔</span>
             <div style="display:flex;align-items:center;gap:3px">
               <input type="number" id="stepIntervalInput" min="0" max="9999" step="100"
-                style="width:50px;font-size:11px;padding:1px 4px;text-align:right;border:1px solid var(--input-border);background:var(--input-bg);color:var(--fg);border-radius:3px" value="0" />
+                style="width:50px;font-size:11px;padding:1px 4px;text-align:right;border:1px solid var(--input-border);background:var(--input-bg);color:var(--fg);border-radius:3px" value="500" />
               <span style="font-size:11px;color:var(--muted)">ms</span>
             </div>
           </div>
@@ -1829,8 +1831,11 @@ ${commonRules}`;
               <button class="sdrop-login-btn" id="authRegisterSubmit">注册账号</button>
             </div>
           </div>
+          <div id="settingsCreditsRow" class="sdrop-item" style="display:none;cursor:default">
+            <span id="authCreditsLabel" style="font-size:11px;color:var(--muted)">💰 积分加载中...</span>
+            <span id="authPlanLabel" style="font-size:11px;color:var(--muted)"></span>
+          </div>
           <div id="settingsUserRow" class="sdrop-user-row" style="display:none">
-            <div id="authCredits" style="font-size:11px;color:var(--muted);margin-top:2px"></div>
             <button id="authLogoutBtn" class="sdrop-logout-btn">注销</button>
           </div>
         </div>
@@ -2179,21 +2184,27 @@ ${commonRules}`;
         if (userRow) userRow.style.display = 'block';
         if (authLabel) authLabel.textContent = '👤 ' + (user.username || '');
         if (authUsername) authUsername.textContent = user.username || '';
-        if (authPlan) authPlan.textContent = user.plan ? '(' + user.plan + ')' : '';
-        const creditsEl = document.getElementById('authCredits');
-        if (creditsEl && user.credits !== undefined) {
+        if (authPlan) authPlan.textContent = '';
+        const creditsLabelEl = document.getElementById('authCreditsLabel');
+        const planLabelEl = document.getElementById('authPlanLabel');
+        const creditsRowEl = document.getElementById('settingsCreditsRow');
+        if (creditsRowEl) creditsRowEl.style.display = 'flex';
+        if (planLabelEl) planLabelEl.textContent = user.plan ? user.plan : '';
+        if (creditsLabelEl && user.credits !== undefined) {
           if (user.credits === -1) {
-            creditsEl.textContent = '💰 积分加载中...';
-            creditsEl.style.color = 'var(--muted)';
+            creditsLabelEl.textContent = '💰 积分加载中...';
+            creditsLabelEl.style.color = 'var(--muted)';
           } else {
             const low = user.credits < 10;
-            creditsEl.textContent = '💰 积分: ' + user.credits + ' 分';
-            creditsEl.style.color = low ? 'var(--error)' : 'var(--muted)';
+            creditsLabelEl.textContent = '💰 积分: ' + user.credits + ' 分';
+            creditsLabelEl.style.color = low ? 'var(--error)' : 'var(--muted)';
           }
         }
       } else {
         if (authPanel) authPanel.style.display = 'none';
         if (userRow) userRow.style.display = 'none';
+        const creditsRowHide = document.getElementById('settingsCreditsRow');
+        if (creditsRowHide) creditsRowHide.style.display = 'none';
         if (authLabel) authLabel.textContent = '🔑 账号';
       }
     }
@@ -2204,7 +2215,7 @@ ${commonRules}`;
     // 步骤间隔：读取保存值并绑定
     const stepIntervalEl = document.getElementById('stepIntervalInput');
     if (stepIntervalEl) {
-      try { stepIntervalEl.value = localStorage.getItem('tp-step-interval') || '0'; } catch(e) {}
+      try { stepIntervalEl.value = localStorage.getItem('tp-step-interval') ?? '500'; } catch(e) { stepIntervalEl.value = '500'; }
       stepIntervalEl.addEventListener('change', (e) => {
         const val = Math.max(0, Math.min(9999, parseInt(e.target.value) || 0));
         e.target.value = val;
@@ -2447,6 +2458,7 @@ ${commonRules}`;
           command: "blueprintTest",
           blueprint_path: bp,
           base_url: document.getElementById("inputBpBaseUrl").value.trim() || undefined,
+          step_interval_ms: parseInt(localStorage.getItem('tp-step-interval') ?? '500') || 0,
         });
       } else {
         const url = document.getElementById("inputUrl").value.trim();
@@ -2722,6 +2734,7 @@ ${commonRules}`;
           blueprint_path: run.paths[0],
           base_url: run.baseUrl,
           platform: run.platform,
+          step_interval_ms: parseInt(localStorage.getItem('tp-step-interval') ?? '500') || 0,
         });
       }
     }

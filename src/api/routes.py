@@ -543,6 +543,7 @@ def create_router(
             controller=test_controller,
             on_screenshot=_on_screenshot,
             on_step=_on_step,
+            step_interval_ms=req.step_interval_ms,
         )
 
         # 使用 StreamingResponse + 心跳保活，防止 HTTP 连接在长测试中断开

@@ -129,6 +129,7 @@ export class EngineClient {
     blueprint_path: string;
     base_url?: string;
     cloud_token?: string;
+    step_interval_ms?: number;
   }): Promise<TestReportResponse> {
     return this._post<TestReportResponse>("/api/v1/test/blueprint", params);
   }
