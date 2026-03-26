@@ -374,3 +374,49 @@ class BrowserAutomator:
             logger.info("浏览器已关闭")
         except Exception as e:
             logger.warning("关闭浏览器时出错: {}", e)
+
+    async def ensure_healthy(self) -> None:
+        """确保浏览器处于健康可用状态，否则自动重置。
+
+        在每次测试开始前调用，避免因上次测试异常退出导致浏览器
+        处于损坏状态（页面崩溃/挂起/导航失败）时仍复用坏页面。
+        重置时只关闭旧 context，不关闭 Playwright/Browser 进程，
+        速度远快于完整 close() + launch()。
+        """
+        if self._page is None:
+            # 浏览器尚未启动，正常 launch
+            await self.launch()
+            return
+
+        # 健康探测：向页面发一个轻量 JS 求值
+        try:
+            await self._page.evaluate("1 + 1", timeout=3000)
+            # 页面响应正常，无需重置
+        except Exception as e:
+            logger.warning("浏览器页面健康检查失败，自动重置: {}", str(e)[:80])
+            # 只重置 context + page，保留底层浏览器进程
+            try:
+                self._console_collector.detach()
+                if self._context:
+                    await self._context.close()
+                    self._context = None
+                self._page = None
+            except Exception:
+                pass
+            # 如果浏览器进程也挂了，做完整重启
+            if self._browser is None or not self._browser.is_connected():
+                logger.warning("浏览器进程断开，完整重启")
+                await self.close()
+                await self.launch()
+                return
+            # 浏览器进程正常，只重建 context + page
+            try:
+                viewport = {"width": self._config.viewport_width, "height": self._config.viewport_height}
+                self._context = await self._browser.new_context(viewport=viewport)
+                self._page = await self._context.new_page()
+                self._console_collector.attach(self._page)
+                logger.info("浏览器 context 已重置（引擎无需重启）")
+            except Exception as e2:
+                logger.error("重置 context 失败，完整重启浏览器: {}", e2)
+                await self.close()
+                await self.launch()

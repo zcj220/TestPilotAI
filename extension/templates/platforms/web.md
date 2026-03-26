@@ -1,4 +1,4 @@
-﻿<!-- TestPilot-Template-Version: 9 -->
+﻿<!-- TestPilot-Template-Version: 11 -->
 # Web 平台蓝本规则（platform = "web"�?
 
 > 本文件定�?Web 应用（React/Vue/Angular/纯HTML）蓝本的完整规则�?
@@ -172,7 +172,35 @@ AI 常犯的错误：看到代码�?`<Select>` 组件就写 `div[class*='Select
 | `div:has(h3:contains('生活账本'))` | 读源码，用父容器或按钮的真实 class |
 
 **唯一正确做法**：读源码，用代码中真实存在的 `#id`、`.class`、`[attribute]` 属性定位元素。如果元素没有稳定的 id/class，查看其 `type`、`title`、`placeholder` 等属性，或建议开发者添�?`data-testid`�?
+### 🚨 绝对禁止：Tailwind 小数类出现在 `target` 中（会导致 SyntaxError 崩溃）
 
+Tailwind 的小数工具类（如 `gap-0.5`、`translate-y-0.5`、`space-x-2.5`、`inset-0.5`）在 CSS 选择器中包含 `.5`，会被 Playwright 的 CSS 解析器识别为无效语法，**立即抛出 `SyntaxError: Unexpected token ".5"` 并跳过整个场景**，导致后续所有步骤连锁失败。
+
+| ❌ 禁止（必定 SyntaxError） | ✅ 替代方案 |
+|---|---|
+| `div.gap-0.5` | 打开源码，找该元素的 `id`、语义 class 或 `title` 属性 |
+| `header div.flex-col.items-end.gap-0.5 button` | 读源码找按钮自身的 `title` 属性，如 `button[title='财务报表']` |
+| `div.translate-y-0.5` | 找父容器或子元素的稳定语义属性 |
+
+> 铁律：含小数点的 Tailwind 类（数字中间有点，如 `0.5`、`1.5`、`2.5`）**永远不能出现在 `target` 里**。
+
+### 🚨 绝对禁止：猜测子元素 HTML 标签（写 :first-child 前必须确认）
+
+写 `> div:first-child`、`> li:last-child` 等子元素选择器前，**必须打开源码确认子元素的实际 HTML 标签**。看到父容器是 flex 布局，子元素可能是 `button`、`a`、`li` 等，**不一定是 `div`**。
+
+| ❌ 错误（猜测标签） | ✅ 正确（读源码确认） |
+|---|---|
+| `div.flex > div:first-child` | 打开源码发现子元素是 `<button>` → `div.flex > button:first-child` |
+| `ul.list > div:nth-child(2)` | 打开源码发现子元素是 `<li>` → `ul.list > li:nth-child(2)` |
+
+### 🚨 绝对禁止：表单内多个 button 时用模糊选择器
+
+当 `<form>` 内同时存在功能按钮（如密码眼睛图标 `type="button"`）和提交按钮（`type="submit"`）时，**禁止用 `form button` 这类模糊选择器**。Playwright 点击的是第一个匹配元素，可能是工具按钮而非提交按钮，导致表单从未提交，登录/注册等关键流程永远失败。
+
+| ❌ 禁止（模糊，点到工具按钮） | ✅ 正确（精确） |
+|---|---|
+| `form button` | 先读源码确认提交按钮的 type，若有 `type="submit"` 则用 `form button[type='submit']` |
+| `button:last-child` | 若提交按钮无 type，用文字内容组合：`.space-y-4 > button:last-of-type` 或建议开发者加 `data-testid` |
 ---
 
 ## 四、瞬�?UI 不可断言清单
@@ -426,8 +454,8 @@ Web 应用通常把登�?token 存在 localStorage/sessionStorage�?*即使刷
 
 | 错误 | 后果 | 正确做法 |
 |------|------|---------|
-| **`start_cwd` �?`"."`** | 引擎在错误目录启动，`exit code 1`，所有步�?`ERR_CONNECTION_REFUSED` | 填被测项目绝对路径，�?`"D:\\projects\\my-app"` |
-| **依赖未安装就跑测�?* | `npm run dev` 失败退出，30秒超时后继续跑，全部失败 | 先手�?`npm install`，确认项目能启动再测�?|
+| **`start_cwd` �?`"."`** | 引擎在错误目录启动，`exit code 1`，所有步�?`ERR_CONNECTION_REFUSED` | 填被测项目绝对路径，�?`"D:\\projects\\my-app"` || **修复Bug时擅自改 `platform` 字段** | Web应用被改成 `desktop` 后走桌面引擎，CSS选择器全部失效，问题更多 | **`platform` 字段一旦确定禁止修改**；修Bug只改选择器和断言，不改platform/base_url/start_command |
+| **用 `electron:start` 启动未构建的Electron应用** | Electron加载 `http://localhost:5173` 但vite未启动→白屏→窗口无内容 | 桌面模式必须用 `electron:dev`（同时启动vite+electron），或先 `npm run build` 再用 `electron:start` || **依赖未安装就跑测�?* | `npm run dev` 失败退出，30秒超时后继续跑，全部失败 | 先手�?`npm install`，确认项目能启动再测�?|
 | **端口已被占用** | 新进程启动失败，引擎等超时后继续，全部失�?| 手动确认端口空闲，或修改 `base_url` 端口 |
 | �?`<select>` �?`fill` | 引擎报错 | �?`select` 动作 |
 | `expected` 写了 toast 文字 | 断言失败（文字已消失�?| 断言页面持久化状�?|

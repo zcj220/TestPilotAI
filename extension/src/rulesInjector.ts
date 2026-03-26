@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 9;
+const TEMPLATE_VERSION = 15;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
@@ -128,17 +128,26 @@ function getTemplateContent(): string {
 | \`pubspec.yaml\` / \`AndroidManifest.xml\` / \`*.kt\` / \`*.java\` | \`android\` |
 | \`*.xcodeproj\` / \`*.swift\` / \`Info.plist\` | \`ios\` |
 | \`app.json\` + \`pages/\` 目录（小程序结构） | \`miniprogram\` |
-| \`*.xaml\` / \`tkinter\` / \`pywinauto\` / Electron + \`BrowserWindow\` | \`desktop\` |
+| \`*.xaml\` / \`tkinter\` / \`pywinauto\`（纯原生桌面，无内嵌网页） | \`desktop\` |
+| \`package.json\` + \`electron\` 依赖（Electron 套壳 Web App） | **\`web\`**（不是 desktop！Electron 内容是 Web，用 Playwright 测更稳定） |
 | \`package.json\` + \`*.html\` / React / Vue / Angular | \`web\` |
+
+> ⚠️ **Electron 项目必须用 \`web\` 而不是 \`desktop\`**：Electron 只是套壳，内容是 Web 页面，\`desktop\` 模式依赖 AI 视觉截图、精准度极低；\`web\` 模式用 Playwright CSS 选择器，更快更准。
 
 2. **检查已有蓝本的 platform 字段** — 但必须与代码特征核对，若矛盾以代码为准
 3. **读 \`testpilot/CHANGELOG.md\`**（如存在）— 里面可能已注明平台
 4. **以上都无法确定 → 停下来问用户**：「这是 Web / Android / iOS / 小程序 / 桌面 中的哪种？」
 
-### 空项目或无法判断时的处理规则
+### 无蓝本时的三种处理规则（必须区分清楚）
 
-- **项目完全为空**（无源码）→ **不写蓝本，静默等待**，不要打扰用户
-- **代码特征模糊** → 同上，等待出现明确代码文件
+| 情况 | 判断 | 动作 |
+|------|------|------|
+| **项目完全为空**（无任何源码文件） | 无可测功能 | **静默等待**，不写蓝本，不打扰用户 |
+| **有源码，平台可识别，蓝本不存在**（包括被手动删除） | 能生成 | **直接扫描源码，立即生成完整蓝本，不询问用户，不等待确认** |
+| **有源码，但平台无法识别** | 无法生成 | **先创建最简占位蓝本**（仅有框架结构，\`scenarios\` 留空），同时询问用户平台类型；确认后立即补全蓝本 |
+
+> ⚠️ **严禁在「有源码且平台已识别」时停下来询问用户**「要不要生成蓝本」——必须直接生成！
+
 - **用户描述与代码矛盾** → 以代码为准，告知用户
 
 ### 发现平台写错时如何纠正
@@ -210,11 +219,37 @@ function getTemplateContent(): string {
 
 ---
 
-## 四、所有详细规则 → 参见平台规则文件（必须阅读！）
+## 四、两条跨平台铁规则（所有平台通用，无例外）
 
-**蓝本的选择器、动作表、完整模板、连续流模式（flow）写法、自检清单、描述规范、踩坑清单等全部详细规则，都在平台专属规则文件中定义。**
+> 以下两条规则适用于 Web / Android / iOS / 小程序 / 桌面所有平台。
+> 各平台专属的选择器禁则（如 Web 的 \`:contains()\`、Tailwind 小数类等）在平台规则文件中定义，务必通读。
+
+### 🚨 铁规则一：\`target\` 属性值必须从源码复制，不得凭推测
+
+使用 \`[title='xxx']\`、\`[placeholder='xxx']\`、\`[aria-label='xxx']\`、\`accessibility_id:xxx\` 等属性选择器时：
+1. **必须先打开该元素所在的源文件**
+2. **在代码中搜索该属性名**，确认属性确实存在且值与蓝本完全一致
+3. **禁止凭经验、常识或用户描述推测属性值**
+
+> 典型错误：看到箭头图标按钮就猜 \`button[title='返回']\`，实际源码根本没写 \`title\` 属性 → 永远找不到元素，超时失败。
+
+### 🚨 铁规则二：\`assert_text\` 的 \`expected\` 必须从源码原文复制
+
+1. **必须从源码的 JSX/WXML/Swift/XML/Kotlin 中找到对应文字节点**，原文复制到 \`expected\`
+2. **禁止自行创造、意译或总结文字**（如源码写"收支记录"，不得断言"收支统计"）
+3. **禁止断言从未出现在 DOM/视图树里的文字**（如组件内部变量名、注释文字）
+
+> 典型错误：源码只有"总收入""总支出""结余"三张卡片，却断言"收支统计"——该词在任何源文件里都不存在 → 断言必然失败。
+
+---
+
+## 五、所有详细规则 → 参见平台规则文件（必须阅读！）
+
+**蓝本的选择器禁则、动作表、完整模板、连续流模式（flow）写法、自检清单、等待策略、踩坑清单等全部详细规则，都在平台专属规则文件中定义。**
 
 确定 \`platform\` 后，**立即打开并通读** \`.testpilot/platforms/{platform}.md\`，严格遵守该文件中的所有规则。
+
+> ⚠️ 平台规则文件是蓝本质量的最终权威。AGENTS.md 只定义通用原则，具体的选择器格式、禁止语法、等待策略必须以平台规则文件为准。
 
 **禁止在不阅读平台规则文件的情况下编写蓝本。**
 `;
@@ -620,40 +655,84 @@ function ensureSkeletonBlueprint(
   const folderName = path.basename(workspaceRoot);
   let appName = folderName;
   let platform = "web";
+  let platformDetected = false;
+
+  const listDir = (dir: string): string[] => {
+    try { return fs.readdirSync(dir); } catch { return []; }
+  };
+  const rootFiles = listDir(workspaceRoot);
 
   // Flutter / Dart
   if (fs.existsSync(path.join(workspaceRoot, "pubspec.yaml"))) {
     platform = "android";
+    platformDetected = true;
     try {
       const pubspec = fs.readFileSync(path.join(workspaceRoot, "pubspec.yaml"), "utf-8");
       const nameMatch = pubspec.match(/^name:\s*(.+)$/m);
       if (nameMatch) appName = nameMatch[1].trim();
     } catch { /* ignore */ }
   }
-  // Node.js / Web
+  // Android 原生（AndroidManifest.xml 或 .kt/.java 源码）
+  else if (
+    fs.existsSync(path.join(workspaceRoot, "app", "src", "main", "AndroidManifest.xml")) ||
+    fs.existsSync(path.join(workspaceRoot, "AndroidManifest.xml"))
+  ) {
+    platform = "android";
+    platformDetected = true;
+  }
+  // iOS / Swift（.xcodeproj / .xcworkspace / Package.swift）
+  else if (
+    fs.existsSync(path.join(workspaceRoot, "Package.swift")) ||
+    rootFiles.some((f: string) => f.endsWith(".xcodeproj") || f.endsWith(".xcworkspace"))
+  ) {
+    platform = "ios";
+    platformDetected = true;
+  }
+  // Node.js / Web / Electron
   else if (fs.existsSync(path.join(workspaceRoot, "package.json"))) {
     try {
       const pkg = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "package.json"), "utf-8"));
       if (pkg.name) appName = pkg.name;
+      // Electron 检测：Electron 项目本质是 Web 内容套了一个桌面壳，用 web 模式测试更准确（Playwright CSS选择器）
+      // 只有纯桌面原生应用（无 web 内容、无 base_url）才应用 desktop 模式
+      // 因此即使有 electron 依赖，也判定为 web——让 AI 用 Playwright 测试 Web 内容
+      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+      if (allDeps["electron"]) {
+        platform = "web";   // Electron 套壳 Web App，内容是 Web，用 web 模式更稳定
+        platformDetected = true;
+      }
     } catch { /* ignore */ }
-    // 小程序检测
-    if (fs.existsSync(path.join(workspaceRoot, "app.json")) && fs.existsSync(path.join(workspaceRoot, "app.wxss"))) {
-      platform = "miniprogram";
+    if (!platformDetected) {
+      // 小程序检测
+      if (fs.existsSync(path.join(workspaceRoot, "app.json")) && fs.existsSync(path.join(workspaceRoot, "app.wxss"))) {
+        platform = "miniprogram";
+        platformDetected = true;
+      } else {
+        platform = "web";
+        platformDetected = true;
+      }
     }
   }
   // 微信小程序（无 package.json）
   else if (fs.existsSync(path.join(workspaceRoot, "app.json")) && fs.existsSync(path.join(workspaceRoot, "app.js"))) {
     platform = "miniprogram";
+    platformDetected = true;
   }
-  // iOS / Swift
-  else if (fs.existsSync(path.join(workspaceRoot, "Package.swift")) || fs.readdirSync(workspaceRoot).some((f: string) => f.endsWith(".xcodeproj") || f.endsWith(".xcworkspace"))) {
-    platform = "ios";
+  // Python 桌面应用（tkinter / pywinauto）
+  else if (rootFiles.some((f: string) => f.endsWith(".py"))) {
+    platform = "desktop";
+    platformDetected = true;
   }
+
+  // 构造 description：未能识别时明确提示 AI 需要先判断 platform
+  const platformNote = platformDetected
+    ? `（已自动识别为 platform="${platform}"，请编程AI在生成蓝本前先核对代码特征确认无误）`
+    : `（⚠️ 平台类型无法自动识别，编程AI必须先检查代码文件特征确认 platform 是 web/android/ios/miniprogram/desktop 中的哪一种，然后再生成蓝本）`;
 
   // 创建空壳蓝本
   const skeleton = {
     app_name: appName,
-    description: `请让编程AI为 ${appName} 生成完整的测试蓝本（当前为空壳，尚无测试场景）`,
+    description: `【占位蓝本，需编程AI补全】请先阅读 .testpilot/platforms/ 下对应平台规则文件，再扫描源码生成完整测试场景。${platformNote}`,
     base_url: platform === "web" ? "http://localhost:3000" : "",
     platform: platform,
     start_command: "",

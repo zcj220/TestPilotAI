@@ -301,12 +301,11 @@ def create_router(
                 detail="AI 客户端未配置，请设置 TP_AI_API_KEY 环境变量",
             )
 
-        # 确保浏览器已启动
-        if browser_automator._page is None:
-            try:
-                await browser_automator.launch()
-            except BrowserError as e:
-                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+        # 确保浏览器健康可用（自动重置损坏的页面，无需重启引擎）
+        try:
+            await browser_automator.ensure_healthy()
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
 
         orchestrator = TestOrchestrator(ai_client, browser_automator, memory_store)
 
@@ -521,12 +520,11 @@ def create_router(
             except Exception as _ce:
                 logger.warning("积分校验失败（允许继续，游客模式）: {}", _ce)
 
-        # 确保浏览器已启动
-        if browser_automator._page is None:
-            try:
-                await browser_automator.launch()
-            except BrowserError as e:
-                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+        # 确保浏览器健康可用（自动重置损坏的页面，无需重启引擎）
+        try:
+            await browser_automator.ensure_healthy()
+        except BrowserError as e:
+            raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
 
         # 执行蓝本测试（v2.0：注入控制器 + 截图推送 + 步骤通知）
         async def _on_screenshot(step: int, img_b64: str) -> None:
@@ -1100,11 +1098,17 @@ def create_router(
             import json
             raw_bp = json.loads(bp_file.read_text(encoding="utf-8"))
             window_title = req.get("window_title", "") or raw_bp.get("window_title", "") or blueprint.app_name
-            app_exe = req.get("app_exe", "") or raw_bp.get("app_exe", "")
+            # app_exe 是桌面专用字段；start_command 是通用字段，桌面模式下作为 fallback
+            app_exe = (req.get("app_exe", "") or raw_bp.get("app_exe", "")
+                       or raw_bp.get("start_command", ""))
             bp_dir = bp_file.parent  # 蓝本所在目录，用于相对路径执行
             # 如果蓝本在 testpilot/ 子目录下，工作目录应为其父目录（项目根目录）
             if bp_dir.name == "testpilot":
                 bp_dir = bp_dir.parent
+            # start_cwd 优先作为工作目录（对 npm run electron:dev 等复杂命令至关重要）
+            start_cwd = raw_bp.get("start_cwd", "") or req.get("start_cwd", "")
+            if start_cwd:
+                bp_dir = Path(start_cwd)
 
             # 自动启动/重启被测应用（确保干净状态）
             if app_exe:
@@ -1130,8 +1134,8 @@ def create_router(
                     if venv_python.exists():
                         launch_cmd = f'"{venv_python}" {launch_cmd[7:]}'
                 subprocess.Popen(launch_cmd, shell=True, cwd=str(bp_dir))
-                # 等窗口出现（最多10秒），而不是固定等3秒
-                for _wait in range(20):
+                # 等待窗口出现，最多30秒（npm run electron:dev 需要先启动vite，耗时较长）
+                for _wait in range(60):
                     time.sleep(0.5)
                     if user32.FindWindowW(None, window_title):
                         break

@@ -2614,6 +2614,11 @@ ${commonRules}`;
       vscode.postMessage({ command: "controlTest", action: "resume" });
     });
     document.getElementById("btnStop").addEventListener("click", () => {
+      const btn = document.getElementById("btnStop");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "停止中…";
+      }
       vscode.postMessage({ command: "controlTest", action: "stop" });
     });
 
@@ -3072,6 +3077,9 @@ ${commonRules}`;
       });
       saveBugRetryMap();
       controlSection.classList.add("hidden");
+      // 恢复停止按钮状态
+      var _btnStop = document.getElementById("btnStop");
+      if (_btnStop) { _btnStop.disabled = false; _btnStop.textContent = "停止"; }
       screenshotSection.classList.add("hidden");
       addLog("测试完成!", "success");
 
@@ -3229,6 +3237,9 @@ ${commonRules}`;
     function onTestError(data) {
       if (testingTimer) { clearInterval(testingTimer); testingTimer = null; }
       controlSection.classList.add("hidden");
+      // 恢复停止按钮状态
+      var _btnStop2 = document.getElementById("btnStop");
+      if (_btnStop2) { _btnStop2.disabled = false; _btnStop2.textContent = "停止"; }
       addLog("测试失败: " + data.error, "error");
     }
 

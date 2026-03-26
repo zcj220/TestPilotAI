@@ -542,6 +542,24 @@ class BlueprintRunner:
         except Exception as e:
             logger.warning("AI中枢Web点击失败: {}", str(e)[:80])
 
+    async def _cancellable_sleep(self, seconds: float) -> bool:
+        """可中断的等待，每 100ms 检查一次取消标志。
+
+        Returns:
+            True  = 正常等待结束
+            False = 被取消（调用方应立即 break）
+        """
+        if seconds <= 0:
+            return True
+        deadline = asyncio.get_event_loop().time() + seconds
+        while True:
+            if self._controller and self._controller.is_cancelled:
+                return False
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                return True
+            await asyncio.sleep(min(0.1, remaining))
+
     async def _execute_step(
         self,
         step_num: int,
@@ -594,7 +612,7 @@ class BlueprintRunner:
                     await self._browser.wait_for_selector(target, timeout_ms=timeout)
                 else:
                     ms = int(resolved_value) if resolved_value and resolved_value.isdigit() else (step_def.timeout_ms or 1000)
-                    await asyncio.sleep(ms / 1000)
+                    await self._cancellable_sleep(ms / 1000)
 
             elif step_def.action == "screenshot":
                 pass  # 截图在下面统一做
@@ -692,10 +710,10 @@ class BlueprintRunner:
 
             # 操作后等待（处理异步加载/动画）
             if step_def.wait_after_ms and step_def.wait_after_ms > 0:
-                await asyncio.sleep(step_def.wait_after_ms / 1000.0)
+                await self._cancellable_sleep(step_def.wait_after_ms / 1000.0)
             # 全局步骤间隔（用户在设置中配置，在 wait_after_ms 之后额外叠加）
             if self._step_interval_ms > 0:
-                await asyncio.sleep(self._step_interval_ms / 1000.0)
+                await self._cancellable_sleep(self._step_interval_ms / 1000.0)
 
             # 只在蓝本写了screenshot动作 或 有expected需要AI验证时才截图
             # assert_text 已经用纯文本匹配验证过了，不需要再调AI浪费tokens
