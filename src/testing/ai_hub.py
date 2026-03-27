@@ -33,6 +33,7 @@ class HubAction(str, Enum):
     RETRY = "retry"            # 重试当前步骤（弹窗已关闭或环境已修复）
     SKIP_STEP = "skip_step"    # 跳过当前步骤
     SKIP_SCENE = "skip_scene"  # 跳过当前场景剩余步骤（熔断）
+    RUN_SETUP = "run_setup"    # session丢失/跳回登录页：重新执行场景setup步骤后重试
     NONE = "none"              # 无额外操作，按原逻辑走
 
 
@@ -437,8 +438,10 @@ class AIHub:
             flow_analysis_hint = (
                 "\n【重要】对比上方蓝本预期流程与实际历史：\n"
                 "  1. 找出从哪一步开始走偏（蓝本期望去A页面，实际却在B页面）\n"
-                "  2. 若当前页面与蓝本预期不符，给出recover_x/recover_y（归一化0~1）和 resume_step\n"
-                "  3. blueprint_fix 必须写：错在第几步 + 具体怎么改 + 修改后从第几步继续\n"
+                "  2. 若当前页面已跳转到登录/认证页（session丢失），suggestion改为run_setup\n"
+                "     run_setup含义：引擎会静默重跑本场景的setup步骤（登录流程）后再重试当前步\n"
+                "  3. 若当前页面与蓝本预期不符但非登录页，给出recover_x/recover_y（归一化0~1）和 resume_step\n"
+                "  4. blueprint_fix 必须写：错在第几步 + 具体怎么改 + 修改后从第几步继续\n"
             ) if has_blueprint_ctx else ""
 
             prompt += (
@@ -453,7 +456,7 @@ class AIHub:
                 "  - 当前恢复：若需要先操作才能继续，写清楚先点哪个元素或坐标，然后从第N步继续\n"
                 "\n返回JSON：\n"
                 '{"diagnosis":"原因(不超过80字)","fault":"app/test/unknown",'
-                '"suggestion":"retry/skip/recover/none",'
+                '"suggestion":"retry/skip/recover/run_setup/none",'  # run_setup=session丢失重跑setup登录流程
                 '"blueprint_fix":"蓝本修复指令(fault=test时必填)",'
                 '"resume_step":可选数字表示从第几步继续,'
                 '"recover_selector":"可选CSS","recover_x":可选,"recover_y":可选}\n'
@@ -534,6 +537,16 @@ class AIHub:
                         )
                 except Exception as coord_err:
                     logger.warning("  L2坐标回退失败: {}", str(coord_err)[:80])
+
+            if suggestion == "run_setup":
+                # session丢失/跳回登录页：通知Runner重新执行setup步骤
+                logger.info("  🔑 AI中枢L2: 检测到session丢失，返回RUN_SETUP决策")
+                return HubDecision(
+                    action=HubAction.RUN_SETUP,
+                    reason=f"session丢失/跳回登录页，重新执行setup: {diagnosis}",
+                    fault=fault,
+                    ai_cost_ms=cost_ms,
+                )
 
             if suggestion == "recover" and result.get("recover_selector"):
                 # L2恢复：先执行恢复动作再重试（recover_selector在Runner中点击）

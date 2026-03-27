@@ -326,6 +326,28 @@ class BlueprintRunner:
                                 step_num, retry_step, page, blueprint
                             )
 
+                        elif decision.action == HubAction.RUN_SETUP:
+                            # session丢失/跳回登录页：静默重跑setup步骤恢复状态，再重试当前步骤
+                            if setup_step_count > 0:
+                                logger.info("  🔑 AI中枢：session丢失，静默重跑setup（{}步）后重试步骤{}", setup_step_count, step_num)
+                                setup_ok = True
+                                for s_step in effective_steps[:setup_step_count]:
+                                    try:
+                                        s_result, _ = await self._execute_step(step_num, s_step, page, blueprint)
+                                        if s_result.status != StepStatus.PASSED:
+                                            logger.warning("  🔑 setup恢复步骤失败({}), 放弃session恢复", s_step.action)
+                                            setup_ok = False
+                                            break
+                                    except Exception as se:
+                                        logger.warning("  🔑 setup恢复异常: {}", str(se)[:80])
+                                        setup_ok = False
+                                        break
+                                if setup_ok:
+                                    logger.info("  🔑 setup重跑完成，重试步骤{}", step_num)
+                                    result, bug = await self._execute_step(step_num, step_def, page, blueprint)
+                            else:
+                                logger.warning("  🔑 当前场景无setup定义，无法自动恢复session，跳过步骤{}", step_num)
+
                         elif decision.action == HubAction.SKIP_STEP:
                             logger.info("  ⏭️ AI中枢：{}，跳过步骤{}", decision.reason, step_num)
 
