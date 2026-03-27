@@ -254,3 +254,29 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
 | No wait after navigate | App not ready, elements not yet rendered | Always `wait 3000` after navigate |
 | Asserting SnackBar text | Flaky  SnackBar already dismissed | Assert permanently visible widget text |
 | Semantics label OVERRIDING hintText | Wrong hint selector | Check which label/hint is effective |
+
+---
+
+## TEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
+
+The engine automatically manages a persistent page coordinate cache at `testpilot/.page_cache.json`.
+
+**How it works:**
+
+| Run | What happens |
+|-----|-------------|
+| First run on a new page | Engine takes a screenshot + calls AI to locate elements → coordinates saved to cache |
+| Subsequent runs on same page | Engine dumps UI tree → computes fingerprint → cache hit → **reuses coordinates, skips screenshot + AI** |
+| Page UI changes | Fingerprint mismatch → re-analyzes → overwrites that page's cache entry |
+
+**Cache validation rules:**
+- Validated by: device screen resolution + `app_package` (or `bundle_id` for iOS)
+- If device or package changes: old cache is discarded automatically
+- Cache file location: `testpilot/.page_cache.json` (auto-created next to the blueprint file)
+
+**What this means for blueprints:**
+- You do NOT need special steps to "enable" or "update" the cache — it is fully automatic
+- First test run is slower (AI analysis per new page); subsequent runs are faster (cache reuse)
+- The cache persists across multiple test runs and across ALL blueprint files in the same `testpilot/` directory
+- To force a full re-analysis (e.g. after major UI redesign): delete `testpilot/.page_cache.json`
+- **Do not gitignore `.page_cache.json`** — keeping it in source control lets teammates reuse the same coordinates without re-running AI analysis
