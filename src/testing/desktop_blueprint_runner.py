@@ -498,6 +498,7 @@ class DesktopBlueprintRunner:
         report.failed_steps = sum(1 for r in all_results if r.status == StepStatus.FAILED)
         report.error_steps = sum(1 for r in all_results if r.status == StepStatus.ERROR)
         report.end_time = datetime.now(timezone.utc)
+        report.blueprint_hints = self._hub.blueprint_hints
         report.report_markdown = self._generate_markdown(blueprint, report, all_results, all_bugs)
 
         if self._test_controller:
@@ -1230,5 +1231,18 @@ class DesktopBlueprintRunner:
             lines.append(f"- {icon} 步骤{r.step}: {r.description} ({r.duration_seconds:.1f}s)")
             if r.error_message:
                 lines.append(f"  - 错误: {r.error_message}")
+
+        hints = getattr(report, 'blueprint_hints', [])
+        if hints:
+            lines.append("")
+            lines.append("## 蓝本修复建议")
+            lines.append("以下问题在测试中被AI自愈绕过，但蓝本本身需要修正：")
+            lines.append("")
+            for h in hints:
+                fix_text = h.get("fix", "") or h.get("diagnosis", "")
+                lines.append(
+                    f"- **第{h['step']}步** `{h.get('action', '')}` "
+                    f"`{h.get('target', '')}` → {fix_text}"
+                )
 
         return "\n".join(lines)

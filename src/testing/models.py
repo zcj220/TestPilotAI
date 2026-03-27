@@ -142,6 +142,7 @@ class TestReport(BaseModel):
     bugs: list[BugReport] = Field(default_factory=list, description="发现的 Bug")
     report_markdown: str = Field(default="", description="Markdown 格式的完整报告")
     repair_report: Optional[Any] = Field(default=None, description="修复报告（v0.4，RepairReport 类型）")
+    blueprint_hints: list[dict] = Field(default_factory=list, description="蓝本修复建议（L2诊断发现的蓝本问题，含已恢复的）")
 
     @property
     def pass_rate(self) -> float:

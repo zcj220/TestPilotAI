@@ -260,3 +260,7 @@ class TestReportResponse(BaseModel):
         default=False,
         description="测试是否被用户手动停止（v10.6）",
     )
+    blueprint_hints: list[dict] = Field(
+        default_factory=list,
+        description="蓝本修复建议（L2诊断发现的蓝本问题，含已自愈的）",
+    )

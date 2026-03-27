@@ -151,12 +151,19 @@ class AIHub:
         # 步骤历史记录（最近N步），供L2分析上下文
         self._step_history: list[StepRecord] = []
         self._MAX_HISTORY: int = 8  # 最多记住最近8步
+        # 蓝本修复建议：收集每次L2诊断中发现的蓝本问题，测试结束后反馈给编程AI
+        self._blueprint_hints: list[dict] = []
         # 统计
         self._total_heals: int = 0
         self._total_l1_calls: int = 0
         self._total_l2_calls: int = 0
         self._total_rule_judgments: int = 0
         self._total_skipped_scenes: int = 0
+
+    @property
+    def blueprint_hints(self) -> list[dict]:
+        """返回所有L2诊断中收集到的蓝本修复建议（含已恢复的）。"""
+        return self._blueprint_hints
 
     # ── 公共接口 ──────────────────────────────────────────
 
@@ -420,13 +427,19 @@ class AIHub:
             ) if is_click_action else ""
 
             prompt += (
-                f"\n第{ctx.step_num}步：{action_desc} → 失败：{(ctx.error_message or '未知')[:150]}\n"
+                f"\n第{ctx.step_num}步（共{ctx.total_steps}步）：{action_desc} → 失败：{(ctx.error_message or '未知')[:150]}\n"
                 "看截图判断失败原因。\n"
                 "fault: app=应用Bug(数据错/崩溃/功能缺失) | test=脚本问题(选择器错/加载中/弹窗遮挡)\n"
                 + coord_hint +
-                "\n返回JSON（diagnosis不超过80字，其他字段尽量简短）：\n"
-                '{"diagnosis":"原因","fault":"app/test/unknown",'
+                "\nblueprint_fix: 给编程AI的具体修复指令（仅fault=test时填写），必须包含：\n"
+                "  - 哪一步有问题（第N步）\n"
+                "  - 具体错在哪（如：选择器'#xxx'在当前页面不存在）\n"
+                "  - 怎么修（如：将第N步的target改为'#yyy'，或在第N步前插入登录步骤）\n"
+                "  - 若需要先执行前置操作，写清楚点什么、填什么，然后从第几步继续\n"
+                "\n返回JSON：\n"
+                '{"diagnosis":"原因(不超过80字)","fault":"app/test/unknown",'
                 '"suggestion":"retry/skip/recover/none",'
+                '"blueprint_fix":"给编程AI的具体蓝本修复指令(fault=test时必填，不超过200字)",'
                 '"recover_selector":"可选CSS","recover_x":可选,"recover_y":可选}\n'
                 "只返回JSON。"
             )
@@ -462,7 +475,20 @@ class AIHub:
             except ValueError:
                 fault = FaultType.UNKNOWN
 
+            blueprint_fix = result.get("blueprint_fix", "")
             logger.info("  🧠 AI中枢L2诊断: {} | 归因={} | 建议={}", diagnosis, fault.value, suggestion)
+            if blueprint_fix:
+                logger.info("  📋 蓝本修复建议: {}", blueprint_fix[:200])
+
+            # 收集蓝本修复建议（无论是否恢复成功，都记录给编程AI）
+            if fault == FaultType.TEST and (diagnosis or blueprint_fix):
+                self._blueprint_hints.append({
+                    "step": ctx.step_num,
+                    "action": ctx.action,
+                    "target": ctx.target,
+                    "diagnosis": diagnosis,
+                    "fix": blueprint_fix,
+                })
 
             # L2坐标回退：当选择器失效但元素可见时，用AI提供的坐标直接点击
             recover_x = result.get("recover_x")

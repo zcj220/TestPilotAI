@@ -55,6 +55,7 @@ export interface TestReportResponse {
   repair_summary: string | null;
   fixed_bug_count: number | null;
   stopped?: boolean;
+  blueprint_hints?: Array<{ step: number; action: string; target: string; diagnosis: string; fix: string }>;
 }
 
 /** WebSocket 消息类型 */

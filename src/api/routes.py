@@ -438,6 +438,7 @@ def create_router(
                     duration_seconds=report.duration_seconds,
                     report_markdown=report.report_markdown,
                     stopped=stopped,
+                    blueprint_hints=getattr(report, 'blueprint_hints', []),
                     steps=[
                         StepDetail(
                             step=r.step,
@@ -580,6 +581,7 @@ def create_router(
                     duration_seconds=report.duration_seconds,
                     report_markdown=report.report_markdown,
                     stopped=stopped,
+                    blueprint_hints=getattr(report, 'blueprint_hints', []),
                     steps=[
                         StepDetail(
                             step=r.step,
@@ -775,6 +777,7 @@ def create_router(
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
                 stopped=stopped,
+                blueprint_hints=getattr(report, 'blueprint_hints', []),
                 steps=[
                     StepDetail(
                         step=r.step,
@@ -1041,6 +1044,7 @@ def create_router(
                 pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                blueprint_hints=getattr(report, 'blueprint_hints', []),
                 steps=[
                     StepDetail(
                         step=r.step,
@@ -1179,6 +1183,7 @@ def create_router(
                 pass_rate=pass_rate,
                 duration_seconds=report.duration_seconds,
                 report_markdown=report.report_markdown,
+                blueprint_hints=getattr(report, 'blueprint_hints', []),
                 steps=[
                     StepDetail(
                         step=r.step,

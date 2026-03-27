@@ -495,10 +495,14 @@ class BlueprintRunner:
 
         report.end_time = datetime.now(timezone.utc)
 
+        # 收集AI中枢的蓝本修复建议（含已自愈的问题，也报给编程AI修正蓝本）
+        report.blueprint_hints = self._hub.blueprint_hints
+
         # 生成Markdown报告（含修复统计）
         report.report_markdown = self._generate_markdown(
             blueprint, report, all_results, all_bugs,
             repair_stats=repair_decider.stats if smart_repair_enabled else None,
+            blueprint_hints=report.blueprint_hints,
         )
 
         logger.info("蓝本测试完成 | 通过={}/{} | Bug={} | 修复统计={} | AI中枢={}",
@@ -959,6 +963,7 @@ class BlueprintRunner:
         results: list[StepResult],
         bugs: list[BugReport],
         repair_stats: Optional[dict] = None,
+        blueprint_hints: Optional[list[dict]] = None,
     ) -> str:
         """生成Markdown格式测试报告。"""
         lines = [
@@ -1008,6 +1013,20 @@ class BlueprintRunner:
                 f"- **延迟修复Bug数**：{repair_stats['failed_steps'] - repair_stats['immediate_repairs']}"
                 if repair_stats['failed_steps'] > repair_stats['immediate_repairs'] else "",
             ])
+
+        if blueprint_hints:
+            lines.extend([
+                "",
+                "## 蓝本修复建议",
+                "以下问题在测试中被AI自愈绕过，但蓝本本身需要修正：",
+                "",
+            ])
+            for h in blueprint_hints:
+                fix_text = h.get("fix", "") or h.get("diagnosis", "")
+                lines.append(
+                    f"- **第{h['step']}步** `{h.get('action', '')}`"
+                    f" `{h.get('target', '')}` → {fix_text}"
+                )
 
         lines.extend([
             "",

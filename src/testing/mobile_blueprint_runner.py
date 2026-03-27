@@ -682,6 +682,7 @@ class MobileBlueprintRunner:
         report.failed_steps = sum(1 for r in all_results if r.status == StepStatus.FAILED)
         report.error_steps = sum(1 for r in all_results if r.status == StepStatus.ERROR)
         report.end_time = datetime.now(timezone.utc)  # duration_seconds 是通过 end_time 计算的属性
+        report.blueprint_hints = self._hub.blueprint_hints
         report.report_markdown = self._generate_markdown(blueprint, report, all_results, all_bugs)
 
         # 测试结束后立即停止弹窗dismisser，避免无限刷错误日志
@@ -1673,10 +1674,23 @@ class MobileBlueprintRunner:
                 lines.append(f"- 复现步骤: {bug.reproduction}")
                 lines.append("")
 
+        hints = getattr(report, 'blueprint_hints', [])
+        if hints:
+            lines.extend([
+                "",
+                "## 蓝本修复建议",
+                "以下问题在测试中被AI自愈绕过，但蓝本本身需要修正：",
+                "",
+            ])
+            for h in hints:
+                fix_text = h.get("fix", "") or h.get("diagnosis", "")
+                lines.append(
+                    f"- **第{h['step']}步** `{h.get('action', '')}` "
+                    f"`{h.get('target', '')}` → {fix_text}"
+                )
+
         lines.extend([
             "",
             "---",
             f"*报告由 TestPilot AI 蓝本模式生成*",
         ])
-
-        return "\n".join(lines)
