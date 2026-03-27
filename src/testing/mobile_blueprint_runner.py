@@ -505,6 +505,9 @@ class MobileBlueprintRunner:
                             platform="mobile",
                             screenshot_fn=self._hub_screenshot,
                             click_fn=self._hub_click,
+                            blueprint_steps_context=self._hub.build_blueprint_steps_context(
+                                all_scenario_steps, step_num
+                            ),
                         )
                         decision = await self._hub.on_step_failed(ctx)
 

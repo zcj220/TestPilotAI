@@ -291,6 +291,9 @@ class BlueprintRunner:
                             screenshot_fn=self._hub_screenshot,
                             click_fn=self._hub_click,
                             dom_context=dom_ctx,
+                            blueprint_steps_context=self._hub.build_blueprint_steps_context(
+                                effective_steps, step_num
+                            ),
                         )
                         decision = await self._hub.on_step_failed(ctx)
 

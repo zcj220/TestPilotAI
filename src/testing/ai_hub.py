@@ -90,6 +90,8 @@ class StepContext:
     click_fn: Optional[Callable[..., Coroutine]] = field(default=None, repr=False)
     _cached_screenshot: Optional[str] = field(default=None, repr=False)  # L1/L2 截图缓存
     dom_context: Optional[str] = field(default=None, repr=False)  # Web DOM 元素列表（C1）
+    # 蓝本预期流程摘要（第1步到当前步），让L2 AI对比"计划 vs 实际"找出根因
+    blueprint_steps_context: Optional[str] = field(default=None, repr=False)
 
 
 @dataclass
@@ -414,8 +416,13 @@ class AIHub:
             history = self._build_history_context()
 
             prompt = f"场景「{ctx.scenario_name}」"
+
+            # 蓝本预期流程（第1步到当前步）
+            if ctx.blueprint_steps_context:
+                prompt += f"\n\n【蓝本预期流程（到当前步为止）】\n{ctx.blueprint_steps_context}"
+
             if history:
-                prompt += f"\n{history}"
+                prompt += f"\n\n【实际执行历史（最近几步）】\n{history}"
 
             # Web DOM 辅助：将页面可交互元素列表注入 prompt
             if ctx.dom_context:
@@ -426,20 +433,29 @@ class AIHub:
                 "若fault=test且元素可见只是选择器错，给归一化坐标recover_x/recover_y(0~1)。"
             ) if is_click_action else ""
 
+            has_blueprint_ctx = bool(ctx.blueprint_steps_context)
+            flow_analysis_hint = (
+                "\n【重要】对比上方蓝本预期流程与实际历史：\n"
+                "  1. 找出从哪一步开始走偏（蓝本期望去A页面，实际却在B页面）\n"
+                "  2. 若当前页面与蓝本预期不符，给出recover_x/recover_y（归一化0~1）和 resume_step\n"
+                "  3. blueprint_fix 必须写：错在第几步 + 具体怎么改 + 修改后从第几步继续\n"
+            ) if has_blueprint_ctx else ""
+
             prompt += (
-                f"\n第{ctx.step_num}步（共{ctx.total_steps}步）：{action_desc} → 失败：{(ctx.error_message or '未知')[:150]}\n"
+                f"\n\n第{ctx.step_num}步（共{ctx.total_steps}步）：{action_desc} → 失败：{(ctx.error_message or '未知')[:150]}\n"
                 "看截图判断失败原因。\n"
                 "fault: app=应用Bug(数据错/崩溃/功能缺失) | test=脚本问题(选择器错/加载中/弹窗遮挡)\n"
-                + coord_hint +
-                "\nblueprint_fix: 给编程AI的具体修复指令（仅fault=test时填写），必须包含：\n"
-                "  - 哪一步有问题（第N步）\n"
-                "  - 具体错在哪（如：选择器'#xxx'在当前页面不存在）\n"
-                "  - 怎么修（如：将第N步的target改为'#yyy'，或在第N步前插入登录步骤）\n"
-                "  - 若需要先执行前置操作，写清楚点什么、填什么，然后从第几步继续\n"
+                + coord_hint
+                + flow_analysis_hint +
+                "\nblueprint_fix（fault=test时必填，不超过200字）：\n"
+                "  - 根本原因：蓝本第几步写错了什么\n"
+                "  - 修复方法：把第N步的target改为'xxx' / 在第N步前插入navigate步骤\n"
+                "  - 当前恢复：若需要先操作才能继续，写清楚先点哪个元素或坐标，然后从第N步继续\n"
                 "\n返回JSON：\n"
                 '{"diagnosis":"原因(不超过80字)","fault":"app/test/unknown",'
                 '"suggestion":"retry/skip/recover/none",'
-                '"blueprint_fix":"给编程AI的具体蓝本修复指令(fault=test时必填，不超过200字)",'
+                '"blueprint_fix":"蓝本修复指令(fault=test时必填)",'
+                '"resume_step":可选数字表示从第几步继续,'
                 '"recover_selector":"可选CSS","recover_x":可选,"recover_y":可选}\n'
                 "只返回JSON。"
             )
@@ -476,19 +492,23 @@ class AIHub:
                 fault = FaultType.UNKNOWN
 
             blueprint_fix = result.get("blueprint_fix", "")
+            resume_step = result.get("resume_step")
             logger.info("  🧠 AI中枢L2诊断: {} | 归因={} | 建议={}", diagnosis, fault.value, suggestion)
             if blueprint_fix:
                 logger.info("  📋 蓝本修复建议: {}", blueprint_fix[:200])
 
             # 收集蓝本修复建议（无论是否恢复成功，都记录给编程AI）
             if fault == FaultType.TEST and (diagnosis or blueprint_fix):
-                self._blueprint_hints.append({
+                hint = {
                     "step": ctx.step_num,
                     "action": ctx.action,
                     "target": ctx.target,
                     "diagnosis": diagnosis,
                     "fix": blueprint_fix,
-                })
+                }
+                if resume_step is not None:
+                    hint["resume_step"] = resume_step
+                self._blueprint_hints.append(hint)
 
             # L2坐标回退：当选择器失效但元素可见时，用AI提供的坐标直接点击
             recover_x = result.get("recover_x")
@@ -550,3 +570,37 @@ class AIHub:
     def is_dialog_button(target: str) -> bool:
         """判断目标是否是弹窗按钮（各 Runner 可用来跳过缓存）。"""
         return target in DIALOG_BUTTON_KEYWORDS
+
+    @staticmethod
+    def build_blueprint_steps_context(steps: list, current_step_num: int) -> str:
+        """构建蓝本预期流程摘要字符串（第1步到当前步），注入L2 prompt。
+
+        Args:
+            steps: BlueprintStep 列表（已展开 setup 的 effective_steps）
+            current_step_num: 当前失败的步骤序号（1-based）
+
+        Returns:
+            多行字符串，每行一步，当前步标记为【❌当前失败步】
+        """
+        lines = []
+        for i, step in enumerate(steps, 1):
+            if i > current_step_num:
+                break  # 只显示到当前步，后续步骤不给AI看
+            action = step.action
+            target = step.target or ""
+            value = step.value or ""
+            desc = step.description or ""
+            if action in ("click", "fill", "select", "hover"):
+                summary = f"{action} {target}" + (f" = '{value[:30]}'" if value else "")
+            elif action == "navigate":
+                summary = f"navigate → {value or target}"
+            elif action in ("assert_text", "assert_visible"):
+                summary = f"{action} '{(value or target)[:40]}'"
+            else:
+                summary = f"{action}" + (f" {target}" if target else "")
+            if desc:
+                summary += f"  ({desc[:40]})"
+
+            marker = "  ← 【❌当前失败步】" if i == current_step_num else ""
+            lines.append(f"  第{i}步: {summary}{marker}")
+        return "\n".join(lines)

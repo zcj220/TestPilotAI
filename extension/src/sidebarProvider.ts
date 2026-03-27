@@ -657,7 +657,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       "",
     );
     // 蓝本修复建议（L2诊断发现的蓝本问题，含已自愈的）
-    const hints = (report.blueprint_hints as Array<{ step: number; action: string; target: string; diagnosis: string; fix: string }>) || [];
+    const hints = (report.blueprint_hints as Array<{ step: number; action: string; target: string; diagnosis: string; fix: string; resume_step?: number }>) || [];
     if (hints.length > 0) {
       lines.push(
         "",
@@ -665,7 +665,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       );
       hints.forEach((h, i) => {
         const fix = h.fix || h.diagnosis;
-        lines.push(`${i + 1}. 第${h.step}步 ${h.action} \`${h.target}\` → ${fix}`);
+        const resume = h.resume_step ? `，修复后从第${h.resume_step}步继续` : "";
+        lines.push(`${i + 1}. 第${h.step}步 ${h.action} \`${h.target}\` → ${fix}${resume}`);
       });
     }
     // 闭环指令：包含蓝本路径，让编程AI能直接调用MCP工具重测
