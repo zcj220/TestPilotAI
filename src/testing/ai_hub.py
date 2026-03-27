@@ -511,15 +511,17 @@ class AIHub:
                 self._blueprint_hints.append(hint)
 
             # L2坐标回退：当选择器失效但元素可见时，用AI提供的坐标直接点击
+            # fill动作也支持：先点坐标切换到正确UI状态（如切换到注册Tab），再重试fill
             recover_x = result.get("recover_x")
             recover_y = result.get("recover_y")
-            if (ctx.action == "click" and fault == FaultType.TEST
+            if (ctx.action in ("click", "fill") and fault == FaultType.TEST
                     and recover_x is not None and recover_y is not None
                     and ctx.click_fn):
                 try:
                     nx, ny = float(recover_x), float(recover_y)
                     if 0.0 <= nx <= 1.0 and 0.0 <= ny <= 1.0:
-                        logger.info("  🎯 AI中枢L2坐标回退: 点击({:.2f}, {:.2f}) 绕过失效选择器", nx, ny)
+                        action_label = "绕过失效选择器" if ctx.action == "click" else "切换到目标UI状态后重试fill"
+                        logger.info("  🎯 AI中枢L2坐标回退: 点击({:.2f}, {:.2f}) {}", nx, ny, action_label)
                         await ctx.click_fn(nx, ny)
                         self._total_heals += 1
                         return HubDecision(
