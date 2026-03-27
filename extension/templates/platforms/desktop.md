@@ -256,3 +256,31 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
 | `accessibility_id:xxx` | Mobile selector, not for desktop | Use `name:text` or `automationid:xxx` |
 | No wait after navigate | Window not ready, controls not loaded | wait 3000-5000 after cold start |
 | `window_title` with typo | Engine cannot find window | Copy title bar text character-by-character |
+
+---
+
+## TEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
+
+The engine uses a dual-strategy approach: **UI Automation first** (fast, precise) → **AI vision fallback** (screenshot + AI locates element coordinates). The AI vision results are cached so re-analysis is skipped on subsequent runs.
+
+Cache file: `testpilot/.page_cache_desktop.json` (auto-created next to the blueprint file).
+
+**How it works:**
+
+| Run | What happens |
+|-----|-------------|
+| UI Automation succeeds | No screenshot needed, no cache used — control found instantly |
+| UI Automation fails → first time on this page | Screenshot taken → AI analyzes pixel coordinates → saved to cache |
+| UI Automation fails → same page again | Fingerprint match → **cached coordinates reused, AI skipped** |
+| Window layout changes | Fingerprint mismatch → re-analyzes → overwrites that page's cache entry |
+
+**Cache validation rules:**
+- Validated by: `app_name` field in the blueprint
+- If `app_name` changes: old cache is discarded automatically
+- Cache file location: `testpilot/.page_cache_desktop.json`
+
+**What this means for blueprints:**
+- You do NOT need special steps to "enable" or "update" the cache — it is fully automatic
+- The more precisely `window_title` is set, the more reliable UI Automation is (reducing AI vision calls overall)
+- Cache persists across multiple test runs and across ALL blueprint files in the same `testpilot/` directory
+- To force a full re-analysis (e.g. after major window layout redesign): delete `testpilot/.page_cache_desktop.json`
