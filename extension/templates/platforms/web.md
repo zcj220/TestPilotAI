@@ -92,7 +92,7 @@ A React component `<LoginForm>` does NOT generate a `.LoginForm` CSS class. Chec
 Tailwind classes like `.flex`, `.mt-4`, `.bg-blue-600` match dozens of elements. Use semantic attributes (`#id`, `[title]`, `[data-testid]`, `[placeholder]`) instead.
 
 **Tailwind selector strategy:**
-1. Prefer `id`, `name`, `title`, `placeholder`, `data-testid`, `type` attributes
+1. Prefer `id`, `name`, `title`, `placeholder`, `data-testid`, `type` attributes — **only if the attribute actually exists in source code** (open the file and verify!)
 2. Find a **semantic class** unique to the element (e.g. `.submit-btn`, NOT `.flex`)
 3. If only Tailwind classes exist, use context combo: `.parent-class button[title='xxx']`
 4. Last resort: ask the developer to add `data-testid` or `id`
@@ -111,6 +111,26 @@ Custom components like `<Select>`, `<Modal>`, `<DatePicker>` do NOT appear as CS
 - ❌ `accessibility_id:xxx` — mobile-only selector, NOT for Web
 - ❌ `name:xxx` — desktop-only selector, NOT for Web
 - ❌ Bare tag selectors (`div`, `span`, `button` with no attributes)
+
+**Pitfall 12  Bare `button` selector (CRITICAL):**
+Writing `"target": "button"` with no attributes is forbidden. Playwright matches the **first** button in the DOM, which may be a hidden button, an icon button, or the wrong button entirely. This is the most common cause of wrong-element clicks that appear to succeed (no error) but operate the wrong control.
+
+| ❌ Forbidden | Why wrong | ✅ Correct approach |
+|---|---|---|
+| `"target": "button"` | Matches ANY button, usually wrong one | Read source: use `button[type='submit']`, `#btn-register`, `.btn-life-book` etc. |
+| `"target": "span"` | Matches ANY span | Use `#id` or semantic class |
+
+> **Iron rule:** Every `click` target MUST have at least one attribute constraint. Bare tag selectors (`button`, `a`, `div`, `span`) are FORBIDDEN without exception.
+
+### ⚠️ Attribute Selectors Require Source Verification
+
+When using `[title='xxx']`, `[aria-label='xxx']`, `[data-testid='xxx']`, `[placeholder='xxx']`:
+
+1. **MUST open the source file first** and confirm the attribute exists on that element
+2. **NEVER guess attribute values** from the element's visible text or purpose
+3. `[title]` is a tooltip attribute — many icon buttons in React/Vue apps do NOT have it
+
+> Typical mistake: seeing a "财务报表" navigation button and writing `button[title='财务报表']` — but the button has no `title` attribute in source code → 10s timeout on every run.
 
 **Pitfall 7  `:contains()` causes SyntaxError:**
 `:contains()` is jQuery-only syntax. Playwright and modern CSS engines do NOT support it. Any selector with `:contains()` throws `SyntaxError: Failed to execute` and aborts the entire scenario. Use `#id`, `.class`, or `[attribute]` selectors instead.
@@ -281,6 +301,7 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 **Check 1  Flow decision:** For each page with 2 scenarios that ALL require login first:
 - YES  that page MUST have `"flow": true` AND non-first scenarios MUST NOT contain login steps
 - NO  no flow needed (each scenario independently logs in)
+- **Scan every non-first scenario in flow pages: if it contains `fill username` / `fill password` / `click login`, DELETE those steps immediately — they belong only in the first scenario**
 
 **Check 2  Assert coverage:** For every scenario, does it have at least one `assert_text` step?
 - Screenshot alone is NOT sufficient  must have text assertion
