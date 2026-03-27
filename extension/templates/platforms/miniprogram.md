@@ -1,236 +1,229 @@
-﻿<!-- TestPilot-Template-Version: 9 -->
-# 微信小程序平台蓝本规则（platform = "miniprogram"�?
+﻿<!-- TestPilot-Template-Version: 10 -->
+# Platform Blueprint Rules (platform = "miniprogram")
 
-> 本文件定义微信小程序蓝本的完整规则�?
-> 小程�?WXML **不是 HTML**，选择器规则与 Web 完全不同�?
-> 生成蓝本�?*必须**通读本文件，不得跳过任何章节�?
-
----
-
-## 零、生成蓝本前必须先通读源代码（强制执行�?
-
-**蓝本的唯一依据是代码，不是猜测，不是常识，不是用户描述�?*
-
-在写任何 JSON 之前，必须按顺序完成�?
-
-0. **先读 `testpilot/CHANGELOG.md`（如果存在）** �?了解当前已覆盖的功能和尚未测试的模块，避免重复写或漏写；如果不存在则跳过
-1. **�?`app.json`** �?了解所有页面路由和 TabBar 配置
-2. **读每个页面的 `.wxml` 文件** �?找出所有可操作元素，记录真实的 `class`、`placeholder`、`bindtap` 属�?
-3. **读对应的 `.js` 文件** �?确认每个操作的真实结果（跳转哪里、显示什么文字）
-4. **确认提示方式** �?成功/失败提示�?`wx.showToast()`（瞬态，**不可断言**）还是页面内文字节点（可断言�?
-5. **列出已实现功�?* �?代码里有什么就测什么，未实现的功能不写蓝本
-
-**禁止跳过代码阅读直接生成蓝本。凭想象写的选择器和断言几乎必然失败�?*
+> This file defines all rules for WeChat Mini Program blueprints.
+> AI coding assistants MUST read this file completely before generating any blueprint content.
 
 ---
 
-## 一、必填字�?
+## ZERO: Read Source Code First (Mandatory Pre-Step)
 
-| 字段 | 说明 | 示例 |
-|------|------|------|
-| `platform` | 固定 `"miniprogram"` | `"miniprogram"` |
-| `base_url` | `miniprogram://` + 项目**绝对路径** | `"miniprogram://D:/projects/my-app"` |
-| `app_name` | 应用名称 | `"财务记账小程�?` |
-| `description` | 50-200字功能描�?| |
+**Before writing any blueprint, follow these steps in order:**
 
-### 反面禁止
+1. Read ALL WXML files to find actual element classes and placeholder attributes
+2. Read ALL JS/TS page files to find navigation paths, bindtap handlers, data bindings
+3. Read ALL API call code to estimate actual async delay times
+4. Confirm the absolute project path for `base_url` (e.g. `"miniprogram://D:/Projects/my-mini"`)
+5. Read ALL page.json and app.json to understand page routes
 
-- �?`base_url` 用相对路�?�?必须是绝对路�?
-- �?`base_url` �?`http://` �?必须�?`miniprogram://` 前缀
-- �?填了 `start_command`（引擎自动处�?cli open/auto�?
-- �?填了 `app_package` / `bundle_id`（那是移动端字段�?
+**Why this matters:** WXML is NOT HTML. `#id` selectors, `:contains()`, `div`/`span` tags  none of these work in Mini Programs.
 
 ---
 
-## 二、封闭式动作�?
+## ONE: Required Fields
 
-### 基础动作（与其他平台通用�?
+| Field | Required | Description |
+|-------|----------|-------------|
+| `platform` | YES | Must be `"miniprogram"` |
+| `base_url` | YES | `"miniprogram://absolute-path"` e.g. `"miniprogram://D:/Projects/my-mini"` |
+| `app_name` | YES | Display name |
+| `description` | YES | 50-200 chars: what the mini program does and what scenarios are covered |
 
-| 动作 | 必填参数 | 说明 |
-|------|---------|------|
-| `navigate` | `value`(页面路径), `description` | 页面跳转（清空页面栈，用 wx.reLaunch�?|
-| `click` | `target`, `description` | 点击元素 |
-| `fill` | `target`, `value`, `description` | 输入文本 |
-| `select` | `target`, `value`, `description` | 操作 picker 组件�?*只用�?`<picker>`**�?|
-| `wait` | `description` | 等待（`value` 指定毫秒�?|
-| `assert_text` | `expected`, `description` | 断言页面包含文本 |
-| `screenshot` | `description` | 截图留证 |
-
-### 小程序专用动�?
-
-| 动作 | 必填参数 | 说明 |
-|------|---------|------|
-| `navigate_to` | `value`(页面路径), `description` | 不清空页面栈（用 wx.navigateTo�?|
-| `evaluate` | `value`(JS代码), `description` | 在小程序端执行JS（可访问 wx/getApp�?|
-| `page_query` | `target`(选择�?, `value`(操作), `description` | 查询元素（value: text/count/texts�?|
-| `call_method` | `target`(方法�?, `value`(JSON参数), `description` | 调用页面方法 |
-| `read_text` | `target`, `expected`, `description` | 读取元素文本并可选断言 |
-| `tap_multiple` | `target`, `value`(次数), `wait_ms`, `description` | 连续点击多次 |
-| `scroll` | `value`(scrollTop), `description` | 滚动页面 |
-| `assert_compare` | `target`, `value`(比较表达�?, `description` | 数值比较（�?`">=100"`�?|
-
-### 绝对禁止的动�?
-
-- �?`reset_state`（一般不需要手动调用，引擎自动处理场景重置�?
-- �?`hover`（小程序没有 hover 概念�?
+**Note:** Engine automatically handles environment setup (cli close  cli open  cli auto --auto-port 9420). Do NOT write restart steps in the blueprint.
 
 ---
 
-## 三、选择器规则（⚠️ �?Web 完全不同！）
+## TWO: Available Actions
 
-### WXML 不是 HTML，以�?Web 选择器全部无�?
+### Standard Actions
 
-| �?无效选择�?| 原因 |
-|---|---|
-| `#login-btn` | WXML 不支�?id 选择�?|
-| `button:contains('登录')` | 不支�?`:contains()` 伪类 |
-| `input[type="text"]` | WXML �?input 没有 type attribute |
-| `div > span` | WXML 里是 view/text，不�?div/span |
-| `input[name="xxx"]` | WXML �?input 没有 name attribute |
+| Action | Required Fields | Description |
+|--------|----------------|-------------|
+| `navigate` | `value` (page path) | Navigate to a mini program page path e.g. `"pages/login/login"` |
+| `click` | `target` (CSS-like selector) | Tap an element |
+| `fill` | `target`, `value` | Clear and type text into an input field |
+| `select` | `target`, `value` | Select value from a `<picker>` component |
+| `wait` | `value` (ms) | Fixed wait in milliseconds |
+| `assert_text` | `expected` | Assert page contains this text |
+| `screenshot` |  | Take a screenshot |
 
-### 🚨 选择器三步验证（强制执行，每�?target 都必须做�?
+### Mini Program-Specific Actions
 
-写任何一�?`target` 选择器之前，必须完成以下三步�?*缺一不可**�?
+| Action | Description |
+|--------|-------------|
+| `navigate_to` | Navigate using `wx.navigateTo` programmatically |
+| `evaluate` | Execute JavaScript in the page context |
+| `page_query` | Query page data/state |
+| `call_method` | Call a page method directly |
+| `read_text` | Read text from an element |
+| `tap_multiple` | Tap multiple elements in sequence |
+| `scroll` | Scroll within a scroll-view |
+| `assert_compare` | Compare values with operators |
 
-1. **定位源码**：找到该元素所在的 `.wxml` 文件，定位到具体�?
-2. **复制属�?*：从 WXML 代码中复制元素的真实 `class`、`placeholder`、`data-xxx` 属性（**禁止凭记忆或猜测**�?
-3. **唯一性验�?*：在同一页面 WXML 中搜索该选择器，确认只匹配一个元�?
+**Forbidden for miniprogram:** `reset_state`
 
-**不做三步验证就写的选择�?= 必然出错。这是选择器失败的第一大原因�?*
+---
 
-### 正确的小程序选择器（按优先级排列�?
+## THREE: Selector Rules
 
-1. **�?placeholder 区分 input**：`input[placeholder*='用户�?]`、`input[placeholder*='密码']`
-2. **�?class 区分按钮**：`button.btn-primary`（配�?bindtap 确认是哪个按钮）
-3. **�?class 组合定位**：`.card .form-input`（结合父容器缩小范围�?
-4. **�?data- 属�?*：`view[data-tab='profit']`（小程序常用 data-xxx 传参�?
-5. **用文本辅助定�?*：在 description 中描述元素文字，帮助引擎 AI 定位
+### WXML is NOT HTML  Critical Differences
 
-### ⚠️ picker 组件：用 select 不用 click
+| HTML concept | WXML equivalent | Selector rule |
+|---|---|---|
+| `<div>` | `<view>` | Use `view.classname`, NOT `div` |
+| `<span>` | `<text>` | Use `text.classname`, NOT `span` |
+| `id="xxx"` attribute | Same syntax but... | `#xxx` does NOT work in automator |
+| `:contains("text")` |  | NOT SUPPORTED  causes errors |
+| `input[type="text"]` | `<input>` has no `type` attribute | Use `input[placeholder*='xxx']` |
+
+### Correct Selectors (by priority)
+
+| Priority | Format | Example | When to use |
+|----------|--------|---------|------------|
+| 1 | `input[placeholder*='xxx']` | `input[placeholder*='Username']` | Distinguish input fields |
+| 2 | `button.class-name` | `button.btn-primary` | Confirm bindtap targets the right button |
+| 3 | `.parent .child` | `.card .form-input` | Narrow scope with parent container |
+| 4 | `view[data-tab='xxx']` | `view[data-tab='profit']` | Mini programs often use data-xxx for state |
+| 5 | Text description | In `description` field | Describe element text to help engine locate it |
+
+### picker Component: Use select Not click
 
 ```json
-�?{"action": "select", "target": "picker.type-picker", "value": "收入"}
-�?{"action": "click", "target": "picker.type-picker"}  // picker 是原生组件，不能 click
+CORRECT: {"action": "select", "target": "picker.type-picker", "value": "Income"}
+WRONG:   {"action": "click", "target": "picker.type-picker"}
 ```
+`<picker>` is a native component  it cannot be clicked like a button.
 
-### ⚠️ TabBar 页面：用 navigate 不用 click
+### TabBar Navigation: Use navigate Not click
 
 ```json
-�?{"action": "navigate", "value": "pages/reports/reports"}
-�?{"action": "click", "target": ".tab-bar-item"}  // 原生 TabBar 不在 DOM �?
+CORRECT: {"action": "navigate", "value": "pages/reports/reports"}
+WRONG:   {"action": "click", "target": ".tab-bar-item"}
+```
+Native TabBar is NOT in the WXML DOM  cannot be selected.
+
+---
+
+## FOUR: Transient UI  Cannot Be Asserted
+
+| Component | Why it cannot be asserted |
+|-----------|--------------------------|
+| `wx.showToast()` | Auto-disappears; not in WXML DOM |
+| `wx.showModal()` | **Native popup  NOT in WXML DOM**  automator cannot interact |
+| `wx.showLoading()` | Loading overlay, transient |
+| `wx.showActionSheet()` | Native action sheet, not in DOM |
+
+**CANNOT click "confirm" / "cancel" on `wx.showModal()`**  
+If your business logic depends on modal confirmation, advise the developer to use a custom in-page dialog component instead.
+
+**Persistence validation guide:**
+```
+CAN assert:
+  <text class="title">Record Book</text>     expected: "Record Book"
+  <view class="amount">100</view>           expected: "100"
+  Any WXML element that persists on screen
+
+CANNOT assert:
+  wx.showToast({ title: 'Saved' })           transient, disappears before assertion
+  wx.showModal({ title: 'Confirm Delete' })  native popup, not in DOM
 ```
 
 ---
 
-## 四、瞬�?UI 不可断言清单
-
-| 组件 | 说明 |
-|------|------|
-| `wx.showToast()` | 短暂显示后自动消失，不在 DOM �?|
-| `wx.showModal()` | **原生弹窗不在 DOM �?*，Automator 无法操作 |
-| `wx.showLoading()` | loading 提示�?|
-| `wx.showActionSheet()` | 原生操作菜单 |
-
-**不能�?click 操作 wx.showModal 的确�?取消按钮�?*
-如果业务依赖 Modal 确认，应建议开发者改用页面内自定义弹窗�?
-
-### 代码稽核—持久性验�?
+## FIVE: Wait Time Formula
 
 ```
-�?可以断言�?
-   - <text class="title">记账�?/text>     �?expected: "记账�?
-   - <view class="amount">¥100</view>       �?expected: "¥100"
-   - 页面中持久存在的 WXML 元素
-
-�?不能断言�?
-   - wx.showToast({ title: '保存成功' })    �?瞬态，消失后断言失败
-   - wx.showModal({ title: '确认删除�? })  �?原生弹窗，不�?DOM �?
+wait = async_delay_in_code + 1500ms  (buffer for Mini Program render + Automator refresh)
 ```
+
+| Scenario | Recommended wait |
+|----------|-----------------|
+| `wx.request()` API call + data render | API_time + 1500 |
+| `wx.navigateTo()` page transition | wait 1500 |
+| `wx.reLaunch()` page reload | wait 2000 |
+| `setData()` local data update only | wait 1000 |
+| `<picker>` selection  data update | wait 1000 |
 
 ---
 
-## 五、等待时间计算公�?
+## SIX: Scenario Isolation Principle and Flow Mode
 
-```
-wait 时间 = 代码中的异步延迟 + 1500ms（预留小程序渲染 + Automator 刷新�?
-```
+### Mandatory Flow Decision for Every Page
 
-| 场景 | wait 时间 |
-|------|----------|
-| `wx.request()` API 调用 + 数据渲染 | API时间 + 1500 |
-| `wx.navigateTo()` 页面跳转 | wait 1500 |
-| `wx.reLaunch()` 重载页面�?| wait 2000 |
-| `setData()` 纯数据更�?| wait 1000 |
-| picker 选择后数据更�?| wait 1000 |
+**Check these rules in order when generating scenarios for each `page`:**
 
----
+1. Does this page have 2 scenarios that ALL require login first?  **MUST set `"flow": true`**
+2. Does this page have 2 scenarios that are TabBar switches or continuous operations?  **MUST set `"flow": true`**
+3. Do scenarios need independent clean state (e.g. correct login vs wrong login)?  No flow (default `false`)
 
-## 六、场景自包含原则与连续流模式（flow 强制决策�?
+### Default Mode (flow: false)
 
-### ⚠️ 生成蓝本时必须对每个 page �?flow 决策
+- Engine automatically calls `wx.reLaunch` before each scenario to reset page stack
+- Engine handles all DevTools CLI steps: cli close  cli open  cli auto --auto-port 9420
+- Each scenario MUST start with `navigate` to its starting page path
+- **Do NOT** write DevTools restart steps in the blueprint  engine handles it
+- **FORBIDDEN** to share state between scenarios
 
-**判断规则（按顺序检查）�?*
-1. �?page 下有 �? 个场景，且都需要先登录才能操作？→ **必须 `"flow": true`**
-2. �?page 下有 �? 个场景是 TabBar 切换或连续操作？�?**必须 `"flow": true`**
-3. �?page 下场景需要互相独立的干净状态（如正确登�?vs 错误登录）？�?不写 flow（默�?false�?
+### Flow Mode (flow: true)
 
-**简单总结：如果多个场景都要先登录再操作同一个页面，那这�?page 必须�?`"flow": true`。不�?flow 导致每个场景�?reLaunch+重复登录 = 严重浪费�?*
+Set `"flow": true` at the `page` level. Scenarios run sequentially:
+- Only the 1st scenario's `navigate` actually navigates; subsequent `navigate` steps are auto-skipped
+- Page state preserved between scenarios
+- If 3 consecutive scenarios fail  engine calls reLaunch to recover, then continues
+- Each scenario must still include `navigate` (for independent running)
 
-### 默认模式（`flow: false`�?
+### CRITICAL: Non-First Scenario Rules in Flow Mode
 
-- 引擎在每个场景前自动�?`wx.reLaunch` 回首页并清理状�?
-- 每个场景的第一步必须是 `navigate`
-- 不需要手动写重启小程序的步骤（引擎自动处�?cli close/open/auto�?
-- **禁止**场景间传递状态（如场�?登录后场�?直接访问已登录页面）
+**In flow mode, scenarios #2, #3, etc. must ONLY have: navigate + that scenario's own operations. NEVER repeat login steps.**
 
-### 连续流模式（`flow: true`�?
+If step 2 of a non-first scenario is `fill username`, but the page is already on the main tab (logged in from scenario 1), the input is NOT FOUND  timeout  3 consecutive failures  scenario aborted  chain of failures.
 
-�?`page` 级别设置 `"flow": true`，同一页面内的场景将连续执行：
-- 仅第1个场景执�?navigate，后续场景的 navigate **自动跳过**
-- 场景间不重置页面栈，保持当前状�?
-- 连续3个场景失�?�?尝试 reLaunch 恢复后继�?
-- 每个场景仍需�?navigate（方便单独运行）
+| WRONG | CORRECT |
+|-------|---------|
+| navigate  fill username  fill password  click login  wait  actual ops | navigate  actual ops  assert_text |
 
-**重要�?* flow 场景仍需�?navigate（方便单独运行），引擎在 flow 模式下自动跳过�?
-
-### 🚨 flow 非首场景写法（极其重要，必须遵守！）
-
-**flow 模式下，�?个及之后的场景只�?navigate + 该场景自己的操作步骤，绝对禁止重复写登录步骤�?*
-
-引擎会跳过非首场景的 navigate，直接从�?步开始执行。如果第2步是 `fill 用户名`，但页面此时已经登录在功能页�?�?找不到输入框 �?超时失败 �?连续3步失�?�?整个场景被熔断跳�?�?后续场景全部同样失败�?
-
-| �?错误写法（非首场景重复登录） | �?正确写法（非首场景直接操作） |
-|---|---|
-| 场景2: navigate �?wait �?fill用户�?�?fill密码 �?click登录 �?wait �?实际操作 | 场景2: navigate �?实际操作 �?assert_text |
-| 场景3: navigate �?wait �?fill用户�?�?fill密码 �?click登录 �?wait �?实际操作 | 场景3: navigate �?实际操作 �?assert_text |
-
-**核心原则：flow 模式下，只有�?个场景做完整的导�?登录流程，后续场景的 navigate 后面直接写该场景自己的操作�?*
+**Rule: In flow mode, only the FIRST scenario does the complete navigate + login. All others start directly with their own operations.**
 
 ---
 
-## 七、完�?JSON 模板
+## SEVEN: Complete JSON Template
 
 ```json
 {
-  "app_name": "你的小程序名",
-  "description": "50-200字功能描�?,
-  "base_url": "miniprogram://D:/projects/你的小程序路�?,
+  "app_name": "Your Mini Program Name",
+  "description": "50-200 char description of features and test coverage",
+  "base_url": "miniprogram://D:/Projects/your-mini-program",
   "platform": "miniprogram",
   "pages": [
     {
       "url": "pages/index/index",
-      "name": "首页",
+      "name": "Home Page",
+      "flow": true,
       "scenarios": [
         {
-          "name": "正确登录跳转记账�?,
+          "name": "Correct login  redirects to record page",
           "steps": [
-            {"action": "navigate", "value": "pages/login/login", "description": "打开登录�?},
-            {"action": "fill", "target": "input[placeholder*='用户�?]", "value": "admin", "description": "输入用户名admin"},
-            {"action": "fill", "target": "input[placeholder*='密码']", "value": "admin123", "description": "输入密码admin123"},
-            {"action": "click", "target": "button.btn-primary", "description": "点击登录按钮，按钮文字为'登录'"},
-            {"action": "wait", "value": "2000", "description": "等待API验证+页面跳转"},
-            {"action": "assert_text", "expected": "记账�?, "description": "验证跳转到记账台页面，标题显�?记账�?"},
-            {"action": "screenshot", "description": "登录成功后的记账台页�?}
+            {"action": "navigate", "value": "pages/login/login", "description": "Open login page"},
+            {"action": "fill", "target": "input[placeholder*='Username']", "value": "admin", "description": "Enter username in username input field"},
+            {"action": "fill", "target": "input[placeholder*='Password']", "value": "admin123", "description": "Enter password in password input field"},
+            {"action": "click", "target": "button.btn-primary", "description": "Click login button (text: Login)"},
+            {"action": "wait", "value": "2000", "description": "Wait for API verification and page redirect"},
+            {"action": "assert_text", "expected": "Record Book", "description": "Verify redirect to Record Book page, title shows Record Book"},
+            {"action": "screenshot", "description": "Record Book page after login"}
+          ]
+        },
+        {
+          "name": "Add income record",
+          "steps": [
+            {"action": "navigate", "value": "pages/index/index", "description": "Flow mode: navigate auto-skipped, already on record page"},
+            {"action": "click", "target": "button.add-btn", "description": "Click add button in top right"},
+            {"action": "wait", "value": "1000", "description": "Wait for add form to load"},
+            {"action": "select", "target": "picker.type-picker", "value": "Income", "description": "Select Income from type picker"},
+            {"action": "fill", "target": "input[placeholder*='Amount']", "value": "1000", "description": "Enter amount 1000"},
+            {"action": "click", "target": "button.save-btn", "description": "Click save button"},
+            {"action": "wait", "value": "1500", "description": "Wait for save and list refresh"},
+            {"action": "assert_text", "expected": "1000", "description": "Verify new record shows 1000 in list"},
+            {"action": "screenshot", "description": "Record list after adding income"}
           ]
         }
       ]
@@ -241,44 +234,44 @@ wait 时间 = 代码中的异步延迟 + 1500ms（预留小程序渲染 + Automa
 
 ---
 
-## 八、代码稽核清�?
+## EIGHT: Checklist
 
-- [ ] 通读所�?WXML 文件，确认选择器中�?class/placeholder 在代码中存在
-- [ ] **没有使用任何 `#id` 选择�?*
-- [ ] **没有使用 `:contains()` 伪类**
-- [ ] input �?`placeholder` 属性区分，不用 `id` �?`name`
-- [ ] `<picker>` �?`select` 动作，不�?`click`
-- [ ] 没有操作 `wx.showModal`/`wx.showToast` 等原生弹�?
-- [ ] TabBar 页面跳转�?`navigate`，不�?`click`
-- [ ] `base_url` �?`miniprogram://绝对路径`
-- [ ] `expected` 文本来自 WXML 中持久渲染的元素，不�?Toast/Modal- [ ] 确认每个操作后有 `assert_text` 或 `screenshot` 验证结果
+### Pre-Generation Checklist
+- [ ] Read ALL WXML files, confirmed class names and placeholder text
+- [ ] No `#id` selectors used anywhere
+- [ ] No `:contains()` pseudo-class used
+- [ ] `<picker>` uses `select` action, not `click`
+- [ ] TabBar navigation uses `navigate` with page path, not `click`
+- [ ] `base_url` is `"miniprogram://absolute-path"` (absolute path, not relative)
+- [ ] `expected` text comes from persistent WXML elements (not wx.showToast/wx.showModal)
 
-### 🚨 输出前强制回检（3项必检，不通过必须修正）
+### MANDATORY Post-Generation Checks (3 required  fix if any fail)
 
-**回检1 — flow 决策**：扫描每个 page，该 page 下是否有 ≥2 个场景都需要先登录再操作？
-- 是 → 该 page **必须**有 `"flow": true`，且非首场景**禁止**写登录步骤
-- 否 → 不设 flow（场景各自独立登录）
+**Check 1  Flow decision:** For each page with 2 scenarios that ALL require login first:
+- YES  that page MUST have `"flow": true` AND non-first scenarios MUST NOT contain login steps
+- NO  no flow needed (each scenario independently logs in and navigates)
 
-**回检2 — 断言覆盖**：扫描每个 scenario，是否至少有一个 `assert_text` 步骤？
-- **只有 screenshot 没有 assert_text = 不合格**，必须补充文本断言
-- `expected` 必须来自 WXML 中持久渲染的元素文字，不是 wx.showToast/wx.showModal
+**Check 2  Assert coverage:** For every scenario, does it have at least one `assert_text` step?
+- Screenshot alone is NOT sufficient  must have text assertion
+- `expected` must come from persistent WXML element text (not wx.showToast/wx.showModal)
 
-**回检3 — 重复登录检查**：扫描整个蓝本，是否存在 ≥3 个场景都有完全相同的登录步骤序列？
-- 是 → 必须把这些场景合并到同一个 page 并启用 `"flow": true`，只在首场景登录一次
+**Check 3  Duplicate login check:** Are there 3 scenarios with identical login step sequences?
+- YES  merge into one page with `"flow": true`, login only once in first scenario
+
 ---
 
-## 九、踩坑清�?
+## NINE: Gotcha Table
 
-| 错误 | 后果 | 正确做法 |
-|------|------|---------|
-| �?`#login-btn` | WXML 不支�?id 选择器，找不�?| �?`button.btn-primary` |
-| �?`button:contains('登录')` | 不支�?:contains 伪类 | �?class + description 描述文字 |
-| �?`<picker>` �?`click` | picker 是原生组�?| �?`select` 动作 |
-| �?wx.showModal �?`click` | 原生弹窗不在 DOM �?| 跳过或建议改用页面内弹窗 |
-| 断言 wx.showToast 文字 | 瞬态消�?| 断言页面持久化状态变�?|
-| `base_url` 用相对路�?| 引擎找不到项�?| 必须用绝对路�?|
-| TabBar �?click | 原生 TabBar 不可点击 | �?`navigate` 直接跳转 |
-| �?`div`/`span` 标签�?| WXML 里是 `view`/`text` | 用正确的 WXML 标签�?|
-| �?`input[type="text"]` | WXML input 没有 type | �?`input[placeholder*='xxx']` |
-| 写死注册用户�?| 第二次运�?用户已存�? | 用时间戳用户名或清数�?|
-| 场景2依赖场景1登录 | 引擎每场景清状�?| 每个场景独立登录 |
+| Mistake | Consequence | Correct Approach |
+|---------|-------------|-----------------|
+| Using `#login-btn` selector | WXML doesn't support id selectors | Use `button.btn-primary` or class |
+| Using `button:contains('Login')` | `:contains()` not supported in automator | Use class + describe text in description |
+| Using `click` on `<picker>` | picker is native component | Use `select` action |
+| Clicking `wx.showModal` confirm | Native modal not in DOM | Skip or redesign using custom component |
+| Asserting `wx.showToast` text | Transient, may already be gone | Assert persistent state change in WXML |
+| `base_url` using relative path | Engine can't find project | Use absolute path: `miniprogram://D:/Projects/app` |
+| TabBar navigation via `click` | Native TabBar not in DOM | Use `navigate` with page path |
+| Using `div`/`span` tags | WXML has `view`/`text` tags | Use correct WXML tag names |
+| Using `input[type="text"]` | WXML `input` has no `type` attribute | Use `input[placeholder*='xxx']` |
+| Hardcoded registered username | Fails on second run (user already exists) | Use timestamp username or clear data first |
+| Scenario 2 depends on scenario 1 login | Engine resets state before every scenario | Each scenario must independently login |

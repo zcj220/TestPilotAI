@@ -1,4 +1,4 @@
-/**
+﻿/**
  * TestPilot AI — 编程AI规则文件注入器
  *
  * 插件激活时自动在用户项目中创建规则文件，
@@ -89,169 +89,173 @@ function extractVersion(content: string): number {
   return match ? parseInt(match[1], 10) : 0;
 }
 
-/** 规则模板内容（精简版：通用规则 + 引导AI读取平台专属规则文件） */
+/** Template content injected into user projects as AGENTS.md / copilot-instructions.md */
 function getTemplateContent(): string {
   return `<!-- TestPilot-Template-Version: ${TEMPLATE_VERSION} -->
-# TestPilot AI — 编程AI蓝本自动生成规则
+# TestPilot AI  Blueprint Auto-Generation Rules
 
-> 本文件由 TestPilot AI 插件自动注入，指导编程AI在开发过程中自动生成和维护测试蓝本。
-> 你可以根据项目需求自由修改本文件内容。
+> This file is auto-injected by the TestPilot AI extension to guide AI coding assistants.
+> You can freely modify this file to fit your project needs.
 
 ---
 
-## ⚠️ 最重要的一条规则（必须严格遵守）
+## Most Important Rule (MUST Follow Strictly)
 
-生成蓝本前，你**必须**先确定项目的 \`platform\` 类型，然后打开并阅读 \`.testpilot/platforms/\` 目录下对应平台的规则文件：
+Before generating any blueprint, you MUST determine the project \`platform\` type,
+then open and read the corresponding platform rule file under \`.testpilot/platforms/\`:
 
-| platform | 必读文件 |
-|----------|---------|
+| platform | Required reading |
+|----------|-----------------|
 | \`web\` | \`.testpilot/platforms/web.md\` |
 | \`android\` | \`.testpilot/platforms/android.md\` |
 | \`ios\` | \`.testpilot/platforms/ios.md\` |
 | \`miniprogram\` | \`.testpilot/platforms/miniprogram.md\` |
 | \`desktop\` | \`.testpilot/platforms/desktop.md\` |
 
-**不读平台规则就生成蓝本 = 必然出错。** 每个平台的选择器格式、可用动作、等待策略、模板结构完全不同。通用规则无法覆盖平台差异。
+**Generating a blueprint without reading the platform rules = guaranteed errors.**
+Each platform has completely different selector formats, available actions, wait strategies, and template structure.
 
 ---
 
-## 零（前）、平台识别规则（写蓝本前必须先确定 platform）
+## ZERO: Platform Identification (determine before writing any blueprint)
 
-**在 platform 确定之前，禁止生成任何蓝本内容。**
+**Do NOT generate any blueprint content until platform is confirmed.**
 
-### 识别顺序（按优先级）
+### Identification order (by priority)
 
-1. **检查代码文件特征**（唯一客观依据）：
+1. **Check code file characteristics** (the only objective evidence):
 
-| 文件/特征 | platform |
-|-----------|----------|
+| File / feature | platform |
+|----------------|----------|
 | \`pubspec.yaml\` / \`AndroidManifest.xml\` / \`*.kt\` / \`*.java\` | \`android\` |
 | \`*.xcodeproj\` / \`*.swift\` / \`Info.plist\` | \`ios\` |
-| \`app.json\` + \`pages/\` 目录（小程序结构） | \`miniprogram\` |
-| \`*.xaml\` / \`tkinter\` / \`pywinauto\`（纯原生桌面，无内嵌网页） | \`desktop\` |
-| \`package.json\` + \`electron\` 依赖（Electron 套壳 Web App） | **\`web\`**（不是 desktop！Electron 内容是 Web，用 Playwright 测更稳定） |
+| \`app.json\` + \`pages/\` directory (mini program structure) | \`miniprogram\` |
+| \`*.xaml\` / \`tkinter\` / \`pywinauto\` (pure native desktop, no embedded web) | \`desktop\` |
+| \`package.json\` + \`electron\` dependency (Electron shell app) | **\`web\`** (NOT desktop! Electron content is a web page; Playwright selectors are far more accurate than desktop AI vision) |
 | \`package.json\` + \`*.html\` / React / Vue / Angular | \`web\` |
 
-> ⚠️ **Electron 项目必须用 \`web\` 而不是 \`desktop\`**：Electron 只是套壳，内容是 Web 页面，\`desktop\` 模式依赖 AI 视觉截图、精准度极低；\`web\` 模式用 Playwright CSS 选择器，更快更准。
+> ⚠️ **Electron projects MUST use \`web\` not \`desktop\`**: Electron is just a shell; the actual content is a web page. \`desktop\` mode relies on AI visual screenshots (very inaccurate); \`web\` mode uses Playwright CSS selectors (faster and more reliable).
 
-2. **检查已有蓝本的 platform 字段** — 但必须与代码特征核对，若矛盾以代码为准
-3. **读 \`testpilot/CHANGELOG.md\`**（如存在）— 里面可能已注明平台
-4. **以上都无法确定 → 停下来问用户**：「这是 Web / Android / iOS / 小程序 / 桌面 中的哪种？」
+2. **Check existing blueprint \`platform\` field** — but verify against code features; code wins if they conflict
+3. **Read \`testpilot/CHANGELOG.md\`** (if exists) — may state the platform
+4. **If still unclear → ask the user**: "Is this Web / Android / iOS / Mini Program / Desktop?"
 
-### 无蓝本时的三种处理规则（必须区分清楚）
+### Three cases when no blueprint exists (must distinguish clearly)
 
-| 情况 | 判断 | 动作 |
-|------|------|------|
-| **项目完全为空**（无任何源码文件） | 无可测功能 | **静默等待**，不写蓝本，不打扰用户 |
-| **有源码，平台可识别，蓝本不存在**（包括被手动删除） | 能生成 | **直接扫描源码，立即生成完整蓝本，不询问用户，不等待确认** |
-| **有源码，但平台无法识别** | 无法生成 | **先创建最简占位蓝本**（仅有框架结构，\`scenarios\` 留空），同时询问用户平台类型；确认后立即补全蓝本 |
+| Case | Assessment | Action |
+|------|------------|--------|
+| **Project completely empty** (no source files) | Nothing to test | **Wait silently** — do NOT write blueprint, do NOT bother user |
+| **Has source code, platform identifiable, blueprint absent** (including manually deleted) | Can generate | **Scan source immediately, generate full blueprint — no user confirmation needed** |
+| **Has source code, but platform unidentifiable** | Cannot generate | **Create minimal placeholder blueprint** (framework only, \`scenarios\` empty), then ask user for platform; fill in immediately after confirmation |
 
-> ⚠️ **严禁在「有源码且平台已识别」时停下来询问用户**「要不要生成蓝本」——必须直接生成！
+> ⚠️ **STRICTLY FORBIDDEN: asking the user "should I generate a blueprint?" when source code exists and platform is identified — generate it immediately!**
 
-- **用户描述与代码矛盾** → 以代码为准，告知用户
+- **User description conflicts with code** → code wins; inform user
 
-### 发现平台写错时如何纠正
+### Correcting wrong platform
 
-1. 发现代码特征与蓝本 \`platform\` 矛盾（如蓝本写 \`"web"\` 但项目有 \`AndroidManifest.xml\`）
-2. **主动告知**：「检测到蓝本 platform=web，但项目代码显示应为 android，正在自动修正」
-3. 自动执行：更新所有蓝本 \`platform\` → 重读 \`.testpilot/platforms/android.md\` → 修正不符规范的选择器和动作
-4. **不需要等用户确认，直接修正并告知结果**
-
----
-
-## 零、蓝本语言规则
-
-蓝本中的 \`name\`、\`description\`、\`expected\`、\`app_name\` 等文字内容**必须使用用户项目的语言**：
-- 如果项目的 UI 文字是中文 → 蓝本用中文
-- 如果项目的 UI 文字是英文 → 蓝本用英文
-- \`expected\` 断言内容必须与 UI 实际渲染的语言完全一致（否则断言必定失败）
+If existing blueprint \`platform\` conflicts with code features:
+1. Notify user immediately: "blueprint platform=web but project shows android, auto-correcting"
+2. Update all blueprints \`platform\` field  re-read correct platform file  fix selectors/actions
+3. No user confirmation needed  correct and notify
 
 ---
 
-## 一、蓝本生成时机
+## ONE: Blueprint Language Rule
 
-当项目中**不存在** \`testpilot.json\` 或 \`testpilot/\` 目录时，你在完成功能开发后**必须**自动生成蓝本文件。
-
-| 时机 | 动作 |
-|------|------|
-| 新项目创建完成 | 生成完整蓝本，覆盖所有已实现功能 |
-| 新增一个完整功能模块 | 在蓝本中追加对应场景 |
-| 项目初始蓝本不存在 | 扫描现有代码，生成功能全覆盖的蓝本 |
-
-**最佳实践**：不要等项目全部写完才生成蓝本，而是**每实现一个功能就追加一个场景**。刚写完代码时记忆最清晰，选择器和预期值一定准确。
+The \`name\`, \`description\`, \`expected\`, \`app_name\` fields MUST use the project UI language:
+- If project UI text is Chinese  use Chinese in blueprints
+- If project UI text is English  use English in blueprints
+- \`expected\` assertions must exactly match the language actually rendered on screen
 
 ---
 
-## 二、蓝本管理规则
+## TWO: When to Generate Blueprints
 
-1. 蓝本文件放在**当前项目根目录**的 \`testpilot/\` 子目录下
-2. 页面≤3个用单个 \`testpilot.json\`；页面>3个按功能模块拆分
-3. 拆分命名：\`testpilot/模块名.testpilot.json\`（英文，如 \`auth.testpilot.json\`）
-4. **更新而非新建**：已存在同名蓝本直接覆盖，**禁止**创建 \`_v2\`、\`_new\`、\`_backup\` 变体
-5. 每个蓝本必须包含 \`app_name\`、\`description\`、\`platform\` 字段
+When the project does NOT have a \`testpilot.json\` or \`testpilot/\` directory,
+after completing feature development you MUST auto-generate blueprint files.
 
-### platform 取值
+| When | Action |
+|------|--------|
+| New project completed | Generate full blueprint covering all implemented features |
+| New feature module added | Append corresponding scenarios to blueprint |
+| Project has no blueprint yet | Scan existing code, generate full-coverage blueprint |
 
-| 值 | 适用场景 | 额外必填字段 |
-|----|---------|------------|
-| \`web\` | 网页应用（React/Vue/Angular/纯HTML） | \`base_url\`、\`start_command\` |
-| \`android\` | Android/Flutter 应用 | \`app_package\`、\`app_activity\` |
-| \`ios\` | iOS/SwiftUI 应用（仅macOS） | \`bundle_id\` |
-| \`miniprogram\` | 微信小程序 | \`base_url\`（miniprogram://路径） |
-| \`desktop\` | Windows桌面应用 | \`window_title\` |
+**Best practice:** Don't wait until all features are done. Add a scenario each time you implement a feature  your memory of selectors and expected values is clearest right then.
 
 ---
 
-## 三、蓝本增量维护（6种触发条件）
+## THREE: Blueprint Management Rules
 
-当项目已有蓝本文件时，以下代码变更**必须**同步更新蓝本：
+1. Blueprint files go in the \`testpilot/\` subdirectory under the project root
+2. Pages  3: use a single \`testpilot.json\`; Pages > 3: split by feature module
+3. Split naming: \`testpilot/module-name.testpilot.json\` (English, e.g. \`auth.testpilot.json\`)
+4. **Update, don't recreate**: overwrite existing blueprints directly  NEVER create \`_v2\`, \`_new\`, \`_backup\` variants
+5. Every blueprint must include \`app_name\`, \`description\`, \`platform\` fields
 
-| # | 触发条件 | 蓝本更新动作 |
-|---|---------|------------|
-| 1 | 新增/删除 UI 元素 | 添加/删除对应场景和步骤 |
-| 2 | 修改元素选择器（id/class/组件名） | 更新蓝本中所有 \`target\` |
-| 3 | 修改文本内容（按钮文字/提示/错误信息） | 更新 \`assert_text\` 的 \`expected\` |
-| 4 | 修改业务逻辑（表单验证/跳转/计算） | 更新断言和预期结果 |
-| 5 | 修复 Bug | 更新蓝本中对应断言 |
-| 6 | 修改应用配置（URL/端口/路由/启动命令） | 更新 \`base_url\` / \`start_command\` 等 |
+### platform field values
 
-**不触发更新**：纯CSS样式调整、代码注释修改、内部重构（不影响用户可见行为）。
-
----
-
-## 四、两条跨平台铁规则（所有平台通用，无例外）
-
-> 以下两条规则适用于 Web / Android / iOS / 小程序 / 桌面所有平台。
-> 各平台专属的选择器禁则（如 Web 的 \`:contains()\`、Tailwind 小数类等）在平台规则文件中定义，务必通读。
-
-### 🚨 铁规则一：\`target\` 属性值必须从源码复制，不得凭推测
-
-使用 \`[title='xxx']\`、\`[placeholder='xxx']\`、\`[aria-label='xxx']\`、\`accessibility_id:xxx\` 等属性选择器时：
-1. **必须先打开该元素所在的源文件**
-2. **在代码中搜索该属性名**，确认属性确实存在且值与蓝本完全一致
-3. **禁止凭经验、常识或用户描述推测属性值**
-
-> 典型错误：看到箭头图标按钮就猜 \`button[title='返回']\`，实际源码根本没写 \`title\` 属性 → 永远找不到元素，超时失败。
-
-### 🚨 铁规则二：\`assert_text\` 的 \`expected\` 必须从源码原文复制
-
-1. **必须从源码的 JSX/WXML/Swift/XML/Kotlin 中找到对应文字节点**，原文复制到 \`expected\`
-2. **禁止自行创造、意译或总结文字**（如源码写"收支记录"，不得断言"收支统计"）
-3. **禁止断言从未出现在 DOM/视图树里的文字**（如组件内部变量名、注释文字）
-
-> 典型错误：源码只有"总收入""总支出""结余"三张卡片，却断言"收支统计"——该词在任何源文件里都不存在 → 断言必然失败。
+| Value | Use case | Extra required fields |
+|-------|----------|-----------------------|
+| \`web\` | Web apps (React/Vue/Angular/HTML) | \`base_url\`, \`start_command\` |
+| \`android\` | Android/Flutter apps | \`app_package\`, \`app_activity\` |
+| \`ios\` | iOS/SwiftUI apps (macOS only) | \`bundle_id\` |
+| \`miniprogram\` | WeChat Mini Programs | \`base_url\` (miniprogram://path) |
+| \`desktop\` | Windows desktop apps | \`window_title\` |
 
 ---
 
-## 五、所有详细规则 → 参见平台规则文件（必须阅读！）
+## FOUR: Incremental Blueprint Maintenance (6 triggers)
 
-**蓝本的选择器禁则、动作表、完整模板、连续流模式（flow）写法、自检清单、等待策略、踩坑清单等全部详细规则，都在平台专属规则文件中定义。**
+When a project already has blueprints, these code changes MUST sync to the blueprint:
 
-确定 \`platform\` 后，**立即打开并通读** \`.testpilot/platforms/{platform}.md\`，严格遵守该文件中的所有规则。
+| # | Trigger | Blueprint update action |
+|---|---------|------------------------|
+| 1 | Add/remove UI elements | Add/remove corresponding scenarios and steps |
+| 2 | Change element selector (id/class/component name) | Update all \`target\` in blueprint |
+| 3 | Change text content (button label/message/error) | Update \`assert_text\` \`expected\` values |
+| 4 | Change business logic (validation/navigation/calculation) | Update assertions and expected results |
+| 5 | Fix a Bug | Update corresponding assertions to detect that bug |
+| 6 | Change app config (URL/port/route/start command) | Update \`base_url\` / \`start_command\` etc. |
 
-> ⚠️ 平台规则文件是蓝本质量的最终权威。AGENTS.md 只定义通用原则，具体的选择器格式、禁止语法、等待策略必须以平台规则文件为准。
+**Does NOT trigger update:** Pure CSS styling, code comments, internal refactoring (no visible behavior change).
 
-**禁止在不阅读平台规则文件的情况下编写蓝本。**
+---
+
+## FOUR-PLUS: Two Cross-Platform Iron Rules (all platforms, no exceptions)
+
+> These two rules apply to Web / Android / iOS / Mini Program / Desktop.
+> Platform-specific selector prohibitions (e.g. Web \`:contains()\`, Tailwind decimal classes) are defined in platform rule files — read them carefully.
+
+### 🚨 Iron Rule 1: \`target\` attribute values MUST be copied from source code — never guessed
+
+When using \`[title='xxx']\`, \`[placeholder='xxx']\`, \`[aria-label='xxx']\`, \`accessibility_id:xxx\` selectors:
+1. **Open the source file containing the element first**
+2. **Search the code for that attribute name** — confirm it exists and matches exactly
+3. **NEVER guess attribute values from experience, common sense, or user description**
+
+> Typical mistake: seeing a back-arrow button and guessing \`button[title='Back']\` when the source code has no \`title\` attribute → element never found, timeout.
+
+### 🚨 Iron Rule 2: \`assert_text\` \`expected\` values MUST be copied verbatim from source code
+
+1. **Find the corresponding text node in JSX/WXML/Swift/XML/Kotlin source** — copy it verbatim to \`expected\`
+2. **NEVER create, paraphrase, or summarize text** (source says "Income Records" → do NOT assert "Income Statistics")
+3. **NEVER assert text that never appears in the DOM/view tree** (internal variable names, code comments)
+
+> Typical mistake: source has three cards "Total Income" "Total Expense" "Balance" but asserts "Income Statistics" — that phrase appears nowhere in any source file → assertion always fails.
+
+---
+
+## FIVE: All Detailed Rules → Read Platform Rule File (MANDATORY)
+
+**Selector prohibitions, action tables, complete JSON templates, flow mode, checklists, wait strategies, and gotcha tables are all defined in the platform-specific rule files.**
+
+After confirming \`platform\`, **immediately open and read** \`.testpilot/platforms/{platform}.md\`
+and strictly follow all rules in that file.
+
+> ⚠️ The platform rule file is the final authority on blueprint quality. AGENTS.md defines general principles only; specific selector formats, forbidden syntax, and wait strategies are governed solely by the platform rule file.
+
+**NEVER write a blueprint without reading the platform rule file.**
 `;
 }
 
