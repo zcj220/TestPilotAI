@@ -76,6 +76,7 @@ Before writing any selector, do ALL three steps:
 | 2 | `[name="x"]` | `[name="email"]` | Form input with `name` attribute |
 | 3 | `.class` | `.submit-btn` | Unique semantic class name |
 | 4 | Combination | `form.login-form input[name="pwd"]` | When single attributes are not unique |
+| 5 | `:has-text('x')` | `button:has-text('Submit')` | **Last resort only** — button has no id/title/semantic class, but contains unique nested text. Playwright-specific; verify the text exactly matches source code. |
 
 ### Four Critical Pitfalls
 
@@ -121,6 +122,20 @@ Writing `"target": "button"` with no attributes is forbidden. Playwright matches
 | `"target": "span"` | Matches ANY span | Use `#id` or semantic class |
 
 > **Iron rule:** Every `click` target MUST have at least one attribute constraint. Bare tag selectors (`button`, `a`, `div`, `span`) are FORBIDDEN without exception.
+
+**Pitfall 13  State-based routing — URL navigation does NOT switch pages (CRITICAL):**
+Some React/Vue apps use a store value (Zustand/Redux/Context) to decide which component to render: `if (currentApp === 'business') return <BusinessApp />`. These apps have **no URL router** (`react-router-dom`, Vue Router etc.).
+
+In these apps:
+- `navigate("http://localhost:3000/business")` does NOT enter the business module — the store state is cleared loading the URL, so the app shows the login page
+- The only way to enter a sub-module is: full login → click the correct UI button
+- Every scenario MUST start from the login URL and do the complete login + UI navigation flow
+- **ALL pages in such apps MUST be `flow: false`** (each scenario is fully self-contained)
+
+**How to identify state-based routing (check before writing any blueprint):**
+1. Search `App.tsx` / `app.vue` for `if (state === 'xxx') return <Component/>` — if found → state-based routing
+2. Check `package.json` — if NO `react-router-dom` / `vue-router` / `@angular/router` → state-based routing
+3. If URL changes but page stays the same after clicking nav items → state-based routing
 
 ### ⚠️ Attribute Selectors Require Source Verification
 
@@ -189,13 +204,18 @@ wait = async_delay_in_code + 1500ms  (buffer for browser render + WebDriver refr
 
 ### Mandatory Flow Decision for Every Page
 
-**Check these rules in order when generating scenarios for each `page`:**
+**Step 0 — Identify routing type first (MANDATORY before any flow decision):**
 
-1. Does this page have 2 scenarios that ALL require login first?  **MUST set `"flow": true`**
-2. Does this page have 2 scenarios that are sequential tab-switching or continuous operations?  **MUST set `"flow": true`**
-3. Do scenarios need independent clean state (e.g. correct login vs wrong login)?  No flow (default `false`)
+- **State-based routing** (Zustand/Redux/Context controls rendering, no `react-router-dom`): **ALL pages MUST be `flow: false`**. URL navigation does not switch pages. Every scenario does the full login → UI click flow independently. STOP — do not apply steps 1-3 below.
+- **URL-based routing** (uses `react-router-dom`, Vue Router, etc.): continue to step 1.
 
-**Summary:** If multiple scenarios all require login-then-operate on the same page, that page MUST have `"flow": true`. Without flow, every scenario cold-starts and re-logs in = massive waste.
+**Then check in order:**
+
+1. Does this page have 2+ scenarios where scenario 2/3 truly continues in the same UI state left by scenario 1 (not just "both need login")?  **MUST set `"flow": true`**, put login only in scenario 1.
+2. Does this page have sequential tab-switching or chained operations (e.g., fill form → verify → edit → delete)?  **MUST set `"flow": true`**.
+3. Do scenarios need independent clean state (e.g. correct login vs wrong login)?  No flow (default `false`).
+
+**Summary:** `flow: true` is for scenarios that are **genuinely sequential** (scenario 2 picks up where scenario 1 ended). It is NOT triggered merely because multiple scenarios all start with login.
 
 ### Default Mode (flow: false)
 
@@ -298,10 +318,9 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 
 ### MANDATORY Post-Generation Checks (3 required  fix if any fail)
 
-**Check 1  Flow decision:** For each page with 2 scenarios that ALL require login first:
-- YES  that page MUST have `"flow": true` AND non-first scenarios MUST NOT contain login steps
-- NO  no flow needed (each scenario independently logs in)
-- **Scan every non-first scenario in flow pages: if it contains `fill username` / `fill password` / `click login`, DELETE those steps immediately — they belong only in the first scenario**
+**Check 1  Flow decision (two-step):**
+- **Step A — Is this a state-based routing app?** (App.tsx uses `if (state==='x') return <Comp/>`, no `react-router-dom`) → If YES: ALL pages MUST be `flow: false`. Stop here.
+- **Step B — For URL-router apps:** Are scenario 2+ truly continuing from the same UI state where scenario 1 ended? → YES: that page MUST have `"flow": true`, and non-first scenarios MUST NOT contain login steps. SCAN every non-first scenario in flow pages: if it contains `fill username` / `fill password` / `click login`, DELETE those steps immediately.
 
 **Check 2  Assert coverage:** For every scenario, does it have at least one `assert_text` step?
 - Screenshot alone is NOT sufficient  must have text assertion
@@ -326,3 +345,5 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 | `localStorage` not cleared in flow first scenario | Already logged in, re-login fails | Click logout first, then log in fresh |
 | Forgot `navigate` in non-first flow scenario | Can't run scenario independently | Always include navigate (engine auto-skips in flow) |
 | Multiple dialogs in one scenario | Hard to diagnose failures | One scenario per dialog/form entry point |
+| State-based routing app + `"flow": true` | Scenario 2 runs inside app from scenario 1 (wrong sub-module), element not found → 3× timeout chain | Detect routing type first: no `react-router-dom` in `package.json` → state-based → ALL pages `flow: false` |
+| `button:has-text('xxx')` used when button has a stable id/class | Fragile if text changes | Always prefer `#id` or unique `.class`; `:has-text()` is last resort only |}
