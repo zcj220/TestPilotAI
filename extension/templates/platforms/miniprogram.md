@@ -201,29 +201,29 @@ If step 2 of a non-first scenario is `fill username`, but the page is already on
       "flow": true,
       "scenarios": [
         {
-          "name": "Correct login  redirects to record page",
+          "name": "Valid login → redirects to home (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "pages/login/login", "description": "Open login page"},
-            {"action": "fill", "target": "input[placeholder*='Username']", "value": "admin", "description": "Enter username in username input field"},
-            {"action": "fill", "target": "input[placeholder*='Password']", "value": "admin123", "description": "Enter password in password input field"},
-            {"action": "click", "target": "button.btn-primary", "description": "Click login button (text: Login)"},
+            {"action": "fill", "target": "input[placeholder*='Username']", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "input[placeholder*='Password']", "value": "pass1234", "description": "Enter password (replace with actual test data)"},
+            {"action": "click", "target": "button.btn-primary", "description": "Click login button (replace selector with actual class from WXML)"},
             {"action": "wait", "value": "2000", "description": "Wait for API verification and page redirect"},
-            {"action": "assert_text", "expected": "Record Book", "description": "Verify redirect to Record Book page, title shows Record Book"},
-            {"action": "screenshot", "description": "Record Book page after login"}
+            {"action": "assert_text", "expected": "Home Page", "description": "Verify redirect success (replace with actual page title from source)"},
+            {"action": "screenshot", "description": "Home page after login"}
           ]
         },
         {
-          "name": "Add income record",
+          "name": "Add new item via form (replace with actual scenario)",
           "steps": [
-            {"action": "navigate", "value": "pages/index/index", "description": "Flow mode: navigate auto-skipped, already on record page"},
-            {"action": "click", "target": "button.add-btn", "description": "Click add button in top right"},
-            {"action": "wait", "value": "1000", "description": "Wait for add form to load"},
-            {"action": "select", "target": "picker.type-picker", "value": "Income", "description": "Select Income from type picker"},
-            {"action": "fill", "target": "input[placeholder*='Amount']", "value": "1000", "description": "Enter amount 1000"},
-            {"action": "click", "target": "button.save-btn", "description": "Click save button"},
+            {"action": "navigate", "value": "pages/index/index", "description": "Flow mode: navigate auto-skipped, already on home page"},
+            {"action": "click", "target": "button.add-btn", "description": "Click add button (replace selector with actual class)"},
+            {"action": "wait", "value": "1000", "description": "Wait for form to load"},
+            {"action": "select", "target": "picker.type-picker", "description": "Select option from picker (replace selector and value)"},
+            {"action": "fill", "target": "input[placeholder*='Amount']", "value": "100", "description": "Enter value (replace with actual test data)"},
+            {"action": "click", "target": "button.save-btn", "description": "Click save button (replace selector with actual class)"},
             {"action": "wait", "value": "1500", "description": "Wait for save and list refresh"},
-            {"action": "assert_text", "expected": "1000", "description": "Verify new record shows 1000 in list"},
-            {"action": "screenshot", "description": "Record list after adding income"}
+            {"action": "assert_text", "expected": "100", "description": "Verify item appears (replace with actual expected text)"},
+            {"action": "screenshot", "description": "List after adding item"}
           ]
         }
       ]

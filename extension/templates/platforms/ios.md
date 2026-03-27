@@ -207,27 +207,27 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
       "flow": true,
       "scenarios": [
         {
-          "name": "Correct credentials  login success",
+          "name": "Valid login → navigates to home (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "com.example.myapp", "description": "Cold start: terminateApp then launchApp"},
             {"action": "wait", "value": "3000", "description": "Wait for app startup, first-frame render takes 2-3s"},
-            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin", "description": "Enter username in username field"},
-            {"action": "fill", "target": "accessibility_id:tf_password", "value": "admin123", "description": "Enter password in password field"},
-            {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login button, triggers API call then NavigationLink to home"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "pass1234", "description": "Enter password (replace with actual test data)"},
+            {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login button (replace selector with actual accessibilityIdentifier)"},
             {"action": "wait", "value": "3000", "description": "Wait for API response and screen transition"},
-            {"action": "assert_text", "expected": "Home", "description": "Verify NavigationTitle shows Home"},
+            {"action": "assert_text", "expected": "Welcome", "description": "Verify home screen text (replace with actual text from source code)"},
             {"action": "screenshot", "description": "Home screen after login"}
           ]
         },
         {
-          "name": "Wrong password  error shown",
+          "name": "Invalid login → error shown (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "com.example.myapp", "description": "Flow mode: navigate auto-skipped, already on login screen"},
-            {"action": "fill", "target": "accessibility_id:tf_username", "value": "admin", "description": "Enter username"},
-            {"action": "fill", "target": "accessibility_id:tf_password", "value": "wrongpass", "description": "Enter wrong password"},
+            {"action": "fill", "target": "accessibility_id:tf_username", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "accessibility_id:tf_password", "value": "wrong", "description": "Enter wrong password"},
             {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login, API returns error"},
             {"action": "wait", "value": "2000", "description": "Wait for error response"},
-            {"action": "assert_text", "expected": "Invalid credentials", "description": "Verify error label lbl_error shows error text"},
+            {"action": "assert_text", "expected": "Error", "description": "Verify error text (replace with actual error text from source code)"},
             {"action": "screenshot", "description": "Login error state"}
           ]
         }

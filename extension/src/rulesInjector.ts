@@ -239,10 +239,10 @@ When using \`[title='xxx']\`, \`[placeholder='xxx']\`, \`[aria-label='xxx']\`, \
 ### 🚨 Iron Rule 2: \`assert_text\` \`expected\` values MUST be copied verbatim from source code
 
 1. **Find the corresponding text node in JSX/WXML/Swift/XML/Kotlin source** — copy it verbatim to \`expected\`
-2. **NEVER create, paraphrase, or summarize text** (source says "Income Records" → do NOT assert "Income Statistics")
+2. **NEVER create, paraphrase, or summarize text** (source says "Item A" → do NOT assert "Item B")
 3. **NEVER assert text that never appears in the DOM/view tree** (internal variable names, code comments)
 
-> Typical mistake: source has three cards "Total Income" "Total Expense" "Balance" but asserts "Income Statistics" — that phrase appears nowhere in any source file → assertion always fails.
+> Typical mistake: source only has text "X" and "Y" but asserts "Z" — that phrase appears nowhere in any source file → assertion always fails.
 
 ---
 

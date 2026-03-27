@@ -184,28 +184,28 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
       "flow": true,
       "scenarios": [
         {
-          "name": "Correct credentials  login success",
+          "name": "Valid login → navigates to home (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "com.example.myapp/.MainActivity", "description": "Cold start: force-stop then relaunch app"},
             {"action": "wait", "value": "3000", "description": "Wait for app startup, first-frame render takes 2-3s"},
             {"action": "wait", "target": "accessibility_id:btn_login", "timeout_ms": 10000, "description": "Wait until login button is visible"},
-            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_username']", "value": "admin", "description": "Enter username in username field"},
-            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_password']", "value": "admin123", "description": "Enter password in password field"},
-            {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login button, triggers API call then navigates to home"},
+            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_username']", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_password']", "value": "pass1234", "description": "Enter password (replace with actual test data)"},
+            {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login button (replace selector with actual accessibility_id)"},
             {"action": "wait", "value": "3000", "description": "Wait for API response and screen transition"},
-            {"action": "assert_text", "expected": "Home", "description": "Verify home screen title is visible"},
+            {"action": "assert_text", "expected": "Welcome", "description": "Verify home screen text (replace with actual text from source code)"},
             {"action": "screenshot", "description": "Home screen after login"}
           ]
         },
         {
-          "name": "Wrong password  error message shown",
+          "name": "Invalid login → error shown (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "com.example.myapp/.MainActivity", "description": "Flow mode: navigate auto-skipped for non-first scenario"},
-            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_username']", "value": "admin", "description": "Enter username"},
-            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_password']", "value": "wrongpass", "description": "Enter wrong password"},
+            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_username']", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "//android.widget.EditText[@hint='tf_password']", "value": "wrong", "description": "Enter wrong password"},
             {"action": "click", "target": "accessibility_id:btn_login", "description": "Tap login, API returns error"},
             {"action": "wait", "value": "2000", "description": "Wait for error response"},
-            {"action": "assert_text", "expected": "Invalid credentials", "description": "Verify error text is permanently shown on screen"},
+            {"action": "assert_text", "expected": "Error", "description": "Verify error text (replace with actual error text from source code)"},
             {"action": "screenshot", "description": "Login error state"}
           ]
         }

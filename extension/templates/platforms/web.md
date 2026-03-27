@@ -236,26 +236,26 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
       "flow": true,
       "scenarios": [
         {
-          "name": "Correct credentials  login success",
+          "name": "Valid login → redirects to home (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "http://localhost:3000/login", "description": "Open login page"},
-            {"action": "fill", "target": "#username", "value": "admin", "description": "Enter username in the username field"},
-            {"action": "fill", "target": "#password", "value": "admin123", "description": "Enter password in the password field"},
-            {"action": "click", "target": "#login-btn", "description": "Click login button, triggers API validation then redirects to dashboard"},
+            {"action": "fill", "target": "#username", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "#password", "value": "pass1234", "description": "Enter password (replace with actual test data)"},
+            {"action": "click", "target": "#login-btn", "description": "Click login button (replace selector with actual id/class from source code)"},
             {"action": "wait", "value": "2000", "description": "Wait for API response and page redirect"},
-            {"action": "assert_text", "expected": "Dashboard", "description": "Verify dashboard page loaded successfully"},
-            {"action": "screenshot", "description": "Dashboard after login"}
+            {"action": "assert_text", "expected": "Welcome", "description": "Verify redirect success (replace expected with actual text from source code)"},
+            {"action": "screenshot", "description": "Home page after login"}
           ]
         },
         {
-          "name": "Wrong password  error message shown",
+          "name": "Invalid login → error shown (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "http://localhost:3000/login", "description": "Open login page"},
-            {"action": "fill", "target": "#username", "value": "admin", "description": "Enter username"},
-            {"action": "fill", "target": "#password", "value": "wrongpass", "description": "Enter wrong password"},
-            {"action": "click", "target": "#login-btn", "description": "Click login, API returns 401"},
+            {"action": "fill", "target": "#username", "value": "testuser", "description": "Enter username (replace with actual test data)"},
+            {"action": "fill", "target": "#password", "value": "wrong", "description": "Enter wrong password"},
+            {"action": "click", "target": "#login-btn", "description": "Click login button"},
             {"action": "wait", "value": "1500", "description": "Wait for error response"},
-            {"action": "assert_text", "expected": "Invalid credentials", "description": "Verify error message appears permanently in DOM"},
+            {"action": "assert_text", "expected": "Error", "description": "Verify error message (replace expected with actual error text from source code)"},
             {"action": "screenshot", "description": "Login error state"}
           ]
         }

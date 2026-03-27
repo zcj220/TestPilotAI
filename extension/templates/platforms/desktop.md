@@ -188,29 +188,29 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
       "flow": true,
       "scenarios": [
         {
-          "name": "Correct credentials  login success",
+          "name": "Valid login → main view (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "Exact Window Title Here", "description": "Launch or attach to application window"},
             {"action": "wait", "value": "3000", "description": "Wait for app window to fully load"},
-            {"action": "fill", "target": "name:Username", "value": "admin", "description": "Type admin in the Username input field"},
-            {"action": "fill", "target": "name:Password", "value": "admin123", "description": "Type password in the Password input field"},
-            {"action": "click", "target": "name:Login", "description": "Click Login button, triggers validation and switches to main view"},
+            {"action": "fill", "target": "name:Username", "value": "testuser", "description": "Type username (replace with actual test data)"},
+            {"action": "fill", "target": "name:Password", "value": "pass1234", "description": "Type password (replace with actual test data)"},
+            {"action": "click", "target": "name:Login", "description": "Click Login button (replace with actual visible text)"},
             {"action": "wait", "value": "2000", "description": "Wait for login validation and view switch"},
             {"action": "assert_text", "expected": "Welcome", "description": "Verify main view shows welcome message"},
             {"action": "screenshot", "description": "Main view after login"}
           ]
         },
         {
-          "name": "Add new record",
+          "name": "Add new item (replace with actual scenario)",
           "steps": [
             {"action": "navigate", "value": "Exact Window Title Here", "description": "Flow mode: navigate auto-skipped, already on main view"},
-            {"action": "click", "target": "name:Add", "description": "Click Add button to open add record form"},
+            {"action": "click", "target": "name:Add", "description": "Click Add button (replace with actual visible text)"},
             {"action": "wait", "value": "1500", "description": "Wait for dialog to open"},
-            {"action": "fill", "target": "name:Name", "value": "Test Record", "description": "Enter record name in Name field"},
-            {"action": "click", "target": "name:Save", "description": "Click Save to submit the form"},
+            {"action": "fill", "target": "name:Name", "value": "Sample Item", "description": "Enter name (replace with actual test data)"},
+            {"action": "click", "target": "name:Save", "description": "Click Save (replace with actual visible text)"},
             {"action": "wait", "value": "1000", "description": "Wait for save and list refresh"},
-            {"action": "assert_text", "expected": "Test Record", "description": "Verify new record appears in list"},
-            {"action": "screenshot", "description": "List after adding record"}
+            {"action": "assert_text", "expected": "Sample Item", "description": "Verify item appears (replace with actual expected text)"},
+            {"action": "screenshot", "description": "List after adding item"}
           ]
         }
       ]
