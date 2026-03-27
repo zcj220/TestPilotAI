@@ -190,7 +190,19 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
 
 ---
 
-## SEVEN: Complete JSON Template
+## SEVEN: Setup — Reusable Navigation Paths
+
+When 3+ scenarios share the same prefix steps (e.g. app launch → login → navigate to module), extract them into `setups`.
+
+- Define each navigation path once in `"setups"` at the top level
+- Reference it via `"setup": "name"` in each scenario
+- Use `"extends": "parent_name"` to chain paths (e.g. `enter_settings` extends `login`)
+- The engine resolves the full chain and prepends all steps before the scenario’s own steps
+- Max 3 levels of extends; no circular references
+
+---
+
+## EIGHT: Complete JSON Template
 
 ```json
 {
@@ -198,6 +210,7 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
   "description": "50-200 char description of features and test coverage",
   "base_url": "",
   "platform": "ios",
+  "setups": {},
   "bundle_id": "com.example.myapp",
   "udid": "",
   "pages": [
@@ -239,9 +252,10 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
 
 ---
 
-## EIGHT: Checklist
+## NINE: Checklist
 
 ### Pre-Generation Checklist
+- [ ] If 3+ scenarios share login/navigation steps, extracted them into `setups`
 - [ ] All interactive elements have `.accessibilityIdentifier()` in Swift code
 - [ ] `bundle_id` confirmed from Xcode project settings
 - [ ] `base_url` is `""`
@@ -263,7 +277,7 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
 
 ---
 
-## NINE: Gotcha Table
+## TEN: Gotcha Table
 
 | Mistake | Consequence | Correct Approach |
 |---------|-------------|-----------------|
@@ -277,7 +291,7 @@ If step 2 of a non-first scenario is `fill tf_username`, but the app is already 
 
 ---
 
-## TEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
+## ELEVEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
 
 The engine automatically manages a persistent page coordinate cache at `testpilot/.page_cache.json`.
 

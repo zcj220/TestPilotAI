@@ -31,12 +31,21 @@ class BlueprintStep(BaseModel):
     description: Optional[str] = Field(default=None, description="步骤说明")
 
 
+class SetupDef(BaseModel):
+    """可复用的前置步骤组（导航路径定义）。"""
+
+    description: str = Field(default="", description="该路径的用途说明")
+    extends: Optional[str] = Field(default=None, description="继承另一个 setup（先执行父级步骤）")
+    steps: list[BlueprintStep] = Field(default_factory=list, description="本级步骤列表")
+
+
 class BlueprintScenario(BaseModel):
     """蓝本中的测试场景（一组步骤组成一个用例）。"""
 
     name: str = Field(description="场景名称，如'添加待办'")
     description: str = Field(default="", description="场景描述")
     steps: list[BlueprintStep] = Field(default_factory=list, description="步骤列表")
+    setup: Optional[str] = Field(default=None, description="引用 setups 中定义的前置步骤组名称")
     precondition: Optional[str] = Field(default=None, description="前置条件描述")
 
 
@@ -57,6 +66,7 @@ class Blueprint(BaseModel):
     app_name: str = Field(description="应用名称")
     source_path: Optional[Path] = Field(default=None, exclude=True, description="蓝本文件的磁盘路径（运行时填充，不序列化）")
     description: str = Field(default="", description="蓝本功能说明（50-200字，描述本蓝本覆盖的功能范围）")
+    setups: dict[str, SetupDef] = Field(default_factory=dict, description="可复用的前置步骤组（如 login, enter_company）")
     base_url: str = Field(default="", description="基础URL（如 http://localhost:3001）")
     version: str = Field(default="1.0", description="蓝本版本")
     platform: str = Field(default="web", description="测试平台: web/android/ios/miniprogram/desktop")
@@ -181,4 +191,50 @@ class BlueprintParser:
                             f"fill 操作需要 value"
                         )
 
+        # 验证 setups
+        for name, setup_def in blueprint.setups.items():
+            if setup_def.extends and setup_def.extends not in blueprint.setups:
+                issues.append(f"setup '{name}' 引用了不存在的 extends '{setup_def.extends}'")
+            if not setup_def.steps:
+                issues.append(f"setup '{name}' 没有步骤")
+
+        # 验证 scenario.setup 引用
+        for i, page in enumerate(blueprint.pages):
+            for j, scenario in enumerate(page.scenarios):
+                if scenario.setup and scenario.setup not in blueprint.setups:
+                    issues.append(
+                        f"页面{i+1}场景'{scenario.name}'引用了不存在的 setup '{scenario.setup}'"
+                    )
+
+        # 检测 setup 循环引用
+        def _check_cycle(name: str, visited: set[str]) -> bool:
+            if name in visited:
+                return True
+            visited.add(name)
+            parent = blueprint.setups.get(name)
+            if parent and parent.extends:
+                return _check_cycle(parent.extends, visited)
+            return False
+
+        for name in blueprint.setups:
+            if _check_cycle(name, set()):
+                issues.append(f"setup '{name}' 存在循环引用")
+
         return issues
+
+
+def resolve_setup_steps(blueprint: Blueprint, setup_name: str) -> list[BlueprintStep]:
+    """递归展开 setup 继承链，返回完整的前置步骤列表。
+
+    例如 enter_company extends login:
+      返回 [login步骤...] + [enter_company步骤...]
+    """
+    setup_def = blueprint.setups.get(setup_name)
+    if not setup_def:
+        return []
+
+    parent_steps: list[BlueprintStep] = []
+    if setup_def.extends:
+        parent_steps = resolve_setup_steps(blueprint, setup_def.extends)
+
+    return parent_steps + list(setup_def.steps)

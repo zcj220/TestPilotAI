@@ -20,7 +20,7 @@ from loguru import logger
 
 from src.controller.android import AndroidController
 from src.core.ai_client import AIClient
-from src.testing.blueprint import Blueprint, BlueprintPage, BlueprintStep
+from src.testing.blueprint import Blueprint, BlueprintPage, BlueprintStep, resolve_setup_steps
 from src.testing.controller import TestController
 from src.testing.models import (
     ActionType,
@@ -401,20 +401,28 @@ class MobileBlueprintRunner:
                 logger.info("── 场景: {}{} ──", scenario.name, flow_tag)
                 self._hub.on_scenario_start()
 
+                # setup 展开：将场景引用的 setup 步骤插入到场景步骤前面
+                all_scenario_steps = list(scenario.steps)
+                if scenario.setup and blueprint.setups:
+                    setup_steps = resolve_setup_steps(blueprint, scenario.setup)
+                    if setup_steps:
+                        all_scenario_steps = setup_steps + all_scenario_steps
+                        logger.info("  📦 setup '{}' 展开: 插入 {} 个前置步骤", scenario.setup, len(setup_steps))
+
                 # flow模式下，非首个场景跳过navigate步骤（不重启应用）
                 # 同时需要重新分析当前页面元素坐标（因为页面可能已变化）
-                steps_to_run = scenario.steps
+                steps_to_run = all_scenario_steps
                 if is_flow and sc_idx > 0:
                     # 过滤掉开头的navigate步骤（它们用于冷启动，flow模式不需要）
                     filtered = []
                     skip_nav = True
-                    for s in scenario.steps:
+                    for s in all_scenario_steps:
                         if skip_nav and s.action == "navigate":
                             logger.info("  [连续流] 跳过navigate步骤（保持当前页面状态）")
                             continue
                         skip_nav = False  # 只跳过开头的navigate
                         filtered.append(s)
-                    steps_to_run = filtered if filtered else scenario.steps
+                    steps_to_run = filtered if filtered else all_scenario_steps
 
                 # 场景开始前获取当前页面元素坐标（指纹缓存优先，减少AI调用）
                 first_action = steps_to_run[0].action if steps_to_run else ""

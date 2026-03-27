@@ -186,7 +186,19 @@ If step 2 of a non-first scenario is `fill username`, but the page is already on
 
 ---
 
-## SEVEN: Complete JSON Template
+## SEVEN: Setup — Reusable Navigation Paths
+
+When 3+ scenarios share the same prefix steps (e.g. navigate to page → login → enter module), extract them into `setups`.
+
+- Define each navigation path once in `"setups"` at the top level
+- Reference it via `"setup": "name"` in each scenario
+- Use `"extends": "parent_name"` to chain paths (e.g. `enter_settings` extends `login`)
+- The engine resolves the full chain and prepends all steps before the scenario’s own steps
+- Max 3 levels of extends; no circular references
+
+---
+
+## EIGHT: Complete JSON Template
 
 ```json
 {
@@ -194,6 +206,7 @@ If step 2 of a non-first scenario is `fill username`, but the page is already on
   "description": "50-200 char description of features and test coverage",
   "base_url": "miniprogram://D:/Projects/your-mini-program",
   "platform": "miniprogram",
+  "setups": {},
   "pages": [
     {
       "url": "pages/index/index",
@@ -234,9 +247,10 @@ If step 2 of a non-first scenario is `fill username`, but the page is already on
 
 ---
 
-## EIGHT: Checklist
+## NINE: Checklist
 
 ### Pre-Generation Checklist
+- [ ] If 3+ scenarios share login/navigation steps, extracted them into `setups`
 - [ ] Read ALL WXML files, confirmed class names and placeholder text
 - [ ] No `#id` selectors used anywhere
 - [ ] No `:contains()` pseudo-class used
@@ -260,7 +274,7 @@ If step 2 of a non-first scenario is `fill username`, but the page is already on
 
 ---
 
-## NINE: Gotcha Table
+## TEN: Gotcha Table
 
 | Mistake | Consequence | Correct Approach |
 |---------|-------------|-----------------|

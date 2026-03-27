@@ -259,7 +259,69 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 
 ---
 
-## EIGHT: Complete JSON Template
+## EIGHT: Setup — Reusable Navigation Paths
+
+When 3+ scenarios share the same prefix steps (e.g. login → select module), extract them into `setups`.
+
+### When to use setup
+
+| Condition | Action |
+|-----------|--------|
+| 3+ scenarios start with identical login steps | Extract login steps into a `"login"` setup |
+| 2+ scenarios need login + navigate to same module | Create a setup that `extends` the login setup |
+| Only 1 scenario uses a path | Do NOT create a setup — inline the steps |
+
+### How it works
+
+```json
+{
+  "setups": {
+    "login": {
+      "description": "Login with test account",
+      "steps": [
+        {"action": "navigate", "value": "http://localhost:3000/login"},
+        {"action": "fill", "target": "#username", "value": "testuser"},
+        {"action": "fill", "target": "#password", "value": "pass1234"},
+        {"action": "click", "target": "#login-btn"},
+        {"action": "wait", "value": "2000"}
+      ]
+    },
+    "enter_dashboard": {
+      "description": "Login and navigate to dashboard",
+      "extends": "login",
+      "steps": [
+        {"action": "click", "target": "#nav-dashboard"},
+        {"action": "wait", "value": "1500"},
+        {"action": "assert_text", "expected": "Dashboard"}
+      ]
+    }
+  },
+  "pages": [{
+    "scenarios": [{
+      "name": "Dashboard — view chart",
+      "setup": "enter_dashboard",
+      "steps": [
+        {"action": "click", "target": "#chart-tab"},
+        {"action": "assert_text", "expected": "Revenue Chart"}
+      ]
+    }]
+  }]
+}
+```
+
+The engine resolves the chain: `enter_dashboard` extends `login` → executes login steps first → then enter_dashboard steps → then scenario's own steps.
+
+### Rules
+
+1. **Define once, reference many** — setup steps are written once, all `"setup": "name"` scenarios reuse them
+2. **`extends` chains** — a setup can extend another setup (max 3 levels deep to keep it simple)
+3. **No circular references** — `A extends B extends A` is invalid (engine will reject it)
+4. **setup + flow interaction** — in flow mode, setup steps are included in scenario 1 but skipped (along with navigate) in subsequent scenarios
+5. **Each setup MUST end with a verification step** (`assert_text` or `screenshot`) to confirm the path succeeded
+
+---
+
+## NINE: Complete JSON Template
 
 ```json
 {
@@ -269,6 +331,7 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
   "platform": "web",
   "start_command": "npm start",
   "start_cwd": "D:/Projects/your-app",
+  "setups": {},
   "pages": [
     {
       "url": "/login",
@@ -307,14 +370,15 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 
 ---
 
-## NINE: Checklist
+## TEN: Checklist
 
 ### Pre-Generation Checklist
 - [ ] Read ALL template/component files, confirmed real element IDs/classes
 - [ ] Read ALL route files, confirmed actual page paths
 - [ ] Read ALL validation logic, confirmed error message exact text
 - [ ] Checked `package.json` start script, confirmed `start_command` and port
-- [ ] `start_cwd` is an absolute path (e.g. `"D:/Projects/app"`, NOT `"."`)
+- [ ] `start_cwd` is an absolute path (e.g. `"D:/Projects/app"`, NOT `"."`) 
+- [ ] If 3+ scenarios share login steps, extracted them into `setups`
 
 ### MANDATORY Post-Generation Checks (3 required  fix if any fail)
 
@@ -331,7 +395,7 @@ Do NOT put multiple independent dialog interactions in one scenario. Each distin
 
 ---
 
-## TEN: Gotcha Table
+## ELEVEN: Gotcha Table
 
 | Mistake | Consequence | Correct Approach |
 |---------|-------------|-----------------|

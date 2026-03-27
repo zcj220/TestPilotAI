@@ -20,7 +20,7 @@ from src.browser.automator import BrowserAutomator
 from src.core.ai_client import AIClient
 from src.core.exceptions import BrowserActionError, BrowserNavigationError
 from src.testing.anomaly_detector import AnomalyDetector, AnomalySeverity as AnomSev
-from src.testing.blueprint import Blueprint, BlueprintPage, BlueprintScenario, BlueprintStep
+from src.testing.blueprint import Blueprint, BlueprintPage, BlueprintScenario, BlueprintStep, resolve_setup_steps
 from src.testing.models import ActionType, BugReport, BugSeverity, StepResult, StepStatus, TestReport
 from src.testing.controller import TestController
 from src.testing.formula_validator import FormulaResult, is_formula, validate_formula
@@ -193,15 +193,25 @@ class BlueprintRunner:
                 logger.info("── 场景: {}{} ──", scenario.name, flow_tag)
                 self._hub.on_scenario_start()
 
+                # setup 展开：将场景引用的 setup 步骤插入到场景步骤前面
+                effective_steps = list(scenario.steps)
+                setup_step_count = 0
+                if scenario.setup and blueprint.setups:
+                    setup_steps = resolve_setup_steps(blueprint, scenario.setup)
+                    if setup_steps:
+                        setup_step_count = len(setup_steps)
+                        effective_steps = setup_steps + effective_steps
+                        logger.info("  📦 setup '{}' 展开: 插入 {} 个前置步骤", scenario.setup, setup_step_count)
+
                 # 预扫描场景中所有assert_text的expected文本，提前注册到异常检测器的suppress列表
                 # 避免时序问题：click触发错误提示 → 异常检测器立刻扫描报Bug → assert_text还没执行
                 if self._anomaly_detector:
-                    for s in scenario.steps:
+                    for s in effective_steps:
                         if s.action == "assert_text" and s.expected:
                             self._anomaly_detector.suppress_error_text(s.expected)
 
                 flow_first_nav_done = False  # 标记本场景是否已执行过navigate
-                for step_def in scenario.steps:
+                for step_def in effective_steps:
                     step_num += 1
                     desc = step_def.description or step_def.action
 

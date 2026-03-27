@@ -848,11 +848,18 @@ def create_router(
             if not project_path:
                 project_path = str(bp_file.parent)
 
-            # 收集蓝本中所有步骤
+            # 收集蓝本中所有步骤（含 setup 展开）
+            from src.testing.blueprint import resolve_setup_steps
             all_steps = []
             for page in blueprint.pages:
                 for scenario in page.scenarios:
-                    for step in scenario.steps:
+                    # setup 展开
+                    effective_steps = list(scenario.steps)
+                    if scenario.setup and blueprint.setups:
+                        setup_steps = resolve_setup_steps(blueprint, scenario.setup)
+                        if setup_steps:
+                            effective_steps = setup_steps + effective_steps
+                    for step in effective_steps:
                         all_steps.append({
                             "action": step.action,
                             "target": step.target or "",

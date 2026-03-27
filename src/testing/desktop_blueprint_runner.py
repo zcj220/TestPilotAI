@@ -30,6 +30,7 @@ from src.testing.blueprint import (
     Blueprint,
     BlueprintPage,
     BlueprintStep,
+    resolve_setup_steps,
 )
 from src.testing.models import (
     ActionType,
@@ -281,18 +282,26 @@ class DesktopBlueprintRunner:
                 # 场景切换时重置AI中枢连续失败计数
                 self._hub.on_scenario_start()
 
+                # setup 展开：将场景引用的 setup 步骤插入到场景步骤前面
+                all_scenario_steps = list(scenario.steps)
+                if scenario.setup and blueprint.setups:
+                    setup_steps = resolve_setup_steps(blueprint, scenario.setup)
+                    if setup_steps:
+                        all_scenario_steps = setup_steps + all_scenario_steps
+                        logger.info("  📦 setup '{}' 展开: 插入 {} 个前置步骤", scenario.setup, len(setup_steps))
+
                 # flow模式：非首个场景跳过navigate步骤
-                steps_to_run = scenario.steps
+                steps_to_run = all_scenario_steps
                 if is_flow and scenario_idx > 0:
                     filtered = []
                     skip_nav = True
-                    for s in scenario.steps:
+                    for s in all_scenario_steps:
                         if skip_nav and s.action == "navigate":
                             logger.info("  [连续流] 跳过navigate步骤（保持当前窗口状态）")
                             continue
                         skip_nav = False
                         filtered.append(s)
-                    steps_to_run = filtered if filtered else scenario.steps
+                    steps_to_run = filtered if filtered else all_scenario_steps
 
                 # 场景间等待UI稳定（第一个场景除外）
                 if scenario_idx > 0:

@@ -170,7 +170,19 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
 
 ---
 
-## SEVEN: Complete JSON Template
+## SEVEN: Setup — Reusable Navigation Paths
+
+When 3+ scenarios share the same prefix steps (e.g. app launch → login → navigate to module), extract them into `setups`.
+
+- Define each navigation path once in `"setups"` at the top level
+- Reference it via `"setup": "name"` in each scenario
+- Use `"extends": "parent_name"` to chain paths (e.g. `enter_settings` extends `login`)
+- The engine resolves the full chain and prepends all steps before the scenario’s own steps
+- Max 3 levels of extends; no circular references
+
+---
+
+## EIGHT: Complete JSON Template
 
 ```json
 {
@@ -178,6 +190,7 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
   "description": "50-200 char description of features and test coverage",
   "base_url": "",
   "platform": "desktop",
+  "setups": {},
   "window_title": "Exact Window Title Here",
   "start_command": "MyApp.exe",
   "start_cwd": "D:/Apps/MyApp",
@@ -221,9 +234,10 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
 
 ---
 
-## EIGHT: Checklist
+## NINE: Checklist
 
 ### Pre-Generation Checklist
+- [ ] If 3+ scenarios share login/navigation steps, extracted them into `setups`
 - [ ] Launched app and verified `window_title` matches exactly
 - [ ] All `name:` selectors use only the visible screen text (no extra words)
 - [ ] Checked for `AutomationId` in XAML  used `automationid:xxx` where available
@@ -246,7 +260,7 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
 
 ---
 
-## NINE: Gotcha Table
+## TEN: Gotcha Table
 
 | Mistake | Consequence | Correct Approach |
 |---------|-------------|-----------------|
@@ -259,7 +273,7 @@ If step 2 of a non-first scenario is `fill Username`, but the app is already on 
 
 ---
 
-## TEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
+## ELEVEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
 
 The engine uses a dual-strategy approach: **UI Automation first** (fast, precise) → **AI vision fallback** (screenshot + AI locates element coordinates). The AI vision results are cached so re-analysis is skipped on subsequent runs.
 

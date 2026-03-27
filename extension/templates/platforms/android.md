@@ -167,7 +167,19 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
 
 ---
 
-## SEVEN: Complete JSON Template
+## SEVEN: Setup — Reusable Navigation Paths
+
+When 3+ scenarios share the same prefix steps (e.g. app launch → login → navigate to module), extract them into `setups`.
+
+- Define each navigation path once in `"setups"` at the top level
+- Reference it via `"setup": "name"` in each scenario
+- Use `"extends": "parent_name"` to chain paths (e.g. `enter_settings` extends `login`)
+- The engine resolves the full chain and prepends all steps before the scenario’s own steps
+- Max 3 levels of extends; no circular references
+
+---
+
+## EIGHT: Complete JSON Template
 
 ```json
 {
@@ -175,6 +187,7 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
   "description": "50-200 char description of features and test coverage",
   "base_url": "",
   "platform": "android",
+  "setups": {},
   "app_package": "com.example.myapp",
   "app_activity": ".MainActivity",
   "pages": [
@@ -217,9 +230,10 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
 
 ---
 
-## EIGHT: Checklist
+## NINE: Checklist
 
 ### Pre-Generation Checklist
+- [ ] If 3+ scenarios share login/navigation steps, extracted them into `setups`
 - [ ] Read all .dart files, confirmed Semantics labels and hint text
 - [ ] Confirmed `app_package` from AndroidManifest.xml
 - [ ] Confirmed `app_activity` from AndroidManifest.xml
@@ -242,7 +256,7 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
 
 ---
 
-## NINE: Gotcha Table
+## TEN: Gotcha Table
 
 | Mistake | Consequence | Correct Approach |
 |---------|-------------|-----------------|
@@ -257,7 +271,7 @@ If step 2 of a non-first scenario is `fill username`, but the app is already on 
 
 ---
 
-## TEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
+## ELEVEN: Page Coordinate Cache (Automatic — No Blueprint Changes Needed)
 
 The engine automatically manages a persistent page coordinate cache at `testpilot/.page_cache.json`.
 
