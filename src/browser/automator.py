@@ -309,38 +309,57 @@ class BrowserAutomator:
         """
         return await self.page.content()
 
-    async def aria_snapshot(self) -> Optional[dict]:
+    async def aria_snapshot(self) -> Optional[str]:
         """获取当前页面的 ARIA 无障碍树快照。
 
         借鉴 OpenClaw 的 Snapshot Ref 系统：
-        Playwright 内置的 accessibility.snapshot() 返回结构化的无障碍树，
-        每个节点包含 role（按钮/链接/输入框等）和 name（显示文本）。
+        Playwright 1.49+ 的 Locator.aria_snapshot() 返回结构化文本，
+        每行格式：`- role "name" [attributes]`，支持嵌套。
 
         Returns:
-            dict: ARIA 快照树，格式 {role, name, children: [...]}
+            str: ARIA 快照文本
             None: 获取失败
         """
         try:
-            snapshot = await self.page.accessibility.snapshot()
+            snapshot = await self.page.locator("body").aria_snapshot(timeout=5000)
             return snapshot
         except Exception as e:
             logger.debug("ARIA快照获取失败: {}", str(e)[:80])
             return None
 
+    def _parse_aria_elements(self, snapshot_str: str) -> list[dict]:
+        """从 ARIA 快照文本中提取所有 {role, name} 元素。
+
+        快照格式示例：
+            - heading "生活账本" [level=1]
+            - button "记一笔"
+            - textbox "请输入金额"
+        """
+        import re
+        results = []
+        for m in re.finditer(r'-\s+(\w+)\s+"([^"]*)"', snapshot_str):
+            role, name = m.group(1), m.group(2)
+            if name.strip():
+                results.append({"role": role, "name": name.strip()})
+        return results
+
     def _find_aria_node(
-        self, snapshot: dict, description: str, action: str
+        self, snapshot_str: str, description: str, action: str
     ) -> Optional[dict]:
-        """从 ARIA 快照中查找与描述最匹配的可交互节点。
+        """从 ARIA 快照文本中查找与描述最匹配的可交互节点。
 
         匹配策略：
-        1. 精确匹配 name（如 description 包含"登录"且节点 name="登录"）
-        2. 部分匹配 name（description 中的关键词出现在 name 中）
+        1. 精确匹配 name（description 包含完整 name 或反之）
+        2. 部分匹配（description 中的关键词出现在 name 中）
         3. 按动作类型过滤 role（click→button/link, fill→textbox）
         """
-        if not snapshot:
+        if not snapshot_str:
             return None
 
-        # 根据动作类型确定候选 role
+        elements = self._parse_aria_elements(snapshot_str)
+        if not elements:
+            return None
+
         role_map = {
             "click": {"button", "link", "menuitem", "tab", "checkbox", "radio", "switch"},
             "fill": {"textbox", "searchbox", "spinbutton", "combobox"},
@@ -349,36 +368,25 @@ class BrowserAutomator:
         target_roles = role_map.get(action, set())
 
         candidates: list[tuple[int, dict]] = []
-        self._collect_aria_candidates(snapshot, description, target_roles, candidates)
-
-        if not candidates:
-            return None
-        # 按匹配分数降序，取最佳
-        candidates.sort(key=lambda x: x[0], reverse=True)
-        return candidates[0][1]
-
-    def _collect_aria_candidates(
-        self, node: dict, desc: str, target_roles: set, results: list
-    ) -> None:
-        """递归收集 ARIA 树中与描述匹配的候选节点。"""
-        role = node.get("role", "")
-        name = (node.get("name") or "").strip()
-
-        if role and name and (not target_roles or role in target_roles):
+        for el in elements:
+            role = el["role"]
+            name = el["name"]
+            if target_roles and role not in target_roles:
+                continue
             score = 0
-            desc_lower = desc.lower()
+            desc_lower = description.lower()
             name_lower = name.lower()
-            # 精确匹配
-            if name_lower == desc_lower or name in desc or desc in name:
+            if name_lower == desc_lower or name in description or description in name:
                 score = 100
-            # 部分匹配：desc 中的词出现在 name 中
             elif any(w in name_lower for w in desc_lower.split() if len(w) >= 2):
                 score = 60
             if score > 0:
-                results.append((score, node))
+                candidates.append((score, el))
 
-        for child in node.get("children", []):
-            self._collect_aria_candidates(child, desc, target_roles, results)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
 
     async def click_by_role(self, role: str, name: str) -> None:
         """通过 ARIA role + name 精确点击元素（仿 OpenClaw refLocator）。"""

@@ -76,7 +76,7 @@ Before writing any selector, do ALL three steps:
 | 2 | `[name="x"]` | `[name="email"]` | Form input with `name` attribute |
 | 3 | `.class` | `.submit-btn` | Unique semantic class name |
 | 4 | Combination | `form.login-form input[name="pwd"]` | When single attributes are not unique |
-| 5 | `:has-text('x')` | `button:has-text('Submit')` | **Last resort only** — button has no id/title/semantic class, but contains unique nested text. Playwright-specific; verify the text exactly matches source code. |
+| 5 | `:has-text('x')` | `button:has-text('Submit')` | Button has visible text but no id/title/semantic class. **Preferred for Tailwind CSS projects** where buttons rarely have semantic classes. Verify text exactly matches source code. |
 
 ### Four Critical Pitfalls
 
@@ -107,6 +107,8 @@ Custom components like `<Select>`, `<Modal>`, `<DatePicker>` do NOT appear as CS
 ### Forbidden selectors
 
 - ❌ `div[class*='ComponentName']` — component name ≠ CSS class
+- ❌ `svg[class*='IconName']` — icon library rendered class ≠ JSX component name (see Pitfall 14)
+- ❌ `button:has(> svg[class*='xxx'])` — SVG class matching is always wrong (see Pitfall 14)
 - ❌ `div:nth-child(N)` — fragile, breaks on DOM changes
 - ❌ `body > div > div > form > input` — too deep, breaks easily
 - ❌ `accessibility_id:xxx` — mobile-only selector, NOT for Web
@@ -169,6 +171,53 @@ When a `<form>` has both utility buttons (e.g. password toggle `type="button"`) 
 Icon libraries (Lucide, Heroicons, react-icons) render SVG with different class names than the component name. `<ArrowLeft />` does NOT render with class `ArrowLeft`. Target the wrapping button instead of the SVG.
 
 > Note: `title="xxx"` is a tooltip attribute, NOT visible page text. Do NOT use `assert_text` on it — use `assert_visible` instead.
+
+**Pitfall 14  SVG class selectors are ALWAYS wrong (CRITICAL):**
+Selectors like `svg[class*='Plus']`, `button:has(> svg[class*='ArrowLeft'])`, or `svg.icon-name` are FORBIDDEN. Reason:
+- React icon libraries (Lucide, Heroicons, react-icons) use JSX component names like `<Plus />`, `<ArrowLeft />` in source code
+- But the rendered SVG gets completely different class names: `lucide lucide-plus`, `heroicon-outline`, etc.
+- `class*='Plus'` (capital P) will NEVER match `lucide-plus` (lowercase) — CSS attribute selectors are case-sensitive
+- Even if you try `class*='plus'`, Lucide renders `class="lucide lucide-plus"` — matching on SVG internals is fragile and breaks between library versions
+
+| ❌ Forbidden selector | Why it fails | ✅ Correct selector |
+|---|---|---|
+| `svg[class*='Plus']` | Rendered class is `lucide lucide-plus`, not `Plus` | `button:has-text('记一笔')` |
+| `button:has(> svg[class*='ArrowLeft'])` | SVG class differs from component name | `button:has-text('返回')` or `button[aria-label='Go back']` |
+| `svg.icon-name` | Icon library changes class format between versions | Target the parent `button` by text/id/aria-label |
+
+> **Iron rule:** NEVER use SVG class names as selectors. Always target the *parent interactive element* (button/link) by its text content, `id`, `aria-label`, or semantic class.
+
+**Pitfall 15  Icon buttons with visible text — use `:has-text()` (CRITICAL):**
+When a button contains BOTH an icon AND text, like:
+```jsx
+<button><Plus className="w-5 h-5" /><span>记一笔</span></button>
+```
+The correct selector is `button:has-text('记一笔')` — NOT any selector targeting the icon's SVG.
+
+Selector decision tree for icon buttons:
+1. Button has `id` or `data-testid`? → Use `#id` or `[data-testid='xxx']`
+2. Button has unique semantic class? → Use `.class-name`
+3. Button has visible text? → Use `button:has-text('visible text')`
+4. Button has `aria-label`? → Use `button[aria-label='xxx']`
+5. Button is icon-only with no text/id/class/aria-label? → Ask developer to add `data-testid`
+
+> In Tailwind CSS projects, almost every button lacks semantic classes. Jump directly to step 3 (`button:has-text()`) for buttons with visible text.
+
+**Pitfall 16  `assert_text` expected value MUST come from source code (CRITICAL):**
+The `expected` text in `assert_text` must be **copy-pasted from the actual component source file**, not guessed from feature names or page titles.
+
+Common mistake pattern:
+- Developer names a feature "财务报表" in the project plan
+- AI writes `"expected": "财务报表"` in the blueprint
+- But the actual component renders `"财务记录"` — assertion fails every run
+
+**Mandatory verification process:**
+1. Identify which component renders the target page (e.g., `BusinessApp.tsx`)
+2. Open that file, search for the exact text string you want to assert
+3. Copy-paste the exact string (including punctuation, spaces, parentheses)
+4. If the text is dynamic (e.g., `财务记录(${count})`), assert only the static part: `"expected": "财务记录"`
+
+> **Iron rule:** Every `assert_text` expected value must have a traceable source file and line number. If you cannot find the text in any source file, do NOT write that assertion.
 
 ---
 
@@ -410,4 +459,6 @@ The engine resolves the chain: `enter_dashboard` extends `login` → executes lo
 | Forgot `navigate` in non-first flow scenario | Can't run scenario independently | Always include navigate (engine auto-skips in flow) |
 | Multiple dialogs in one scenario | Hard to diagnose failures | One scenario per dialog/form entry point |
 | State-based routing app + `"flow": true` | Scenario 2 runs inside app from scenario 1 (wrong sub-module), element not found → 3× timeout chain | Detect routing type first: no `react-router-dom` in `package.json` → state-based → ALL pages `flow: false` |
-| `button:has-text('xxx')` used when button has a stable id/class | Fragile if text changes | Always prefer `#id` or unique `.class`; `:has-text()` is last resort only |}
+| `button:has-text('xxx')` used when button has a stable id/class | Fragile if text changes | Always prefer `#id` or unique `.class`; `:has-text()` is last resort only |
+| `svg[class*='IconName']` or `button:has(> svg[class*='xxx'])` | Icon library renders different class names than JSX component; case-sensitive mismatch | Use `button:has-text('text')` or `#id` — NEVER target SVG class |
+| `assert_text` expected guessed from feature name | Actual rendered text differs from feature name | Open source file, copy-paste the exact rendered text |}
