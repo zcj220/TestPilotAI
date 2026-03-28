@@ -1,10 +1,10 @@
 """
-蓝本模式执行器（v1.x）
+蓝本模式执行器（v14.7）
 
 按 testpilot.json 蓝本精确执行测试：
-- 使用蓝本中的精确CSS选择器，不靠AI猜测
+- 三层降级：CSS选择器 → ARIA Snapshot → AI截图分析
 - 按需截图（蓝本写了screenshot或有expected时）+ AI视觉验证预期结果
-- 生成与盲测模式格式一致的测试报告
+- Web页面缓存（.web_cache.json）跨运行复用ARIA降级结果
 """
 
 import asyncio
@@ -28,6 +28,7 @@ from src.testing.smart_input import generate_smart_value, is_auto_value
 from src.testing.log_slicer import LogSlicer
 from src.testing.smart_repair import RepairStrategy, SmartRepairDecider
 from src.testing.ai_hub import AIHub, FaultType, HubAction, StepContext
+from src.testing.web_cache import WebPageCache
 
 
 class BlueprintRunner:
@@ -64,6 +65,8 @@ class BlueprintRunner:
         self._log_slicer = LogSlicer()
         # AI中枢：统一的弹窗自愈 + 连续失败熔断决策
         self._hub = AIHub(ai_client)
+        # v14.7：Web 页面缓存（ARIA 降级 + AI 坐标）
+        self._web_cache = WebPageCache()
 
     async def run(
         self,
@@ -120,6 +123,9 @@ class BlueprintRunner:
             logger.debug("浏览器缓存已清除")
         except Exception as e:
             logger.debug("清除缓存失败（非致命）: {}", e)
+
+        # v14.7：初始化 Web 页面缓存（ARIA 降级 + AI 坐标持久化）
+        self._web_cache.init(blueprint.source_path, blueprint.app_name or "")
 
         # v2.1：挂载浏览器控制台和网络错误监听（日志智能切片）
         self._log_slicer.clear()
@@ -539,6 +545,9 @@ class BlueprintRunner:
         if self._controller:
             self._controller.on_test_complete()
 
+        # v14.7：保存 Web 页面缓存
+        self._web_cache.save()
+
         return report
 
     # ── AI中枢桥接方法（供 AIHub 回调） ─────────────────
@@ -637,10 +646,10 @@ class BlueprintRunner:
                 await self._browser.navigate(url)
 
             elif step_def.action == "click":
-                await self._browser.click(target)
+                await self._click_with_fallback(target, step_def.description or "click", page)
 
             elif step_def.action == "fill":
-                await self._browser.fill(target, resolved_value)
+                await self._fill_with_fallback(target, resolved_value, step_def.description or "fill", page)
 
             elif step_def.action == "select":
                 await self._browser.select_option(target, resolved_value)
@@ -922,6 +931,209 @@ class BlueprintRunner:
         except Exception as e:
             logger.debug("异常检测执行失败: {}", str(e)[:100])
             return []
+
+    # ── v14.7：三层降级策略（CSS → ARIA Snapshot → AI截图） ──
+
+    async def _click_with_fallback(self, target: str, desc: str, page: BlueprintPage) -> None:
+        """三层降级点击：CSS → ARIA缓存/Snapshot → AI截图坐标。"""
+        # 第1层：CSS 选择器直连（零成本）
+        try:
+            await self._browser.click(target)
+            return
+        except Exception as css_err:
+            logger.info("  [降级] CSS选择器失败: {} | 尝试ARIA降级", target)
+
+        # 第2层：ARIA Snapshot 降级
+        page_url = self._current_page_url()
+        aria_ok = await self._try_aria_click(target, desc, page_url)
+        if aria_ok:
+            return
+
+        # 第3层：AI 截图坐标兜底
+        ai_ok = await self._try_ai_coord_click(target, desc, page_url)
+        if ai_ok:
+            return
+
+        # 全部失败，抛出原始异常让上层 AI 中枢处理
+        from src.core.exceptions import BrowserActionError
+        raise BrowserActionError(
+            message=f"三层降级均失败: {target}",
+            detail=f"CSS/ARIA/AI截图均无法定位元素 '{target}' (desc={desc})",
+        )
+
+    async def _fill_with_fallback(self, target: str, value: str, desc: str, page: BlueprintPage) -> None:
+        """三层降级输入：CSS → ARIA缓存/Snapshot → AI截图坐标。"""
+        # 第1层：CSS 选择器直连
+        try:
+            await self._browser.fill(target, value)
+            return
+        except Exception:
+            logger.info("  [降级] CSS选择器失败: {} | 尝试ARIA降级", target)
+
+        # 第2层：ARIA Snapshot 降级
+        page_url = self._current_page_url()
+        aria_ok = await self._try_aria_fill(target, value, desc, page_url)
+        if aria_ok:
+            return
+
+        # 第3层：AI 截图坐标兜底（点击输入框 + 键盘输入）
+        ai_ok = await self._try_ai_coord_fill(target, value, desc, page_url)
+        if ai_ok:
+            return
+
+        from src.core.exceptions import BrowserActionError
+        raise BrowserActionError(
+            message=f"三层降级均失败: {target}",
+            detail=f"CSS/ARIA/AI截图均无法定位输入框 '{target}' (desc={desc})",
+        )
+
+    def _current_page_url(self) -> str:
+        """获取当前页面 URL 路径（去掉域名部分，用作缓存 key）。"""
+        try:
+            from urllib.parse import urlparse
+            full_url = self._browser.page.url
+            parsed = urlparse(full_url)
+            return parsed.path or "/"
+        except Exception:
+            return "/"
+
+    async def _try_aria_click(self, target: str, desc: str, page_url: str) -> bool:
+        """尝试 ARIA 降级点击。成功返回 True。"""
+        # 先查缓存
+        cached = self._web_cache.get_aria_fallback(page_url, target)
+        if cached:
+            try:
+                await self._browser.click_by_role(cached.role, cached.name)
+                self._web_cache.set_aria_fallback(page_url, target, cached.role, cached.name)
+                logger.info("  [ARIA缓存] 命中: {} → role={}, name={}", target, cached.role, cached.name)
+                return True
+            except Exception:
+                logger.debug("  ARIA缓存命中但执行失败，尝试现场分析")
+
+        # 缓存未命中，现场获取 ARIA 快照
+        snapshot = await self._browser.aria_snapshot()
+        if not snapshot:
+            return False
+
+        node = self._browser._find_aria_node(snapshot, desc, "click")
+        if not node:
+            logger.debug("  ARIA快照中未找到匹配: desc={}", desc)
+            return False
+
+        role, name = node.get("role", ""), node.get("name", "")
+        try:
+            await self._browser.click_by_role(role, name)
+            # 成功！写入缓存
+            self._web_cache.set_aria_fallback(page_url, target, role, name)
+            logger.info("  [ARIA降级] 成功: {} → role={}, name={}", target, role, name)
+            return True
+        except Exception as e:
+            logger.debug("  ARIA降级执行失败: {}", str(e)[:80])
+            return False
+
+    async def _try_aria_fill(self, target: str, value: str, desc: str, page_url: str) -> bool:
+        """尝试 ARIA 降级输入。"""
+        cached = self._web_cache.get_aria_fallback(page_url, target)
+        if cached:
+            try:
+                await self._browser.fill_by_role(cached.role, cached.name, value)
+                self._web_cache.set_aria_fallback(page_url, target, cached.role, cached.name)
+                logger.info("  [ARIA缓存] 命中: {} → role={}, name={}", target, cached.role, cached.name)
+                return True
+            except Exception:
+                pass
+
+        snapshot = await self._browser.aria_snapshot()
+        if not snapshot:
+            return False
+
+        node = self._browser._find_aria_node(snapshot, desc, "fill")
+        if not node:
+            return False
+
+        role, name = node.get("role", ""), node.get("name", "")
+        try:
+            await self._browser.fill_by_role(role, name, value)
+            self._web_cache.set_aria_fallback(page_url, target, role, name)
+            logger.info("  [ARIA降级] 成功: {} → role={}, name={}", target, role, name)
+            return True
+        except Exception:
+            return False
+
+    async def _try_ai_coord_click(self, target: str, desc: str, page_url: str) -> bool:
+        """AI 截图坐标兜底点击。"""
+        if not self._ai:
+            return False
+
+        # 先查缓存
+        cached_coord = self._web_cache.get_ai_coord(page_url, target)
+        if cached_coord:
+            try:
+                viewport = await self._browser.page.evaluate(
+                    "() => ({w: window.innerWidth, h: window.innerHeight})"
+                )
+                x = int(cached_coord[0] * viewport["w"])
+                y = int(cached_coord[1] * viewport["h"])
+                await self._browser.page.mouse.click(x, y)
+                logger.info("  [AI坐标缓存] 命中: {} → ({}, {})", target, x, y)
+                return True
+            except Exception:
+                pass
+
+        # 缓存未命中，截图 + AI 分析
+        try:
+            screenshot_path = await self._browser.screenshot("aria_fallback")
+            prompt = (
+                f"分析截图，找到以下UI元素的中心位置：\n"
+                f"描述: {desc}\n选择器: {target}\n\n"
+                f"返回JSON: {{\"x\": 0.5, \"y\": 0.5}} （归一化坐标0~1）\n"
+                f"如果找不到返回: {{\"not_found\": true}}\n只返回JSON"
+            )
+            import json as _json
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None, lambda: self._ai.analyze_screenshot(
+                    str(screenshot_path), prompt, reasoning_effort="low", timeout=30, max_tokens=500,
+                )
+            )
+            import re
+            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            if not json_match:
+                return False
+            data = _json.loads(json_match.group())
+            if data.get("not_found"):
+                return False
+            nx, ny = float(data.get("x", 0)), float(data.get("y", 0))
+            if nx <= 0 or ny <= 0 or nx > 1 or ny > 1:
+                return False
+
+            viewport = await self._browser.page.evaluate(
+                "() => ({w: window.innerWidth, h: window.innerHeight})"
+            )
+            x, y = int(nx * viewport["w"]), int(ny * viewport["h"])
+            await self._browser.page.mouse.click(x, y)
+            # 写入缓存
+            self._web_cache.set_ai_coord(page_url, target, nx, ny)
+            logger.info("  [AI截图降级] 成功: {} → ({}, {}) [归一化:{:.3f},{:.3f}]", target, x, y, nx, ny)
+            return True
+        except Exception as e:
+            logger.debug("  AI截图降级失败: {}", str(e)[:80])
+            return False
+
+    async def _try_ai_coord_fill(self, target: str, value: str, desc: str, page_url: str) -> bool:
+        """AI 截图坐标兜底输入：点击输入框 + 键盘输入。"""
+        clicked = await self._try_ai_coord_click(target, desc, page_url)
+        if not clicked:
+            return False
+        try:
+            await asyncio.sleep(0.3)
+            await self._browser.page.keyboard.press("Control+a")
+            await self._browser.page.keyboard.type(value, delay=30)
+            logger.info("  [AI截图降级] 输入成功: {} → '{}'", target, value[:20])
+            return True
+        except Exception as e:
+            logger.debug("  AI截图降级输入失败: {}", str(e)[:80])
+            return False
 
     def _resolve_selector(
         self,

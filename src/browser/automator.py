@@ -309,6 +309,101 @@ class BrowserAutomator:
         """
         return await self.page.content()
 
+    async def aria_snapshot(self) -> Optional[dict]:
+        """获取当前页面的 ARIA 无障碍树快照。
+
+        借鉴 OpenClaw 的 Snapshot Ref 系统：
+        Playwright 内置的 accessibility.snapshot() 返回结构化的无障碍树，
+        每个节点包含 role（按钮/链接/输入框等）和 name（显示文本）。
+
+        Returns:
+            dict: ARIA 快照树，格式 {role, name, children: [...]}
+            None: 获取失败
+        """
+        try:
+            snapshot = await self.page.accessibility.snapshot()
+            return snapshot
+        except Exception as e:
+            logger.debug("ARIA快照获取失败: {}", str(e)[:80])
+            return None
+
+    def _find_aria_node(
+        self, snapshot: dict, description: str, action: str
+    ) -> Optional[dict]:
+        """从 ARIA 快照中查找与描述最匹配的可交互节点。
+
+        匹配策略：
+        1. 精确匹配 name（如 description 包含"登录"且节点 name="登录"）
+        2. 部分匹配 name（description 中的关键词出现在 name 中）
+        3. 按动作类型过滤 role（click→button/link, fill→textbox）
+        """
+        if not snapshot:
+            return None
+
+        # 根据动作类型确定候选 role
+        role_map = {
+            "click": {"button", "link", "menuitem", "tab", "checkbox", "radio", "switch"},
+            "fill": {"textbox", "searchbox", "spinbutton", "combobox"},
+            "select": {"combobox", "listbox"},
+        }
+        target_roles = role_map.get(action, set())
+
+        candidates: list[tuple[int, dict]] = []
+        self._collect_aria_candidates(snapshot, description, target_roles, candidates)
+
+        if not candidates:
+            return None
+        # 按匹配分数降序，取最佳
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        return candidates[0][1]
+
+    def _collect_aria_candidates(
+        self, node: dict, desc: str, target_roles: set, results: list
+    ) -> None:
+        """递归收集 ARIA 树中与描述匹配的候选节点。"""
+        role = node.get("role", "")
+        name = (node.get("name") or "").strip()
+
+        if role and name and (not target_roles or role in target_roles):
+            score = 0
+            desc_lower = desc.lower()
+            name_lower = name.lower()
+            # 精确匹配
+            if name_lower == desc_lower or name in desc or desc in name:
+                score = 100
+            # 部分匹配：desc 中的词出现在 name 中
+            elif any(w in name_lower for w in desc_lower.split() if len(w) >= 2):
+                score = 60
+            if score > 0:
+                results.append((score, node))
+
+        for child in node.get("children", []):
+            self._collect_aria_candidates(child, desc, target_roles, results)
+
+    async def click_by_role(self, role: str, name: str) -> None:
+        """通过 ARIA role + name 精确点击元素（仿 OpenClaw refLocator）。"""
+        try:
+            locator = self.page.get_by_role(role, name=name, exact=True)
+            await locator.click(timeout=5000)
+            logger.debug("ARIA点击成功: role={}, name={}", role, name)
+        except Exception as e:
+            raise BrowserActionError(
+                message=f"ARIA点击失败: role={role}, name={name}",
+                detail=str(e),
+            )
+
+    async def fill_by_role(self, role: str, name: str, text: str) -> None:
+        """通过 ARIA role + name 精确填充文本。"""
+        try:
+            locator = self.page.get_by_role(role, name=name, exact=True)
+            await locator.fill(text, timeout=5000)
+            logger.debug("ARIA填充成功: role={}, name={}", role, name)
+        except Exception as e:
+            raise BrowserActionError(
+                message=f"ARIA填充失败: role={role}, name={name}",
+                detail=str(e),
+            )
+
     async def get_current_url(self) -> str:
         """获取当前页面 URL。
 
