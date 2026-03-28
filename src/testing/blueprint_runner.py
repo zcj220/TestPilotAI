@@ -932,59 +932,200 @@ class BlueprintRunner:
             logger.debug("异常检测执行失败: {}", str(e)[:100])
             return []
 
-    # ── v14.7：三层降级策略（CSS → ARIA Snapshot → AI截图） ──
+    # ── v14.9：增强降级策略（CSS → 智能文本直达 → ARIA Snapshot → AI截图） ──
+
+    @staticmethod
+    def _extract_keywords(target: str, desc: str) -> dict:
+        """从 CSS 选择器和 description 中提取定位线索。
+
+        返回 dict:
+            text_hints: list[str] — 从 :has-text / description 提取的可见文字片段
+            placeholder_hints: list[str] — 从 [placeholder='xxx'] 提取的 placeholder
+            role_hint: str — 从选择器标签推断的 role（button/link/textbox 等）
+            label_hints: list[str] — 从 [aria-label] / [name] 提取的标签
+        """
+        import re
+
+        text_hints = []
+        placeholder_hints = []
+        label_hints = []
+        role_hint = ""
+
+        # 1. 从 target 中提取 :has-text('xxx') 的文字
+        for m in re.finditer(r":has-text\(['\"]([^'\"]+)['\"]\)", target):
+            text_hints.append(m.group(1))
+
+        # 2. 从 target 中提取 [placeholder='xxx']
+        for m in re.finditer(r"\[placeholder[*~^$]?=['\"]([^'\"]+)['\"]\]", target):
+            placeholder_hints.append(m.group(1))
+
+        # 3. 从 target 中提取 [aria-label='xxx'] / [title='xxx'] / [name='xxx']
+        for m in re.finditer(r"\[(?:aria-label|title|name)[*~^$]?=['\"]([^'\"]+)['\"]\]", target):
+            label_hints.append(m.group(1))
+
+        # 4. 从 target 推断元素类型
+        tag_match = re.match(r'^(\w+)', target)
+        if tag_match:
+            tag = tag_match.group(1).lower()
+            role_map = {"button": "button", "a": "link", "input": "textbox",
+                        "textarea": "textbox", "select": "combobox"}
+            role_hint = role_map.get(tag, "")
+
+        # 5. 从 description 提取中文关键词（去掉"点击""输入""填写""验证"等动作词）
+        if desc:
+            # 去掉常见动作前缀
+            cleaned = re.sub(
+                r'^(点击|单击|双击|右击|输入|填写|填入|选择|勾选|验证|查看|检查|等待|滚动到?|在.{0,6}中?)',
+                '', desc
+            )
+            # 去掉尾部"按钮""输入框""链接""文本框"等控件后缀
+            cleaned = re.sub(
+                r'(按钮|输入框|文本框|下拉框|链接|复选框|单选框|开关|标签|菜单|选项|图标)$',
+                '', cleaned
+            )
+            cleaned = cleaned.strip()
+            if cleaned and len(cleaned) >= 2:
+                text_hints.append(cleaned)
+
+            # 也尝试提取引号中的文字（如"点击'记一笔'按钮"）
+            for m in re.finditer(r"['\"""'']([^'\"""'']{2,})['\"""'']", desc):
+                text_hints.append(m.group(1))
+
+        # 去重但保持顺序
+        seen = set()
+        unique_texts = []
+        for t in text_hints:
+            if t not in seen:
+                seen.add(t)
+                unique_texts.append(t)
+        text_hints = unique_texts
+
+        return {
+            "text_hints": text_hints,
+            "placeholder_hints": placeholder_hints,
+            "role_hint": role_hint,
+            "label_hints": label_hints,
+        }
+
+    async def _try_smart_text_click(self, target: str, desc: str) -> bool:
+        """智能文本直达点击：从选择器/description提取关键词，用Playwright原生定位。
+
+        不需要获取ARIA快照，零额外开销，直接用 get_by_text / get_by_role。
+        """
+        hints = self._extract_keywords(target, desc)
+
+        # 策略1：用提取的文本关键词 + role 精确定位
+        if hints["role_hint"] and hints["text_hints"]:
+            for text in hints["text_hints"]:
+                ok = await self._browser.click_by_role_fuzzy(hints["role_hint"], text)
+                if ok:
+                    logger.info("  [智能文本] Role+Text命中: role={}, text='{}'", hints["role_hint"], text)
+                    return True
+
+        # 策略2：纯文本点击（适用于按钮文字明确的场景）
+        for text in hints["text_hints"]:
+            ok = await self._browser.click_by_text(text)
+            if ok:
+                logger.info("  [智能文本] Text命中: text='{}'", text)
+                return True
+
+        # 策略3：用 label 线索 + button role
+        for label in hints["label_hints"]:
+            ok = await self._browser.click_by_role_fuzzy("button", label)
+            if ok:
+                logger.info("  [智能文本] Label命中: label='{}'", label)
+                return True
+
+        return False
+
+    async def _try_smart_text_fill(self, target: str, value: str, desc: str) -> bool:
+        """智能文本直达填充：从选择器/description提取关键词定位输入框。"""
+        hints = self._extract_keywords(target, desc)
+
+        # 策略1：用 placeholder 直达
+        for ph in hints["placeholder_hints"]:
+            ok = await self._browser.fill_by_placeholder(ph, value)
+            if ok:
+                logger.info("  [智能文本] Placeholder命中: ph='{}'", ph)
+                return True
+
+        # 策略2：用 label / aria-label 定位
+        for label in hints["label_hints"]:
+            ok = await self._browser.fill_by_label(label, value)
+            if ok:
+                logger.info("  [智能文本] Label命中: label='{}'", label)
+                return True
+
+        # 策略3：用 description 关键词作为 label
+        for text in hints["text_hints"]:
+            ok = await self._browser.fill_by_label(text, value)
+            if ok:
+                logger.info("  [智能文本] DescLabel命中: text='{}'", text)
+                return True
+
+        return False
 
     async def _click_with_fallback(self, target: str, desc: str, page: BlueprintPage) -> None:
-        """三层降级点击：CSS → ARIA缓存/Snapshot → AI截图坐标。"""
+        """四层降级点击：CSS → 智能文本直达 → ARIA Snapshot → AI截图坐标。"""
         # 第1层：CSS 选择器直连（零成本）
         try:
             await self._browser.click(target)
             return
         except Exception as css_err:
-            logger.info("  [降级] CSS选择器失败: {} | 尝试ARIA降级", target)
+            logger.info("  [降级] CSS选择器失败: {} | 尝试智能文本定位", target)
 
-        # 第2层：ARIA Snapshot 降级
+        # 第2层：智能文本直达（从selector/desc提取关键词，零AI成本）
+        text_ok = await self._try_smart_text_click(target, desc)
+        if text_ok:
+            return
+
+        # 第3层：ARIA Snapshot 降级（获取完整ARIA树匹配）
         page_url = self._current_page_url()
         aria_ok = await self._try_aria_click(target, desc, page_url)
         if aria_ok:
             return
 
-        # 第3层：AI 截图坐标兜底
+        # 第4层：AI 截图坐标兜底
         ai_ok = await self._try_ai_coord_click(target, desc, page_url)
         if ai_ok:
             return
 
-        # 全部失败，抛出原始异常让上层 AI 中枢处理
+        # 全部失败，抛出异常让上层 AI 中枢处理
         from src.core.exceptions import BrowserActionError
         raise BrowserActionError(
-            message=f"三层降级均失败: {target}",
-            detail=f"CSS/ARIA/AI截图均无法定位元素 '{target}' (desc={desc})",
+            message=f"四层降级均失败: {target}",
+            detail=f"CSS/智能文本/ARIA/AI截图均无法定位元素 '{target}' (desc={desc})",
         )
 
     async def _fill_with_fallback(self, target: str, value: str, desc: str, page: BlueprintPage) -> None:
-        """三层降级输入：CSS → ARIA缓存/Snapshot → AI截图坐标。"""
+        """四层降级输入：CSS → 智能文本直达 → ARIA Snapshot → AI截图坐标。"""
         # 第1层：CSS 选择器直连
         try:
             await self._browser.fill(target, value)
             return
         except Exception:
-            logger.info("  [降级] CSS选择器失败: {} | 尝试ARIA降级", target)
+            logger.info("  [降级] CSS选择器失败: {} | 尝试智能文本定位", target)
 
-        # 第2层：ARIA Snapshot 降级
+        # 第2层：智能文本直达
+        text_ok = await self._try_smart_text_fill(target, value, desc)
+        if text_ok:
+            return
+
+        # 第3层：ARIA Snapshot 降级
         page_url = self._current_page_url()
         aria_ok = await self._try_aria_fill(target, value, desc, page_url)
         if aria_ok:
             return
 
-        # 第3层：AI 截图坐标兜底（点击输入框 + 键盘输入）
+        # 第4层：AI 截图坐标兜底
         ai_ok = await self._try_ai_coord_fill(target, value, desc, page_url)
         if ai_ok:
             return
 
         from src.core.exceptions import BrowserActionError
         raise BrowserActionError(
-            message=f"三层降级均失败: {target}",
-            detail=f"CSS/ARIA/AI截图均无法定位输入框 '{target}' (desc={desc})",
+            message=f"四层降级均失败: {target}",
+            detail=f"CSS/智能文本/ARIA/AI截图均无法定位输入框 '{target}' (desc={desc})",
         )
 
     def _current_page_url(self) -> str:

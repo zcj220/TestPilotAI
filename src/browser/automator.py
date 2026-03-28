@@ -412,6 +412,66 @@ class BrowserAutomator:
                 detail=str(e),
             )
 
+    async def click_by_text(self, text: str) -> bool:
+        """通过可见文本定位并点击元素。返回是否成功。"""
+        try:
+            locator = self.page.get_by_text(text, exact=True)
+            if await locator.count() == 1:
+                await locator.click(timeout=5000)
+                logger.debug("文本点击成功: text='{}'", text)
+                return True
+            # exact 未找到唯一，尝试模糊匹配
+            locator = self.page.get_by_text(text, exact=False)
+            if await locator.count() >= 1:
+                await locator.first.click(timeout=5000)
+                logger.debug("文本点击成功(模糊): text='{}'", text)
+                return True
+            return False
+        except Exception:
+            return False
+
+    async def fill_by_placeholder(self, placeholder: str, text: str) -> bool:
+        """通过 placeholder 定位输入框并填充文本。返回是否成功。"""
+        try:
+            locator = self.page.get_by_placeholder(placeholder, exact=True)
+            if await locator.count() == 1:
+                await locator.fill(text, timeout=5000)
+                logger.debug("Placeholder填充成功: ph='{}', text='{}'", placeholder, text[:20])
+                return True
+            # 模糊
+            locator = self.page.get_by_placeholder(placeholder, exact=False)
+            if await locator.count() >= 1:
+                await locator.first.fill(text, timeout=5000)
+                logger.debug("Placeholder填充成功(模糊): ph='{}', text='{}'", placeholder, text[:20])
+                return True
+            return False
+        except Exception:
+            return False
+
+    async def click_by_role_fuzzy(self, role: str, name: str) -> bool:
+        """通过 ARIA role + name 模糊匹配点击。返回是否成功。"""
+        try:
+            locator = self.page.get_by_role(role, name=name, exact=False)
+            if await locator.count() >= 1:
+                await locator.first.click(timeout=5000)
+                logger.debug("Role模糊点击成功: role={}, name='{}'", role, name)
+                return True
+            return False
+        except Exception:
+            return False
+
+    async def fill_by_label(self, label: str, text: str) -> bool:
+        """通过 label 文本定位输入框并填充。返回是否成功。"""
+        try:
+            locator = self.page.get_by_label(label, exact=False)
+            if await locator.count() >= 1:
+                await locator.first.fill(text, timeout=5000)
+                logger.debug("Label填充成功: label='{}', text='{}'", label, text[:20])
+                return True
+            return False
+        except Exception:
+            return False
+
     async def get_current_url(self) -> str:
         """获取当前页面 URL。
 
