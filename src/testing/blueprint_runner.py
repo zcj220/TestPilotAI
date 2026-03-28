@@ -315,14 +315,48 @@ class BlueprintRunner:
                         decision = await self._hub.on_step_failed(ctx)
 
                         if decision.action == HubAction.RETRY:
-                            # L2恢复：如果AI中枢返回了恢复选择器，先执行恢复动作
-                            if decision.recover_selector:
-                                logger.info("  🔧 AI中枢L2恢复：先点击[{}]", decision.recover_selector)
-                                try:
-                                    await self._browser.click(decision.recover_selector)
-                                    await asyncio.sleep(1)  # 等待恢复动作生效
-                                except Exception as recover_err:
-                                    logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
+                            # v14.14 浏览器崩溃检测：先尝试重建浏览器
+                            if result and result.error_message and result.error_message.startswith("[BROWSER_CRASH]"):
+                                rebuilt = await self._rebuild_browser_if_crashed(blueprint)
+                                if rebuilt and setup_step_count > 0:
+                                    logger.info("  💥→✅ 浏览器重建成功，重跑setup（{}步）恢复场景状态", setup_step_count)
+                                    for s_step in effective_steps[:setup_step_count]:
+                                        try:
+                                            await self._execute_step(step_num, s_step, page, blueprint)
+                                        except Exception:
+                                            pass
+                                elif rebuilt and is_flow and page.scenarios:
+                                    logger.info("  💥→✅ 浏览器重建成功，重跑首场景恢复flow状态")
+                                    for s_step in page.scenarios[0].steps:
+                                        try:
+                                            await self._execute_step(step_num, s_step, page, blueprint)
+                                        except Exception:
+                                            pass
+                            else:
+                                # v14.14 checkpoint恢复：优先重跑setup（导航路径），比坐标点击更可靠
+                                if setup_step_count > 0 and not decision.recover_selector:
+                                    logger.info("  🗺️ AI中枢：步骤失败，checkpoint恢复 — 重跑setup（{}步）回到正确页面", setup_step_count)
+                                    setup_ok = True
+                                    for s_step in effective_steps[:setup_step_count]:
+                                        try:
+                                            s_r, _ = await self._execute_step(step_num, s_step, page, blueprint)
+                                            if s_r.status != StepStatus.PASSED:
+                                                setup_ok = False
+                                                break
+                                        except Exception:
+                                            setup_ok = False
+                                            break
+                                    if not setup_ok:
+                                        logger.warning("  🗺️ checkpoint恢复失败，改用AI坐标回退")
+
+                                # L2恢复：如果AI中枢返回了恢复选择器，先执行恢复动作（坐标已由_hub_click执行）
+                                if decision.recover_selector:
+                                    logger.info("  🔧 AI中枢L2恢复：先点击[{}]", decision.recover_selector)
+                                    try:
+                                        await self._browser.click(decision.recover_selector)
+                                        await asyncio.sleep(1)  # 等待恢复动作生效
+                                    except Exception as recover_err:
+                                        logger.warning("  L2恢复点击失败: {}", str(recover_err)[:80])
 
                             # 动作替换：AI中枢建议用不同动作重试（如 fill→select）
                             retry_step = step_def
@@ -626,6 +660,56 @@ class BlueprintRunner:
         except Exception as e:
             logger.warning("AI中枢Web点击失败: {}", str(e)[:80])
 
+    async def _rebuild_browser_if_crashed(self, blueprint: Blueprint) -> bool:
+        """v14.14：浏览器崩溃/断连后自动重建浏览器实例。
+
+        重建步骤：
+        1. 尝试关闭旧的 context/browser（容错）
+        2. 用原配置重新 launch 浏览器
+        3. 重新监听控制台日志
+
+        Returns:
+            True = 重建成功；False = 重建失败（引擎无法继续）
+        """
+        logger.warning("  💥 → 🔧 检测到浏览器崩溃，开始自动重建...")
+        try:
+            # 先尝试关闭旧的资源（忽略所有错误）
+            try:
+                await self._browser._context.close()
+            except Exception:
+                pass
+            try:
+                await self._browser._browser.close()
+            except Exception:
+                pass
+            try:
+                await self._browser._playwright.stop()
+            except Exception:
+                pass
+
+            # 重新启动浏览器
+            await self._browser.launch()
+
+            # 重新挂载控制台和网络监听
+            try:
+                browser_page = self._browser.page
+                browser_page.on("console", lambda msg: self._log_slicer.add_console_log(
+                    msg.type, msg.text,
+                ))
+                browser_page.on("response", lambda resp: (
+                    self._log_slicer.add_network_error(resp.url, resp.status, resp.request.method)
+                    if resp.status >= 400 else None
+                ))
+            except Exception:
+                pass
+
+            logger.info("  🔧 → ✅ 浏览器重建成功，准备恢复测试")
+            return True
+
+        except Exception as e:
+            logger.error("  🔧 → ❌ 浏览器重建失败: {}，无法继续", str(e)[:100])
+            return False
+
     async def _cancellable_sleep(self, seconds: float) -> bool:
         """可中断的等待，每 100ms 检查一次取消标志。
 
@@ -893,14 +977,32 @@ class BlueprintRunner:
 
         except Exception as e:
             elapsed = time.time() - start
-            logger.error("  ✗ 步骤{} 异常 | {:.1f}秒 | {}", step_num, elapsed, str(e)[:100])
+            err_str = str(e)
+            # v14.14：检测浏览器进程崩溃/断连异常，标记以触发上层自动重建
+            browser_crash_keywords = (
+                "Target closed", "Browser was disconnected",
+                "Connection closed", "Target page, context or browser has been closed",
+                "net::ERR_ABORTED", "Page closed",
+            )
+            is_browser_crash = any(kw.lower() in err_str.lower() for kw in browser_crash_keywords)
+            if is_browser_crash:
+                logger.warning("  💥 步骤{} 浏览器崩溃/断连: {}", step_num, err_str[:100])
+                return StepResult(
+                    step=step_num,
+                    action=action_type,
+                    description=desc,
+                    status=StepStatus.ERROR,
+                    duration_seconds=elapsed,
+                    error_message=f"[BROWSER_CRASH] {err_str}",
+                ), None
+            logger.error("  ✗ 步骤{} 异常 | {:.1f}秒 | {}", step_num, elapsed, err_str[:100])
             return StepResult(
                 step=step_num,
                 action=action_type,
                 description=desc,
                 status=StepStatus.ERROR,
                 duration_seconds=elapsed,
-                error_message=str(e),
+                error_message=err_str,
             ), None
 
     @staticmethod

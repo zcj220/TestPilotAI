@@ -422,8 +422,7 @@ The engine resolves the chain: `enter_dashboard` extends `login` → executes lo
 2. **`extends` chains** — a setup can extend another setup (max 3 levels deep to keep it simple)
 3. **No circular references** — `A extends B extends A` is invalid (engine will reject it)
 4. **setup + flow interaction** — in flow mode, setup steps are included in scenario 1 but skipped (along with navigate) in subsequent scenarios
-5. **Each setup MUST end with a verification step** (`assert_text` or `screenshot`) to confirm the path succeeded
-
+5. **Each setup MUST end with a verification step** (`assert_text` or `screenshot`) to confirm the path succeeded6.   **Checkpoint recovery (v14.14)**: When a step fails and the engine needs to recover, it automatically re-executes the scenario's `setup` steps to restore the app to the correct page, then retries the failed step. This means: **a scenario with a well-defined `setup` is self-healing**. A scenario WITHOUT a setup cannot recover — the engine can only use AI screenshot coordinates as a fallback. MANDATORY: any scenario that navigates through 2+ steps (login → click module → reach target page) MUST use `setup` to define that path.
 ---
 
 ## NINE: Complete JSON Template
