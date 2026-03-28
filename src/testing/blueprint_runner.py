@@ -93,16 +93,27 @@ class BlueprintRunner:
         deferred_bugs: list[BugReport] = []
         step_num = 0
 
+        # 预计算实际总步骤数（含 setup 展开后），用于 [步骤N/M] 分母显示
+        self._actual_total_steps = 0
+        for _p in blueprint.pages:
+            for _sc in _p.scenarios:
+                self._actual_total_steps += len(_sc.steps)
+                if _sc.setup and blueprint.setups:
+                    _setup_steps = resolve_setup_steps(blueprint, _sc.setup)
+                    if _setup_steps:
+                        self._actual_total_steps += len(_setup_steps)
+
         # 智能修复决策器
         repair_decider = SmartRepairDecider()
         smart_repair_enabled = repair_callback is not None
 
         logger.info("════════════════════════════════════════════════════════════")
-        logger.info("蓝本模式测试开始 | {} | 页面={} | 场景={} | 步骤={} | 智能修复={}",
+        logger.info("蓝本模式测试开始 | {} | 页面={} | 场景={} | 步骤={}(实际{}) | 智能修复={} | 引擎=v14.10",
                      blueprint.app_name,
                      len(blueprint.pages),
                      blueprint.total_scenarios,
                      blueprint.total_steps,
+                     self._actual_total_steps,
                      "开启" if smart_repair_enabled else "关闭")
 
         # v10.2：如果蓝本有 start_command，先启动被测应用并等待就绪
@@ -225,7 +236,7 @@ class BlueprintRunner:
                     if is_flow and sc_idx > 0 and step_def.action == "navigate":
                         if not flow_first_nav_done:
                             flow_first_nav_done = True
-                            logger.info("  [步骤{}/{}] navigate | ⏭️ flow模式跳过（沿用上一场景页面状态）", step_num, blueprint.total_steps)
+                            logger.info("  [步骤{}/{}] navigate | ⏭️ flow模式跳过（沿用上一场景页面状态）", step_num, self._actual_total_steps)
                             try:
                                 step_action = ActionType(step_def.action)
                             except ValueError:
@@ -249,7 +260,7 @@ class BlueprintRunner:
                     if self._controller:
                         await self._controller.wait_if_paused()
                         if self._controller.is_cancelled:
-                            logger.info("测试被用户停止 | 步骤={}/{}", step_num, blueprint.total_steps)
+                            logger.info("测试被用户停止 | 步骤={}/{}", step_num, self._actual_total_steps)
                             cancelled = True
                             break
                         self._controller.update_progress(step_num, desc)
@@ -352,7 +363,32 @@ class BlueprintRunner:
                                     logger.info("  🔑 setup重跑完成，重试步骤{}", step_num)
                                     result, bug = await self._execute_step(step_num, step_def, page, blueprint)
                             else:
-                                logger.warning("  🔑 当前场景无setup定义，无法自动恢复session，跳过步骤{}", step_num)
+                                if is_flow and page.scenarios:
+                                    # flow模式：场景没有setup字段，用本页第一个场景（登录流程）来恢复session
+                                    first_scenario_steps = page.scenarios[0].steps
+                                    logger.info(
+                                        "  🔑 flow模式session丢失，重跑首场景（{}步）恢复登录",
+                                        len(first_scenario_steps),
+                                    )
+                                    setup_ok = True
+                                    for s_step in first_scenario_steps:
+                                        try:
+                                            s_result, _ = await self._execute_step(step_num, s_step, page, blueprint)
+                                            if s_result.status != StepStatus.PASSED:
+                                                logger.warning("  🔑 flow首场景恢复步骤失败({}), 放弃恢复", s_step.action)
+                                                setup_ok = False
+                                                break
+                                        except Exception as se:
+                                            logger.warning("  🔑 flow首场景恢复异常: {}", str(se)[:80])
+                                            setup_ok = False
+                                            break
+                                    if setup_ok:
+                                        logger.info("  🔑 flow首场景恢复完成，重试步骤{}", step_num)
+                                        result, bug = await self._execute_step(step_num, step_def, page, blueprint)
+                                    else:
+                                        logger.warning("  🔑 flow首场景恢复失败，跳过步骤{}", step_num)
+                                else:
+                                    logger.warning("  🔑 当前场景无setup定义，无法自动恢复session，跳过步骤{}", step_num)
 
                         elif decision.action == HubAction.SKIP_STEP:
                             logger.info("  ⏭️ AI中枢：{}，跳过步骤{}", decision.reason, step_num)
@@ -617,7 +653,7 @@ class BlueprintRunner:
     ) -> tuple[StepResult, Optional[BugReport]]:
         """执行单个蓝本步骤。"""
         desc = step_def.description or f"{step_def.action} {step_def.target or step_def.value or ''}"
-        logger.info("  [步骤{}/{}] {} | {}", step_num, blueprint.total_steps, step_def.action, desc)
+        logger.info("  [步骤{}/{}] {} | {}", step_num, self._actual_total_steps, step_def.action, desc)
 
         start = time.time()
         screenshot_path = None
@@ -1215,9 +1251,23 @@ class BlueprintRunner:
                 )
                 x = int(cached_coord[0] * viewport["w"])
                 y = int(cached_coord[1] * viewport["h"])
+                # 点击前后对比 DOM 大小，验证点击是否产生实际效果
+                dom_before = await self._browser.page.evaluate(
+                    "() => document.body.innerHTML.length"
+                )
                 await self._browser.page.mouse.click(x, y)
-                logger.info("  [AI坐标缓存] 命中: {} → ({}, {})", target, x, y)
-                return True
+                await asyncio.sleep(0.4)
+                dom_after = await self._browser.page.evaluate(
+                    "() => document.body.innerHTML.length"
+                )
+                if dom_before == dom_after:
+                    # 点击无任何 DOM 变化，坐标可能已过期，清除缓存后重新走 AI 截图分析
+                    self._web_cache.invalidate_ai_coord(page_url, target)
+                    logger.info("  [AI坐标缓存] 点击无DOM变化({})，缓存失效，重新AI截图分析", target)
+                    # fall through 到下面的新鲜截图分析
+                else:
+                    logger.info("  [AI坐标缓存] 命中验证通过: {} → ({}, {})", target, x, y)
+                    return True
             except Exception:
                 pass
 

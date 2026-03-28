@@ -150,6 +150,13 @@ class WebPageCache:
             self._pages[page_url] = {"dom_hash": "", "aria": {}, "coords": {}}
         self._pages[page_url]["coords"][selector] = (x, y)
 
+    def invalidate_ai_coord(self, page_url: str, selector: str) -> None:
+        """使某个 AI 坐标缓存条目失效（点击后 DOM 无变化时调用）。"""
+        entry = self._pages.get(page_url)
+        if entry and selector in entry.get("coords", {}):
+            del entry["coords"][selector]
+            logger.debug("  AI坐标缓存失效: {}", selector)
+
     def update_dom_hash(self, page_url: str, dom_hash: str) -> bool:
         """更新页面 DOM 指纹。返回 True 表示页面已变化（缓存需刷新）。"""
         entry = self._pages.get(page_url)

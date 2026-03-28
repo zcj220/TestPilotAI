@@ -1,4 +1,4 @@
-﻿<!-- TestPilot-Template-Version: 15 -->
+﻿<!-- TestPilot-Template-Version: 16 -->
 # Platform Blueprint Rules (platform = "web")
 
 > This file defines all rules for Web application blueprints.
@@ -218,6 +218,62 @@ Common mistake pattern:
 4. If the text is dynamic (e.g., `财务记录(${count})`), assert only the static part: `"expected": "财务记录"`
 
 > **Iron rule:** Every `assert_text` expected value must have a traceable source file and line number. If you cannot find the text in any source file, do NOT write that assertion.
+
+**Pitfall 17 — `cn()`/`clsx()`/`classnames()` conditional class makes `class*=` selectors unreliable (CRITICAL):**
+Modern React/Vue projects use `cn()` (from `tailwind-merge`), `clsx()`, or `classnames()` to conditionally toggle classes:
+```jsx
+<button className={cn(
+  'rounded-full p-3',
+  showFab ? 'bg-slate-600' : 'bg-blue-600'  // class changes based on state!
+)}>
+```
+If you write `button[class*='bg-blue-600']`, it works when `showFab=false` but FAILS when `showFab=true` because the class switches to `bg-slate-600`.
+
+**Detection method:** Search the source file for `cn(`, `clsx(`, `classnames(` — if the class you want to use appears inside a ternary (`? :`) or logical (`&&`), it is a **conditional class** and MUST NOT be used in selectors.
+
+| ❌ Forbidden | Why it fails | ✅ Correct approach |
+|---|---|---|
+| `button[class*='bg-blue-600']` | `cn()` toggles it to `bg-slate-600` | Use `button[title='xxx']`, `#id`, or `:has-text('xxx')` |
+| `div[class*='border-blue-500']` | Conditional: `selected ? 'border-blue-500' : 'border-transparent'` | Use `[data-testid]`, `[aria-label]`, or stable non-conditional class |
+
+> **Iron rule:** Any class inside a `cn()` / `clsx()` / `classnames()` ternary expression is FORBIDDEN as a selector. Use `title`, `id`, `aria-label`, `data-testid`, or `:has-text()` instead.
+
+**Pitfall 18 — Cross-component selector uniqueness: same class on 10+ elements (CRITICAL):**
+The 3-step validation says "uniqueness check" but many AI assistants only check the current file. Common Tailwind utility classes like `text-slate-300`, `p-2`, `rounded-lg` appear across MANY components. If your selector matches multiple elements, Playwright clicks the **first one in DOM order** — which may be a completely different button hidden behind a modal overlay.
+
+**Mandatory cross-file check process:**
+1. After writing a selector, search the **entire project** (not just current file) for that class/attribute
+2. If 3+ elements match → the selector is NOT unique enough → add more constraints
+3. Constraint strategies: add parent scope (`div.modal button.p-2`), combine multiple classes (`button.p-2.specific-class`), or use a different attribute entirely
+
+| ❌ Dangerous | How many matches | ✅ Safe alternative |
+|---|---|---|
+| `button[class*='text-slate-300']` | 10+ buttons across different components | `button.p-2[class*='text-slate-300']` (combine with size class to narrow) |
+| `button.p-2.rounded-lg` | 5+ close buttons in different modals | `div[class*='bg-black'] button.p-2` (scope to specific overlay) |
+| `[class*='flex']` | 100+ elements | Never use layout utility classes as selectors |
+
+> **Iron rule:** After writing any class-based selector, grep the entire project. If 3+ elements match, add specificity constraints or switch to a unique attribute.
+
+**Pitfall 19 — z-index overlay blocking: scope selectors to the topmost layer (CRITICAL):**
+When a modal/overlay/drawer is open (typically `position: fixed` + `z-index: 50` + `bg-black/50` backdrop), elements BEHIND the overlay exist in the DOM but CANNOT be clicked — Playwright times out because the overlay intercepts the click.
+
+Common failure pattern:
+1. A report page opens as a `fixed inset-0 z-50` overlay
+2. Blueprint says `click button.p-2` (return button)
+3. Playwright finds a `button.p-2` in the BASE page (behind the overlay) — it's first in DOM order
+4. Click fails because the overlay blocks it → 10s timeout → scenario fails
+
+**Rule:** When operating inside a modal/overlay/drawer, ALL selectors in that context MUST be scoped to the overlay container:
+
+| Context | Scope selector pattern |
+|---------|----------------------|
+| Modal with dark backdrop | `div[class*='bg-black'] button.xxx` |
+| Fixed overlay panel | `div[class*='fixed'][class*='z-50'] button.xxx` |
+| Slide-out drawer | `div[class*='translate-x'] .content-class` |
+
+**Detection:** If the component JSX has `fixed inset-0` or `z-50` or `bg-black/50` in its outer wrapper, ALL child element selectors must include that wrapper as parent scope.
+
+> **Iron rule:** When a UI layer has `position: fixed` + `z-index`, NEVER use a bare selector for elements inside it. Always prefix with the layer's container selector.
 
 ---
 
@@ -442,6 +498,11 @@ The engine resolves the chain: `enter_dashboard` extends `login` → executes lo
 **Check 3  Duplicate login check:** Are there 3+ scenarios with identical login step sequences?
 - YES  merge those scenarios into one page with `"flow": true`, login only once in first scenario
 
+**Check 4  Selector safety scan:** For every `target` in the blueprint:
+- Contains `class*=` inside a `cn()`/`clsx()` ternary? → Replace with stable attribute (Pitfall 17)
+- Grep the project: does this selector match 3+ elements? → Add specificity (Pitfall 18)
+- Element is inside a `fixed z-50` overlay/modal? → Add overlay scope prefix (Pitfall 19)
+
 ---
 
 ## ELEVEN: Gotcha Table
@@ -461,4 +522,7 @@ The engine resolves the chain: `enter_dashboard` extends `login` → executes lo
 | State-based routing app + `"flow": true` | Scenario 2 runs inside app from scenario 1 (wrong sub-module), element not found → 3× timeout chain | Detect routing type first: no `react-router-dom` in `package.json` → state-based → ALL pages `flow: false` |
 | `button:has-text('xxx')` used when button has a stable id/class | Fragile if text changes | Always prefer `#id` or unique `.class`; `:has-text()` is last resort only |
 | `svg[class*='IconName']` or `button:has(> svg[class*='xxx'])` | Icon library renders different class names than JSX component; case-sensitive mismatch | Use `button:has-text('text')` or `#id` — NEVER target SVG class |
-| `assert_text` expected guessed from feature name | Actual rendered text differs from feature name | Open source file, copy-paste the exact rendered text |}
+| `assert_text` expected guessed from feature name | Actual rendered text differs from feature name | Open source file, copy-paste the exact rendered text |
+| `button[class*='bg-blue-600']` on `cn()` toggled class | Class switches to `bg-slate-600` at runtime, selector fails | Check for `cn()`/`clsx()` ternary; use `title`, `#id`, or `:has-text()` instead |
+| `button.p-2` (class exists on 10+ elements) | Playwright clicks wrong element (first DOM match) | Grep entire project for that class; add parent scope or combine classes |
+| Bare selector inside modal/overlay | Matches element behind `z-50` overlay, click blocked | Scope to overlay container: `div[class*='bg-black'] button.xxx` |}

@@ -420,7 +420,7 @@ class AIHub:
 
             # 蓝本预期流程（第1步到当前步）
             if ctx.blueprint_steps_context:
-                prompt += f"\n\n【蓝本预期流程（到当前步为止）】\n{ctx.blueprint_steps_context}"
+                prompt += f"\n\n【蓝本预期流程（当前步 + 后续3步目标）】\n{ctx.blueprint_steps_context}"
 
             if history:
                 prompt += f"\n\n【实际执行历史（最近几步）】\n{history}"
@@ -468,7 +468,7 @@ class AIHub:
                 None, lambda: self._ai.analyze_screenshot(
                     str(screenshot_path), prompt,
                     reasoning_effort="low", timeout=40,
-                    max_tokens=500,
+                    max_tokens=800,
                 )
             )
 
@@ -588,19 +588,17 @@ class AIHub:
 
     @staticmethod
     def build_blueprint_steps_context(steps: list, current_step_num: int) -> str:
-        """构建蓝本预期流程摘要字符串（第1步到当前步），注入L2 prompt。
+        """构建蓝本预期流程摘要字符串（含当前步前后），注入L2 prompt。
 
         Args:
             steps: BlueprintStep 列表（已展开 setup 的 effective_steps）
             current_step_num: 当前失败的步骤序号（1-based）
 
         Returns:
-            多行字符串，每行一步，当前步标记为【❌当前失败步】
+            多行字符串，包含已执行步骤、当前失败步、以及接下来3步目标
         """
         lines = []
         for i, step in enumerate(steps, 1):
-            if i > current_step_num:
-                break  # 只显示到当前步，后续步骤不给AI看
             action = step.action
             target = step.target or ""
             value = step.value or ""
@@ -616,6 +614,13 @@ class AIHub:
             if desc:
                 summary += f"  ({desc[:40]})"
 
-            marker = "  ← 【❌当前失败步】" if i == current_step_num else ""
-            lines.append(f"  第{i}步: {summary}{marker}")
+            if i < current_step_num:
+                lines.append(f"  第{i}步: {summary}")
+            elif i == current_step_num:
+                lines.append(f"  第{i}步: {summary}  ← 【❌当前失败步】")
+            elif i <= current_step_num + 3:
+                # 显示后续3步，让AI知道我们的目标
+                lines.append(f"  第{i}步: {summary}  ← 【后续目标】")
+            else:
+                break
         return "\n".join(lines)
