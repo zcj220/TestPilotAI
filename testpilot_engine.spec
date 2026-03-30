@@ -10,7 +10,12 @@ from pathlib import Path
 
 # ── 基本路径 ──────────────────────────────────────────────────
 project_dir = Path(SPECPATH)
-venv_site_packages = project_dir / '.venv' / 'lib' / 'site-packages'
+
+# 跨平台查找 site-packages：
+#   Windows: .venv/lib/site-packages
+#   macOS/Linux: .venv/lib/python3.x/site-packages
+import sysconfig
+venv_site_packages = Path(sysconfig.get_path('purelib'))
 
 # ── 需要随二进制一起携带的数据目录 ────────────────────────────
 datas = [
