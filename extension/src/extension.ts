@@ -10,11 +10,13 @@
 
 import * as vscode from "vscode";
 import { EngineClient } from "./engineClient";
+import { EngineManager } from "./engineManager";
 import { SidebarProvider } from "./sidebarProvider";
 import { autoInjectOnActivate, injectRules } from "./rulesInjector";
 
 let client: EngineClient;
 let outputChannel: vscode.OutputChannel;
+let engineManager: EngineManager;
 
 export function activate(context: vscode.ExtensionContext): void {
   outputChannel = vscode.window.createOutputChannel("TestPilot AI");
@@ -23,6 +25,18 @@ export function activate(context: vscode.ExtensionContext): void {
   // 初始化引擎客户端
   client = new EngineClient();
 
+  // 初始化引擎管理器，后台自动下载 + 启动引擎
+  engineManager = new EngineManager(context);
+  engineManager.ensureRunning().then(() => {
+    outputChannel.appendLine("[TestPilot AI] 引擎就绪");
+    client.connectWs();
+  }).catch((err: Error) => {
+    vscode.window.showErrorMessage(`TestPilot AI 引擎启动失败: ${err.message}`);
+    // 失败时也尝试连接（用户可能已手动启动引擎）
+    client.connectWs();
+  });
+  context.subscriptions.push(engineManager);
+
   // 注册侧边栏
   const sidebarProvider = new SidebarProvider(context.extensionUri, client, context);
   context.subscriptions.push(
@@ -30,9 +44,6 @@ export function activate(context: vscode.ExtensionContext): void {
       webviewOptions: { retainContextWhenHidden: true },
     }),
   );
-
-  // 尝试连接 WebSocket
-  client.connectWs();
 
   // 监听进度并写入 Output Channel
   context.subscriptions.push(
