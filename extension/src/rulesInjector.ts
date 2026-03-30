@@ -81,7 +81,7 @@ function detectAllIDEs(): string[] {
  * 模板版本号。每次更新模板内容时递增。
  * rulesInjector 会检测已注入文件的版本号，低于此版本则自动更新。
  */
-const TEMPLATE_VERSION = 15;
+const TEMPLATE_VERSION = 16;
 
 /** 从文件内容中提取版本号，找不到返回 0（旧版无版本标记） */
 function extractVersion(content: string): number {
@@ -256,6 +256,34 @@ and strictly follow all rules in that file.
 > ⚠️ The platform rule file is the final authority on blueprint quality. AGENTS.md defines general principles only; specific selector formats, forbidden syntax, and wait strategies are governed solely by the platform rule file.
 
 **NEVER write a blueprint without reading the platform rule file.**
+
+---
+
+## SIX: Mandatory Self-Check Before Saving Blueprint
+
+Before saving any blueprint file, the AI MUST self-check all of the following:
+
+1. No bare tag selectors: 
+  - Forbidden: 
+    - \`button\`
+    - \`div\`
+    - \`span\`
+    - \`a\`
+  - Every click target must include a real attribute, stable class, parent scope, or verified \`:has-text()\`
+2. Every attribute selector value must be searchable in source code:
+  - \`[title='x']\`
+  - \`[placeholder='x']\`
+  - \`[aria-label='x']\`
+  - \`[data-testid='x']\`
+  - \`[name='x']\`
+  If the exact value cannot be found in source code, do NOT use that selector.
+3. Every \`assert_text.expected\` must be copied verbatim from source-rendered UI text, not summarized or paraphrased.
+4. Routing mode must be checked before writing \`flow\` or page URLs:
+  - If the project has no router library and uses store/state to switch components, treat it as state-based routing
+  - In state-based routing projects, pages must default to \`flow: false\` and scenarios must enter submodules by UI clicks, not fake URLs
+5. After writing selectors, perform a uniqueness review across the codebase. If a selector is likely to match multiple elements, refine it before saving.
+
+If any self-check item fails, keep reading source code and revise the blueprint. Never guess and never save a half-correct blueprint.
 `;
 }
 

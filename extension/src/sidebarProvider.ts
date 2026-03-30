@@ -10,8 +10,11 @@
  */
 
 import * as vscode from "vscode";
+import * as fs from "fs";
 import * as path from "path";
 import { EngineClient, WsMessage, TestReportResponse, StepDetail, BugDetail } from "./engineClient";
+
+type BlueprintIssue = { level: "error" | "warning"; message: string };
 
 export class SidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "testpilot-ai.panel";
@@ -19,6 +22,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _client: EngineClient;
   private _context: vscode.ExtensionContext;
+  private _preflightChannel?: vscode.OutputChannel;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -350,11 +354,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       return;
     }
     try {
+      const platform = (msg.platform || "web").toLowerCase();
+      const issues = await this._runBlueprintPreflight(msg.blueprint_path, platform);
+      if (issues.length > 0) {
+        const preflightChoice = await this._showPreflightResult(issues, msg.blueprint_path);
+        if (preflightChoice === "open") {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(msg.blueprint_path));
+          await vscode.window.showTextDocument(doc, { preview: false });
+          this._postMessage({ command: "testError", data: { error: "蓝本预检发现高风险问题，请先修正后再运行" } });
+          return;
+        }
+        if (preflightChoice === "fix" || preflightChoice === "cancel") {
+          this._postMessage({ command: "testError", data: { error: "已取消运行：蓝本预检未通过" } });
+          return;
+        }
+      }
+
       // 测试前确保 WebSocket 已连接，保证步骤进度能实时推送到 WebView
       this._client.ensureWsConnected();
       this._postMessage({ command: "testStarted" });
-
-      const platform = (msg.platform || "web").toLowerCase();
       let report: TestReportResponse;
 
       if (platform === "miniprogram") {
@@ -425,13 +443,31 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this._postMessage({ command: "testStarted" });
       this._postMessage({ command: "batchTestStarted", count: msg.blueprint_paths.length });
 
+      const platform = (msg.platform || "web").toLowerCase();
+      for (const bp of msg.blueprint_paths) {
+        const issues = await this._runBlueprintPreflight(bp, platform);
+        if (issues.length === 0) {
+          continue;
+        }
+        const preflightChoice = await this._showPreflightResult(issues, bp, "继续批量运行");
+        if (preflightChoice === "open") {
+          const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(bp));
+          await vscode.window.showTextDocument(doc, { preview: false });
+          this._postMessage({ command: "testError", data: { error: "已停止批量运行：请先修正蓝本预检问题" } });
+          return;
+        }
+        if (preflightChoice === "fix" || preflightChoice === "cancel") {
+          this._postMessage({ command: "testError", data: { error: "已取消批量运行：蓝本预检未通过" } });
+          return;
+        }
+      }
+
       // 依次执行每个蓝本，汇总结果（用户停止时中断后续蓝本）
       const results: TestReportResponse[] = [];
       let userStopped = false;
       for (const bp of msg.blueprint_paths) {
         if (userStopped) { break; }
         try {
-          const platform = (msg.platform || "web").toLowerCase();
           let report: TestReportResponse;
 
           if (platform === "miniprogram") {
@@ -821,13 +857,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       lines.push(`当前项目路径：${projectDir.replace(/\\/g, "/")}`);
       lines.push(``);
     }
-    lines.push(`请为当前【${pName}】项目生成或更新测试蓝本。`);
+    lines.push(`请为当前【${pName}】项目生成或更新测试蓝本。不要凭经验猜选择器，必须先读源码再写。`);
     lines.push(``);
     lines.push(`请按顺序完成以下步骤：`);
     lines.push(`1. 阅读本项目的 AGENTS.md`);
     lines.push(`2. 阅读 .testpilot/platforms/${platform}.md`);
-    lines.push(`3. 扫描项目源码，确认已实现的功能`);
+    lines.push(`3. 扫描项目源码，确认已实现的功能、真实路由方式、真实选择器属性`);
     lines.push(`4. 按两个文件中的规则，生成或更新 testpilot/ 目录下的蓝本`);
+    lines.push(`5. 输出前强制自检以下项目，不通过就继续改，不要交付半成品：`);
+    lines.push(`   - 不允许出现裸 button/a/div/span 选择器`);
+    lines.push(`   - 所有 [title]/[placeholder]/[aria-label]/[data-testid]/[name] 值必须能在源码中逐字搜到`);
+    lines.push(`   - 所有 assert_text 的 expected 必须能在源码或真实渲染文本中逐字对应`);
+    lines.push(`   - 若项目不是 react-router-dom / vue-router，而是状态切页，则所有页面必须 flow:false，不能编造 /business /reports 这类 URL 页面`);
+    lines.push(`   - 生成后全文检查选择器唯一性，匹配过多时必须加父级约束或换属性`);
+    lines.push(`6. 如果拿不准某个选择器或断言，就继续读源码，不要猜。`);
 
     const prompt = lines.join("\n");
     await vscode.env.clipboard.writeText(prompt);
@@ -1237,6 +1280,191 @@ ${commonRules}`;
       parts.pop();
     }
     return parts.join("/");
+  }
+
+  private _getPreflightChannel(): vscode.OutputChannel {
+    if (!this._preflightChannel) {
+      this._preflightChannel = vscode.window.createOutputChannel("TestPilot 蓝本预检");
+    }
+    return this._preflightChannel;
+  }
+
+  private async _showPreflightResult(
+    issues: BlueprintIssue[],
+    blueprintPath: string,
+    continueLabel: string = "继续运行"
+  ): Promise<"fix" | "continue" | "open" | "cancel"> {
+    const ch = this._getPreflightChannel();
+    ch.clear();
+    ch.appendLine("=== TestPilot 蓝本预检报告 ===");
+    ch.appendLine(`文件：${blueprintPath}`);
+    ch.appendLine(`时间：${new Date().toLocaleString("zh-CN")}`);
+    const errCount = issues.filter((i) => i.level === "error").length;
+    const warnCount = issues.filter((i) => i.level === "warning").length;
+    ch.appendLine(`发现 ${errCount} 个错误，${warnCount} 个警告`);
+    ch.appendLine("");
+    issues.forEach((issue, idx) => {
+      ch.appendLine(`[${issue.level === "error" ? "❌ 错误" : "⚠️ 警告"}] ${idx + 1}. ${issue.message}`);
+    });
+    ch.appendLine('\n请点击"复制修复提示词"，将提示词粘贴给 AI 修改蓝本。');
+    ch.show(true);
+
+    const summary =
+      errCount > 0
+        ? `蓝本预检发现 ${errCount} 个错误${warnCount > 0 ? `、${warnCount} 个警告` : ""}，详见"TestPilot 蓝本预检"面板`
+        : `蓝本预检发现 ${warnCount} 个警告，详见"TestPilot 蓝本预检"面板`;
+
+    const choice = await vscode.window.showWarningMessage(
+      summary,
+      { modal: true },
+      "复制修复提示词",
+      continueLabel,
+      "打开蓝本",
+    );
+
+    if (choice === "复制修复提示词") {
+      const prompt = this._buildFixPrompt(issues, blueprintPath);
+      await vscode.env.clipboard.writeText(prompt);
+      vscode.window.showInformationMessage("✅ 修复提示词已复制，请粘贴给 AI 修改蓝本");
+      return "fix";
+    }
+    if (choice === continueLabel) { return "continue"; }
+    if (choice === "打开蓝本") { return "open"; }
+    return "cancel";
+  }
+
+  private _buildFixPrompt(issues: BlueprintIssue[], blueprintPath: string): string {
+    const lines = [
+      `请修复以下测试蓝本文件中检测到的问题：`,
+      `文件路径：${blueprintPath}`,
+      ``,
+      `检测到的问题（共 ${issues.length} 项）：`,
+      ...issues.map((issue, idx) => `${idx + 1}. [${issue.level === "error" ? "错误" : "警告"}] ${issue.message}`),
+      ``,
+      `修复要求：`,
+      `- 只修复以上列出的问题，不要修改其他内容`,
+      `- 所有选择器的属性值必须从源码中实际存在的属性复制，不能猜测`,
+      `- 如果没有稳定 id/class，使用 button:has-text('按钮文字') 格式`,
+      `- assert_text 的 expected 值必须是页面实际渲染的文字，从源码 JSX/HTML 中复制`,
+      `- 修复完成后保存文件`,
+    ];
+    return lines.join("\n");
+  }
+
+  private async _runBlueprintPreflight(blueprintPath: string, platform: string): Promise<BlueprintIssue[]> {
+    try {
+      const raw = await vscode.workspace.fs.readFile(vscode.Uri.file(blueprintPath));
+      const blueprint = JSON.parse(Buffer.from(raw).toString("utf-8"));
+      const issues: BlueprintIssue[] = [];
+      if (platform === "web") {
+        const projectDir = this._guessProjectPathFromBlueprint(blueprintPath);
+        issues.push(...this._lintWebBlueprint(blueprint, projectDir));
+      }
+      return issues;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return [{ level: "error", message: `蓝本解析失败：${message}` }];
+    }
+  }
+
+  private _lintWebBlueprint(blueprint: any, projectDir: string): BlueprintIssue[] {
+    const issues: BlueprintIssue[] = [];
+    const pages = Array.isArray(blueprint?.pages) ? blueprint.pages : [];
+    const sourceText = this._buildProjectSourceIndex(projectDir);
+    const stateBasedRouting = this._isStateBasedRoutingProject(projectDir, sourceText);
+    const seen = new Set<string>();
+    const pushIssue = (level: "error" | "warning", message: string) => {
+      const key = `${level}:${message}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        issues.push({ level, message });
+      }
+    };
+
+    for (const page of pages) {
+      const pageName = page?.name || page?.url || "未命名页面";
+      if (stateBasedRouting && page?.flow === true) {
+        pushIssue("error", `页面“${pageName}”检测到状态切页项目却设置了 flow: true`);
+      }
+      for (const scenario of Array.isArray(page?.scenarios) ? page.scenarios : []) {
+        for (const step of Array.isArray(scenario?.steps) ? scenario.steps : []) {
+          const target = typeof step?.target === "string" ? step.target.trim() : "";
+          const action = typeof step?.action === "string" ? step.action : "";
+          if (action === "click" && /^(button|a|div|span|input|form|svg)$/i.test(target)) {
+            pushIssue("error", `场景“${scenario?.name || "未命名场景"}”存在裸选择器：${target}`);
+          }
+          if (/:contains\(/i.test(target) || /nth-child\s*\(/i.test(target)) {
+            pushIssue("error", `场景“${scenario?.name || "未命名场景"}”使用了脆弱或非法选择器：${target}`);
+          }
+          for (const match of target.matchAll(/\[(title|placeholder|aria-label|data-testid|name)=['"]([^'"]+)['"]\]/gi)) {
+            const attr = match[1];
+            const value = match[2];
+            if (!sourceText.includes(`${attr}="${value}"`) && !sourceText.includes(`${attr}='${value}'`)) {
+              pushIssue("warning", `选择器 ${target} 中的 ${attr}="${value}" 未在源码中找到，可能是猜测值`);
+            }
+          }
+          if (stateBasedRouting && action === "navigate" && typeof step?.value === "string") {
+            const value = step.value.trim();
+            const route = value.replace(/^https?:\/\/[^/]+/i, "") || "/";
+            if (route !== "/" && route !== "/login") {
+              pushIssue("warning", `状态切页项目使用了 URL 导航 ${route}，这类页面通常应通过登录后点击进入`);
+            }
+          }
+          if (action === "assert_text" && typeof step?.expected === "string") {
+            const expected = step.expected.trim();
+            if (expected.length >= 2 && sourceText && !sourceText.includes(expected)) {
+              pushIssue("warning", `断言文本“${expected}”未在源码中找到，可能不是实际渲染文案`);
+            }
+          }
+        }
+      }
+    }
+    return issues;
+  }
+
+  private _buildProjectSourceIndex(projectDir: string): string {
+    if (!projectDir || !fs.existsSync(projectDir)) {
+      return "";
+    }
+    const chunks: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          if (["node_modules", ".git", "dist", "build", ".next", "coverage", ".turbo"].includes(entry.name)) {
+            continue;
+          }
+          walk(fullPath);
+          continue;
+        }
+        if (!/\.(tsx|ts|jsx|js|vue|html|wxml|xml|swift|kt|java)$/i.test(entry.name)) {
+          continue;
+        }
+        try {
+          chunks.push(fs.readFileSync(fullPath, "utf-8"));
+        } catch {
+          // ignore unreadable files
+        }
+      }
+    };
+    walk(projectDir);
+    return chunks.join("\n");
+  }
+
+  private _isStateBasedRoutingProject(projectDir: string, sourceText: string): boolean {
+    const packageJsonPath = path.join(projectDir, "package.json");
+    if (fs.existsSync(packageJsonPath)) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+        const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+        if (deps["react-router-dom"] || deps["vue-router"] || deps["@angular/router"] || deps["next"]) {
+          return false;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+    return /currentApp|setCurrentApp|if\s*\([^)]*===\s*['"][^'"]+['"]\)\s*\{?\s*return\s*</.test(sourceText);
   }
 
   private async _handlePlatformPrecheck(msg: { platform?: string; blueprint_path?: string }): Promise<void> {
