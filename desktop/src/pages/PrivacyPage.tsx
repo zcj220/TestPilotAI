@@ -42,7 +42,7 @@ export default function PrivacyPage() {
       <p>账户注销后，我们将在 30 天内删除您的个人数据，付款记录根据财务法规保留 7 年。</p>
 
       <h2 style={{ fontSize: 20, marginTop: 36 }}>8. 联系我们</h2>
-      <p>如有隐私相关疑问，请发邮件至：<a href="mailto:support@xinzaoai.com" style={{ color: '#2563eb' }}>support@xinzaoai.com</a></p>
+      <p>如有隐私相关疑问，请发邮件至：<a href="mailto:privacy@xinzaoai.com" style={{ color: '#2563eb' }}>privacy@xinzaoai.com</a></p>
     </div>
   );
 }

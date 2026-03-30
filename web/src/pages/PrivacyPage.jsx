@@ -46,7 +46,7 @@ export default function PrivacyPage() {
           <h2 className="text-lg font-semibold mb-2">{s.h}</h2>
           {s.p && <p>{s.p}</p>}
           {s.items && <ul className="list-disc pl-5 mt-2 space-y-1">{s.items.map(i => <li key={i}>{i}</li>)}</ul>}
-          {s.type === 'email' && <p>{c.emailText} <a href="mailto:support@xinzaoai.com" className="text-blue-600 hover:underline">support@xinzaoai.com</a></p>}
+          {s.type === 'email' && <p>{c.emailText} <a href="mailto:privacy@xinzaoai.com" className="text-blue-600 hover:underline">privacy@xinzaoai.com</a></p>}
         </div>
       ))}
     </div>
