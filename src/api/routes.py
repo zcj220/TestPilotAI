@@ -40,6 +40,7 @@ from src.api.vnc import live_view
 from src.api.websocket import ws_manager
 from src.browser.automator import BrowserAutomator
 from src.core.ai_client import AIClient
+from src.core.config import BUNDLE_DIR, PROJECT_ROOT
 from src.core.exceptions import BrowserError, SandboxError
 from src.memory.store import MemoryStore
 from src.sandbox.manager import SandboxManager
@@ -85,7 +86,7 @@ def _auto_preview_url(base_url: str, blueprint_path: str) -> str:
     # 端口不可达 → 看蓝本所在目录是否在工作区中
     bp_path = Path(blueprint_path).resolve()
     app_dir = bp_path.parent
-    project_root = Path(__file__).resolve().parent.parent.parent
+    project_root = PROJECT_ROOT
 
     # 确保是工作区子目录且含 index.html
     try:
@@ -148,7 +149,7 @@ def create_router(
         from src.core.config import get_config
         cfg = get_config()
         port = cfg.server.port
-        root = Path(__file__).resolve().parent.parent.parent
+        root = PROJECT_ROOT
         apps = []
         for child in sorted(root.iterdir()):
             if not child.is_dir():
@@ -886,7 +887,7 @@ def create_router(
             tmp_file.write_text(json.dumps(runner_input, ensure_ascii=False), encoding="utf-8")
 
             # 调用Node.js执行器（跟run_blind_test.js一样的逻辑）
-            runner_script = Path(__file__).parent.parent / "controller" / "miniprogram_runner.js"
+            runner_script = BUNDLE_DIR / "controller" / "miniprogram_runner.js"
             if not runner_script.exists():
                 raise RuntimeError(f"执行器脚本不存在: {runner_script}")
 

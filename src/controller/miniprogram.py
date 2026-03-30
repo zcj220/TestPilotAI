@@ -27,6 +27,7 @@ from typing import Optional
 from loguru import logger
 
 from src.controller.base import BaseController, DeviceInfo, Platform
+from src.core.config import BUNDLE_DIR
 
 
 class MiniProgramConfig:
@@ -174,7 +175,7 @@ class MiniProgramController(BaseController):
         logger.info("启动桥接服务器（v9.0自包含模式）")
         logger.info("项目: {} | WS端口: {} | HTTP端口: {}", project_path, ws_port, self._http_port)
 
-        bridge_server = Path(__file__).parent / "miniprogram_bridge_server.js"
+        bridge_server = BUNDLE_DIR / "controller" / "miniprogram_bridge_server.js"
         if not bridge_server.exists():
             raise RuntimeError(f"桥接服务器脚本不存在: {bridge_server}")
 

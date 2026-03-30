@@ -5,6 +5,7 @@
 所有敏感信息（API密钥等）通过环境变量注入，绝不硬编码。
 """
 
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -12,8 +13,17 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# 项目根目录（pyproject.toml 所在目录）
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# ── PyInstaller 兼容路径 ─────────────────────────────────────────────────────
+# 打包后 __file__ 指向临时解压目录，需用不同基准：
+#   PROJECT_ROOT  → exe 旁边的目录（用户数据：.env、data/、logs/）
+#   BUNDLE_DIR    → 临时解压目录（代码文件：JS 脚本等打包资源）
+if getattr(sys, "frozen", False):
+    PROJECT_ROOT = Path(sys.executable).parent
+    BUNDLE_DIR: Path = Path(sys._MEIPASS)  # type: ignore[attr-defined]
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+    BUNDLE_DIR = PROJECT_ROOT
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class ServerConfig(BaseSettings):

@@ -15,6 +15,7 @@ from loguru import logger
 
 from src import __app_name__, __version__
 from src.api.routes import create_router
+from src.core.config import PROJECT_ROOT
 from src.api.websocket import ws_manager
 from src.browser.automator import BrowserAutomator
 from src.core.ai_client import AIClient
@@ -116,7 +117,7 @@ def create_app() -> FastAPI:
     #   /preview/{dirname}/  →  对应目录的静态文件
     # 这样用户不需要手动启动 http-server，一键启动引擎即可测试
 
-    project_root = Path(__file__).resolve().parent.parent
+    project_root = PROJECT_ROOT
     _preview_dirs: dict[str, Path] = {}
 
     # 扫描第一层子目录中含蓝本的目录（支持 testpilot.json 或 testpilot/ 子目录）
@@ -179,8 +180,8 @@ def create_app() -> FastAPI:
 
     # v13.0: 社区门户 / v2.0: Web仪表盘 静态文件服务
     # 优先使用 web/dist（社区门户），回退到 desktop/dist（旧仪表盘）
-    community_dist = Path(__file__).resolve().parent.parent / "web" / "dist"
-    dashboard_dist = Path(__file__).resolve().parent.parent / "desktop" / "dist"
+    community_dist = PROJECT_ROOT / "web" / "dist"
+    dashboard_dist = PROJECT_ROOT / "desktop" / "dist"
     spa_dist = community_dist if community_dist.is_dir() else dashboard_dist
 
     if spa_dist.is_dir():
