@@ -103,6 +103,10 @@
         "title": "TestPilot AI: 检查引擎状态"
       },
       {
+        "command": "testpilot-ai.showEngineLog",
+        "title": "TestPilot AI: 显示引擎日志"
+      },
+      {
         "command": "testpilot-ai.startTest.en",
         "title": "TestPilot AI: Start Test",
         "icon": "$(play)"

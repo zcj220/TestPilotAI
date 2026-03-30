@@ -44,10 +44,44 @@ export class EngineManager {
   private _engineProc: child_process.ChildProcess | null = null;
   private _storageDir: string;
   private _outputChannel: vscode.OutputChannel;
+  private _statusBar: vscode.StatusBarItem;
 
   constructor(private _context: vscode.ExtensionContext) {
     this._storageDir = _context.globalStorageUri.fsPath;
     this._outputChannel = vscode.window.createOutputChannel("TestPilot 引擎");
+
+    // 状态栏项（右侧显示，点击打开引擎日志）
+    this._statusBar = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right, 100
+    );
+    this._statusBar.command = "testpilot-ai.showEngineLog";
+    this._setStatus("offline");
+    this._statusBar.show();
+    _context.subscriptions.push(this._statusBar);
+
+    // 注册点击状态栏打开日志的命令
+    _context.subscriptions.push(
+      vscode.commands.registerCommand("testpilot-ai.showEngineLog", () => {
+        this._outputChannel.show(true);
+      })
+    );
+  }
+
+  /** 更新状态栏显示 */
+  private _setStatus(state: "downloading" | "starting" | "ready" | "offline", extra?: string): void {
+    const labels: Record<string, string> = {
+      downloading: "$(cloud-download~spin) TestPilot: 下载中",
+      starting:    "$(sync~spin) TestPilot: 启动中",
+      ready:       "$(check) TestPilot: 就绪",
+      offline:     "$(error) TestPilot: 离线",
+    };
+    this._statusBar.text = extra ? `${labels[state]} ${extra}` : labels[state];
+    this._statusBar.tooltip = state === "ready"
+      ? `TestPilot AI 引擎运行中\n点击查看日志`
+      : `点击查看 TestPilot AI 引擎日志`;
+    this._statusBar.backgroundColor = state === "offline"
+      ? new vscode.ThemeColor("statusBarItem.errorBackground")
+      : undefined;
   }
 
   /** 引擎二进制的完整本地路径 */
@@ -77,6 +111,7 @@ export class EngineManager {
     // 1. 已有引擎在跑，直接复用
     if (await this.isEngineRunning()) {
       this._outputChannel.appendLine("[引擎] 检测到引擎已运行，直接连接");
+      this._setStatus("ready");
       return;
     }
 
@@ -87,11 +122,14 @@ export class EngineManager {
 
     // 3. 没有缓存的二进制，先下载
     if (!fs.existsSync(this.binaryPath)) {
+      this._setStatus("downloading");
       await this._downloadBinary();
     }
 
     // 4. 启动引擎进程
+    this._setStatus("starting");
     await this._spawnEngine();
+    this._setStatus("ready");
   }
 
   /** 从 GitHub Release 下载二进制（带进度条通知） */
@@ -141,10 +179,9 @@ export class EngineManager {
                 if (total > 0) {
                   const pct = Math.floor((received / total) * 100);
                   if (pct >= lastPercent + 5) {
-                    progress.report({
-                      message: `${pct}%（${Math.round(received / 1024 / 1024)}MB / ${Math.round(total / 1024 / 1024)}MB）`,
-                      increment: pct - lastPercent,
-                    });
+                    const msg = `${pct}%（${Math.round(received / 1024 / 1024)}MB / ${Math.round(total / 1024 / 1024)}MB）`;
+                    progress.report({ message: msg, increment: pct - lastPercent });
+                    this._setStatus("downloading", `${pct}%`);
                     lastPercent = pct;
                   }
                 }
@@ -205,6 +242,7 @@ export class EngineManager {
       this._engineProc.on("exit", (code) => {
         this._outputChannel.appendLine(`[引擎] 进程已退出，退出码=${code}`);
         this._engineProc = null;
+        this._setStatus("offline");
       });
 
       // 超时保护：30 秒内未就绪视为失败
@@ -219,5 +257,6 @@ export class EngineManager {
       this._engineProc.kill();
       this._engineProc = null;
     }
+    this._setStatus("offline");
   }
 }
