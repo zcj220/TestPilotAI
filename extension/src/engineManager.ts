@@ -17,9 +17,9 @@ import * as path from "path";
 import * as child_process from "child_process";
 import * as os from "os";
 
-// GitHub Release 下载地址模板
+// 引擎二进制下载地址（托管在 xinzaoai.com 服务器）
 const GITHUB_RELEASE_BASE =
-  "https://github.com/zcj220/TestPilotAI/releases/latest/download";
+  "https://xinzaoai.com/downloads";
 
 /** 根据当前平台返回对应的二进制文件名 */
 function getPlatformBinaryName(): string {
