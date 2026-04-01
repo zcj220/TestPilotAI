@@ -108,6 +108,9 @@ export class EngineManager {
    * 流程：已运行 → 直接返回；已缓存 → 启动；未缓存 → 先下载再启动。
    */
   async ensureRunning(): Promise<void> {
+    // 0. 版本检查（异步，不阻塞启动，但强制更新会提示）
+    this._checkVersion().catch(() => {});
+
     // 1. 已有引擎在跑，直接复用
     if (await this.isEngineRunning()) {
       this._outputChannel.appendLine("[引擎] 检测到引擎已运行，直接连接");
@@ -258,5 +261,64 @@ export class EngineManager {
       this._engineProc = null;
     }
     this._setStatus("offline");
+  }
+
+  /** 版本检查：低于最低版本强制提示，低于最新版本弱提示 */
+  private async _checkVersion(): Promise<void> {
+    const VERSION_URL = "https://xinzaoai.com/api/version/check";
+    const currentVersion = vscode.extensions.getExtension("wenzhouxinzao.testpilot-ai")
+      ?.packageJSON?.version as string | undefined;
+    if (!currentVersion) { return; }
+
+    try {
+      const data = await new Promise<{ latest: string; minimum: string; changelog?: string }>(
+        (resolve, reject) => {
+          const mod = VERSION_URL.startsWith("https") ? https : http;
+          mod.get(VERSION_URL, { timeout: 8000 }, (res) => {
+            if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+            let body = "";
+            res.on("data", (c: Buffer) => (body += c.toString()));
+            res.on("end", () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+          }).on("error", reject).on("timeout", () => reject(new Error("timeout")));
+        }
+      );
+
+      const cmp = (a: string, b: string) => {
+        const pa = a.split(".").map(Number);
+        const pb = b.split(".").map(Number);
+        for (let i = 0; i < 3; i++) {
+          if ((pa[i] || 0) < (pb[i] || 0)) { return -1; }
+          if ((pa[i] || 0) > (pb[i] || 0)) { return 1; }
+        }
+        return 0;
+      };
+
+      if (cmp(currentVersion, data.minimum) < 0) {
+        // 强制更新：弹出模态提示
+        const action = await vscode.window.showErrorMessage(
+          `TestPilot AI 当前版本 v${currentVersion} 已不再支持，请更新至 v${data.latest}。`,
+          { modal: true },
+          "前往下载"
+        );
+        if (action === "前往下载") {
+          vscode.env.openExternal(
+            vscode.Uri.parse("https://xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
+          );
+        }
+      } else if (cmp(currentVersion, data.latest) < 0) {
+        // 弱提示：状态栏提醒，不阻塞
+        const action = await vscode.window.showInformationMessage(
+          `TestPilot AI 有新版本 v${data.latest}（当前 v${currentVersion}）`,
+          "下载更新", "忽略"
+        );
+        if (action === "下载更新") {
+          vscode.env.openExternal(
+            vscode.Uri.parse("https://xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
+          );
+        }
+      }
+    } catch {
+      // 版本检查失败不影响正常使用，静默忽略
+    }
   }
 }

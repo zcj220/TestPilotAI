@@ -18,7 +18,7 @@ from src.api.routes import create_router
 from src.core.config import PROJECT_ROOT
 from src.api.websocket import ws_manager
 from src.browser.automator import BrowserAutomator
-from src.core.ai_client import AIClient
+from src.core.ai_client import AIClient, ProxyAIClient
 from src.core.config import get_config
 from src.core.logger import setup_logger
 from src.memory.store import MemoryStore
@@ -52,15 +52,23 @@ def create_app() -> FastAPI:
     # 记忆系统（SQLite 本地存储，零外部依赖）
     memory_store = MemoryStore()
 
-    # AI 客户端（API Key 未配置时优雅降级，测试任务端点将返回503）
-    ai_client: AIClient | None = None
+    # AI 客户端：有 TP_AI_API_KEY 时直连豆包（开发模式），否则走代理（生产/用户端）
+    ai_client: AIClient | ProxyAIClient | None = None
     if config.ai.api_key:
         try:
             ai_client = AIClient(config.ai)
         except Exception as e:
-            logger.warning("AI 客户端初始化失败（测试任务不可用）: {}", e)
+            logger.warning("AI 客户端初始化失败，降级为代理模式: {}", e)
+            ai_client = ProxyAIClient(
+                reasoning_effort=config.ai.reasoning_effort,
+                max_tokens=config.ai.max_completion_tokens,
+            )
     else:
-        logger.warning("TP_AI_API_KEY 未配置，测试任务功能不可用")
+        logger.info("TP_AI_API_KEY 未配置，使用代理模式（xinzaoai.com）")
+        ai_client = ProxyAIClient(
+            reasoning_effort=config.ai.reasoning_effort,
+            max_tokens=config.ai.max_completion_tokens,
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:

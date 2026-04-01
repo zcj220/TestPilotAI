@@ -11,9 +11,11 @@ AI 客户端模块
 """
 
 import base64
+import json
 from pathlib import Path
 from typing import Optional
 
+import httpx
 from loguru import logger
 from openai import OpenAI
 
@@ -293,3 +295,109 @@ class AIClient:
                     message="AI API 调用失败",
                     detail=error_msg,
                 )
+
+
+# 代理服务器地址和鉴权 secret（后端随时可切换模型，引擎无需更新）
+_PROXY_URL = "https://xinzaoai.com/api/ai/proxy"
+_ENGINE_SECRET = "testpilot-engine-secret-2026"
+
+
+class ProxyAIClient:
+    """通过 xinzaoai.com 服务器代理调用豆包 AI。
+
+    引擎 exe 默认使用此客户端（不需要 TP_AI_API_KEY）。
+    后端切换模型/Key 只需改服务器环境变量，引擎无需重新打包。
+    接口与 AIClient 完全相同，可互相替换。
+    """
+
+    def __init__(self, reasoning_effort: str = "medium", max_tokens: int = 65535) -> None:
+        self._reasoning_effort = reasoning_effort
+        self._max_tokens = max_tokens
+        self._http = httpx.Client(timeout=120.0)
+        logger.info("AI 代理客户端初始化完成 | 代理={}", _PROXY_URL)
+
+    def chat(
+        self,
+        prompt: str,
+        system_prompt: str = "",
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> str:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+        return self._call(messages, reasoning_effort, timeout)
+
+    def analyze_screenshot(
+        self,
+        image_path: str,
+        prompt: str = "请描述这个页面的内容，并指出可能存在的UI问题或Bug。",
+        system_prompt: str = "",
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        path = Path(image_path)
+        if not path.exists():
+            raise FileNotFoundError(f"截图文件不存在: {image_path}")
+        image_data = path.read_bytes()
+        b64 = base64.b64encode(image_data).decode("utf-8")
+        suffix = path.suffix.lower()
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "webp": "image/webp", "gif": "image/gif"}.get(suffix.lstrip("."), "image/png")
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+            {"type": "text", "text": prompt},
+        ]})
+        logger.info("发送截图分析请求（代理）| 文件={} | 大小={}KB", path.name, len(image_data) // 1024)
+        return self._call(messages, reasoning_effort, timeout, max_tokens)
+
+    def analyze_screenshot_url(
+        self,
+        image_url: str,
+        prompt: str = "请描述这个页面的内容，并指出可能存在的UI问题或Bug。",
+        system_prompt: str = "",
+        reasoning_effort: Optional[str] = None,
+    ) -> str:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": image_url}},
+            {"type": "text", "text": prompt},
+        ]})
+        return self._call(messages, reasoning_effort)
+
+    def _call(
+        self,
+        messages: list[dict],
+        reasoning_effort: Optional[str] = None,
+        timeout: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
+        payload = {
+            "messages": messages,
+            "reasoning_effort": reasoning_effort or self._reasoning_effort,
+            "max_tokens": max_tokens or self._max_tokens,
+        }
+        try:
+            resp = self._http.post(
+                _PROXY_URL,
+                json=payload,
+                headers={"X-Engine-Secret": _ENGINE_SECRET},
+                timeout=timeout or 120.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            if not content:
+                raise AIResponseError(message="代理 AI 返回了空响应", detail=str(data))
+            return content
+        except AIError:
+            raise
+        except Exception as e:
+            raise AIError(message="代理 AI 请求失败", detail=str(e))
