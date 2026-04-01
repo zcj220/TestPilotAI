@@ -17,9 +17,9 @@ import * as path from "path";
 import * as child_process from "child_process";
 import * as os from "os";
 
-// 引擎二进制下载地址（托管在 xinzaoai.com 服务器）
+// 引擎二进制下载地址（托管在 testpilot.xinzaoai.com 服务器）
 const GITHUB_RELEASE_BASE =
-  "https://xinzaoai.com/downloads";
+  "https://testpilot.xinzaoai.com/downloads";
 
 /** 根据当前平台返回对应的二进制文件名 */
 function getPlatformBinaryName(): string {
@@ -302,7 +302,7 @@ export class EngineManager {
         );
         if (action === "前往下载") {
           vscode.env.openExternal(
-            vscode.Uri.parse("https://xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
+            vscode.Uri.parse("https://testpilot.xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
           );
         }
       } else if (cmp(currentVersion, data.latest) < 0) {
@@ -313,7 +313,7 @@ export class EngineManager {
         );
         if (action === "下载更新") {
           vscode.env.openExternal(
-            vscode.Uri.parse("https://xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
+            vscode.Uri.parse("https://testpilot.xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
           );
         }
       }
