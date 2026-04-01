@@ -331,105 +331,41 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // ── 一键启动引擎（v10.0）──
+  // ── 一键启动引擎（v15.0：自动下载+启动二进制，无需选择目录）──
   context.subscriptions.push(
     vscode.commands.registerCommand("testpilot-ai.launchEngine", async () => {
-      // 查找项目根目录（优先用工作区，否则用插件设置）
-      const folders = vscode.workspace.workspaceFolders;
-      let projectRoot = "";
-
-      // 尝试在工作区中找到 TestPilotAI 项目（有 cli.py 的目录）
-      if (folders) {
-        for (const f of folders) {
-          const cliPath = vscode.Uri.joinPath(f.uri, "cli.py");
-          // 使用 fs.stat 检测文件是否存在
-          try {
-            const fs = require("fs");
-            if (fs.existsSync(cliPath.fsPath)) {
-              projectRoot = f.uri.fsPath;
-              break;
-            }
-          } catch {
-            // 忽略
-          }
-        }
+      // 先检查引擎是否已在运行
+      if (await engineManager.isEngineRunning()) {
+        vscode.window.showInformationMessage("✅ TestPilot AI 引擎已在运行中");
+        client.connectWs();
+        return;
       }
 
-      if (!projectRoot) {
-        // 兜底：从配置中读取
-        const config = vscode.workspace.getConfiguration("testpilotAI");
-        projectRoot = config.get<string>("projectRoot", "");
+      // 调用 ensureRunning：自动从服务器下载引擎二进制并启动
+      // 首次安装时会显示下载进度条；已下载过则直接启动
+      try {
+        await engineManager.ensureRunning();
+        outputChannel.appendLine("[TestPilot AI] 引擎就绪");
+        client.connectWs();
+        vscode.window.showInformationMessage("✅ TestPilot AI 引擎启动成功");
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        vscode.window.showErrorMessage(`TestPilot AI 引擎启动失败: ${message}\n请检查网络连接后重试。`);
       }
-
-      if (!projectRoot) {
-        // 弹出目录选择框让用户手动指定
-        const selected = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-          title: "选择 TestPilot AI 项目根目录（包含 cli.py 的文件夹）",
-        });
-        if (!selected || selected.length === 0) {
-          vscode.window.showErrorMessage(
-            "⚠️ 未选择目录，引擎启动取消。也可在 设置 → testpilotAI.projectRoot 中填入项目路径。",
-          );
-          return;
-        }
-        projectRoot = selected[0].fsPath;
-        // 验证选中的目录包含 cli.py
-        const fs = require("fs");
-        if (!fs.existsSync(require("path").join(projectRoot, "cli.py"))) {
-          vscode.window.showErrorMessage(
-            `❌ 所选目录不含 cli.py，请选择正确的 TestPilot AI 项目根目录。\n当前选择：${projectRoot}`,
-          );
-          return;
-        }
-        // 保存到设置，下次直接用
-        await vscode.workspace.getConfiguration("testpilotAI").update(
-          "projectRoot",
-          projectRoot,
-          vscode.ConfigurationTarget.Global,
-        );
-        outputChannel.appendLine(`[TestPilot AI] 已保存项目路径: ${projectRoot}`);
-      }
-
-      // 若旧终端存在，先关闭（避免复用失效终端）
-      const existingTerminal = vscode.window.terminals.find(
-        (t) => t.name === "TestPilot Engine",
-      );
-      if (existingTerminal) {
-        existingTerminal.dispose();
-        outputChannel.appendLine("[TestPilot AI] 关闭旧引擎终端，准备重启");
-      }
-
-      const terminal = vscode.window.createTerminal({
-        name: "TestPilot Engine",
-        cwd: projectRoot,
-      });
-      terminal.show();
-      terminal.sendText("poetry run python cli.py serve --force");
-      outputChannel.appendLine(`[TestPilot AI] 引擎启动中... 目录: ${projectRoot}`);
-      vscode.window.showInformationMessage("🚀 TestPilot AI 引擎正在启动...");
     }),
   );
 
   // ── 一键关闭引擎（v10.1）──
   context.subscriptions.push(
     vscode.commands.registerCommand("testpilot-ai.stopEngine", async () => {
-      const engineTerminal = vscode.window.terminals.find(
-        (t) => t.name === "TestPilot Engine",
-      );
-      if (engineTerminal) {
-        engineTerminal.dispose();
-        outputChannel.appendLine("[TestPilot AI] 引擎终端已关闭");
-      } else {
-        outputChannel.appendLine("[TestPilot AI] 未找到 TestPilot Engine 终端");
-      }
+      // 通过 engineManager 杀掉引擎子进程
+      engineManager.dispose();
+      outputChannel.appendLine("[TestPilot AI] 引擎进程已停止");
       // 断开 WebSocket 连接
       client.disconnectWs();
       // 通知 Sidebar 更新状态
       sidebarProvider.postMessage({ command: "engineStatus", data: { connected: false } });
-      vscode.window.showInformationMessage("⏹ TestPilot AI 引擎已断开");
+      vscode.window.showInformationMessage("⏹ TestPilot AI 引擎已停止");
     }),
   );
 

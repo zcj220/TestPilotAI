@@ -111,11 +111,18 @@ export class EngineManager {
     // 0. 版本检查（异步，不阻塞启动，但强制更新会提示）
     this._checkVersion().catch(() => {});
 
-    // 1. 已有引擎在跑，直接复用
+    // 1. 已有引擎在跑
     if (await this.isEngineRunning()) {
-      this._outputChannel.appendLine("[引擎] 检测到引擎已运行，直接连接");
-      this._setStatus("ready");
-      return;
+      // 检查 Playwright 浏览器是否可用，如果不可用说明是旧版引擎（未设置PLAYWRIGHT_BROWSERS_PATH）
+      const browserOk = await this._checkBrowserAvailable();
+      if (browserOk) {
+        this._outputChannel.appendLine("[引擎] 检测到引擎已运行，直接连接");
+        this._setStatus("ready");
+        return;
+      }
+      // 浏览器不可用 → 停掉旧引擎，用新参数重新启动
+      this._outputChannel.appendLine("[引擎] 检测到引擎已运行但浏览器不可用，重新启动以修复...");
+      await this._killExistingEngine();
     }
 
     // 2. globalStorage 目录必须存在
@@ -133,6 +140,54 @@ export class EngineManager {
     this._setStatus("starting");
     await this._spawnEngine();
     this._setStatus("ready");
+  }
+
+  /** 检查 Playwright 浏览器是否存在于系统缓存 */
+  private _checkBrowserAvailable(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const url = getEngineUrl() + "/api/v1/health";
+      const mod = url.startsWith("https") ? https : http;
+      const req = mod.get(url, { timeout: 2000 }, (res) => {
+        let body = "";
+        res.on("data", (chunk: Buffer) => { body += chunk.toString(); });
+        res.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            resolve(data.browser_available !== false);
+          } catch {
+            resolve(true); // 旧版引擎无此字段，不强制重启
+          }
+        });
+        res.resume();
+      });
+      req.on("error", () => resolve(true));
+      req.on("timeout", () => { req.destroy(); resolve(true); });
+    });
+  }
+
+  /** 杀掉端口 8900 上正在运行的引擎进程 */
+  private _killExistingEngine(): Promise<void> {
+    return new Promise((resolve) => {
+      if (this._engineProc) {
+        this._engineProc.kill();
+        this._engineProc = null;
+        setTimeout(resolve, 1000);
+        return;
+      }
+      // 用 HTTP DELETE 或直接让它自然停止（引擎暂无 shutdown 接口）
+      // 通过端口找进程并杀掉（仅 Windows）
+      if (process.platform === "win32") {
+        child_process.exec(
+          `for /f "tokens=5" %a in ('netstat -ano ^| findstr :8900') do taskkill /F /PID %a`,
+          () => setTimeout(resolve, 1500),
+        );
+      } else {
+        child_process.exec(
+          `fuser -k 8900/tcp`,
+          () => setTimeout(resolve, 1500),
+        );
+      }
+    });
   }
 
   /** 从 GitHub Release 下载二进制（带进度条通知） */
@@ -218,10 +273,21 @@ export class EngineManager {
     return new Promise((resolve, reject) => {
       this._outputChannel.appendLine(`[引擎] 启动: ${this.binaryPath}`);
 
+      // 注入 PLAYWRIGHT_BROWSERS_PATH，确保 PyInstaller 打包的引擎能找到已安装的浏览器
+      // 避免 Playwright 在 _MEIxxxxxx 临时目录中搜索浏览器
+      const browsersPath = process.platform === "win32"
+        ? path.join(process.env["LOCALAPPDATA"] || os.homedir(), "ms-playwright")
+        : path.join(os.homedir(), ".cache", "ms-playwright");
+      this._outputChannel.appendLine(`[引擎] PLAYWRIGHT_BROWSERS_PATH=${browsersPath}`);
+
       this._engineProc = child_process.spawn(this.binaryPath, [], {
         cwd: os.homedir(),        // 工作目录设为用户主目录，让 data/ logs/ 写到那里
         detached: false,
         stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: browsersPath,
+        },
       });
 
       const onData = (chunk: Buffer) => {
@@ -248,8 +314,8 @@ export class EngineManager {
         this._setStatus("offline");
       });
 
-      // 超时保护：30 秒内未就绪视为失败
-      setTimeout(() => reject(new Error("引擎启动超时（30s），请检查 Output 面板日志")), 30000);
+      // 超时保护：120 秒内未就绪视为失败（首次启动可能需要下载 Playwright 浏览器）
+      setTimeout(() => reject(new Error("引擎启动超时（120s），请检查 Output 面板日志")), 120000);
     });
   }
 

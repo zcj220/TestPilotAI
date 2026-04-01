@@ -1,4 +1,4 @@
-﻿<!-- TestPilot-Template-Version: 10 -->
+﻿<!-- TestPilot-Template-Version: 16 -->
 # Platform Blueprint Rules (platform = "android")
 
 > This file defines all rules for Android/Flutter application blueprints.

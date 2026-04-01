@@ -76,6 +76,7 @@ class HealthResponse(BaseModel):
     version: str
     sandbox_count: int
     browser_ready: bool
+    browser_available: bool = True
 
 
 # ── 测试任务模型 ──────────────────────────────────────────

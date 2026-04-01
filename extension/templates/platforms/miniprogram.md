@@ -1,4 +1,4 @@
-﻿<!-- TestPilot-Template-Version: 10 -->
+﻿<!-- TestPilot-Template-Version: 16 -->
 # Platform Blueprint Rules (platform = "miniprogram")
 
 > This file defines all rules for WeChat Mini Program blueprints.

@@ -416,9 +416,10 @@ export function injectRules(
     // 强制注入所有IDE规则（手动触发时）
     filesToInject = ["AGENTS.md", ...Object.values(IDE_RULES_MAP)];
   } else {
-    // 智能注入：AGENTS.md + CLAUDE.md + 当前IDE + 已安装的AI扩展
+    // 智能注入：AGENTS.md + 当前IDE + 已安装的AI扩展
+    // （CLAUDE.md 只在检测到 Claude Code 扩展时才注入，不强制创建）
     const detectedIDEs = detectAllIDEs();
-    filesToInject = ["AGENTS.md", "CLAUDE.md"];
+    filesToInject = ["AGENTS.md"];
     
     for (const ide of detectedIDEs) {
       const ruleFile = IDE_RULES_MAP[ide];

@@ -1,0 +1,291 @@
+﻿2026-03-30T05:37:31.8730193Z Current runner version: '2.333.0'
+2026-03-30T05:37:31.8764346Z ##[group]Runner Image Provisioner
+2026-03-30T05:37:31.8765634Z Hosted Compute Agent
+2026-03-30T05:37:31.8766457Z Version: 20260213.493
+2026-03-30T05:37:31.8767899Z Commit: 5c115507f6dd24b8de37d8bbe0bb4509d0cc0fa3
+2026-03-30T05:37:31.8769065Z Build Date: 2026-02-13T00:28:41Z
+2026-03-30T05:37:31.8770213Z Worker ID: {9899f12d-ec9b-40a9-b712-0b2732df839b}
+2026-03-30T05:37:31.8771442Z Azure Region: centralus
+2026-03-30T05:37:31.8772365Z ##[endgroup]
+2026-03-30T05:37:31.8774490Z ##[group]Operating System
+2026-03-30T05:37:31.8775543Z Microsoft Windows Server 2025
+2026-03-30T05:37:31.8776584Z 10.0.26100
+2026-03-30T05:37:31.8777334Z Datacenter
+2026-03-30T05:37:31.8778066Z ##[endgroup]
+2026-03-30T05:37:31.8778772Z ##[group]Runner Image
+2026-03-30T05:37:31.8779626Z Image: windows-2025
+2026-03-30T05:37:31.8780482Z Version: 20260317.61.1
+2026-03-30T05:37:31.8782821Z Included Software: https://github.com/actions/runner-images/blob/win25/20260317.61/images/windows/Windows2025-Readme.md
+2026-03-30T05:37:31.8785524Z Image Release: https://github.com/actions/runner-images/releases/tag/win25%2F20260317.61
+2026-03-30T05:37:31.8787095Z ##[endgroup]
+2026-03-30T05:37:31.8789121Z ##[group]GITHUB_TOKEN Permissions
+2026-03-30T05:37:31.8792157Z Contents: write
+2026-03-30T05:37:31.8793001Z Metadata: read
+2026-03-30T05:37:31.8793859Z ##[endgroup]
+2026-03-30T05:37:31.8798168Z Secret source: Actions
+2026-03-30T05:37:31.8799197Z Prepare workflow directory
+2026-03-30T05:37:31.9283026Z Prepare all required actions
+2026-03-30T05:37:31.9363386Z Getting action download info
+2026-03-30T05:37:32.2849276Z Download action repository 'actions/checkout@v4' (SHA:34e114876b0b11c390a56381ad16ebd13914f8d5)
+2026-03-30T05:37:32.4262206Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+2026-03-30T05:37:32.7761407Z Download action repository 'actions/cache@v4' (SHA:0057852bfaa89a56745cba8c7296529d2fc39830)
+2026-03-30T05:37:33.0681782Z Download action repository 'actions/upload-artifact@v4' (SHA:ea165f8d65b6e75b540449e92b4886f43607fa02)
+2026-03-30T05:37:33.4433232Z Complete job name: Build (windows-latest)
+2026-03-30T05:37:33.5730087Z ##[group]Run actions/checkout@v4
+2026-03-30T05:37:33.5731355Z with:
+2026-03-30T05:37:33.5732275Z   repository: zcj220/TestPilotAI
+2026-03-30T05:37:33.5733366Z   token: ***
+2026-03-30T05:37:33.5734013Z   ssh-strict: true
+2026-03-30T05:37:33.5734699Z   ssh-user: git
+2026-03-30T05:37:33.5735589Z   persist-credentials: true
+2026-03-30T05:37:33.5736372Z   clean: true
+2026-03-30T05:37:33.5737078Z   sparse-checkout-cone-mode: true
+2026-03-30T05:37:33.5737920Z   fetch-depth: 1
+2026-03-30T05:37:33.5738596Z   fetch-tags: false
+2026-03-30T05:37:33.5739284Z   show-progress: true
+2026-03-30T05:37:33.5739991Z   lfs: false
+2026-03-30T05:37:33.5740625Z   submodules: false
+2026-03-30T05:37:33.5741320Z   set-safe-directory: true
+2026-03-30T05:37:33.5742520Z ##[endgroup]
+2026-03-30T05:37:34.1879430Z Syncing repository: zcj220/TestPilotAI
+2026-03-30T05:37:34.1883923Z ##[group]Getting Git version info
+2026-03-30T05:37:34.1884327Z Working directory is 'D:\a\TestPilotAI\TestPilotAI'
+2026-03-30T05:37:34.1884976Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-03-30T05:37:35.1640662Z git version 2.53.0.windows.2
+2026-03-30T05:37:35.1649347Z ##[endgroup]
+2026-03-30T05:37:35.1655551Z Temporarily overriding HOME='D:\a\_temp\b74fc076-5e43-4052-a9a2-b644c9aa9e5c' before making global git config changes
+2026-03-30T05:37:35.1657496Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-30T05:37:35.1658890Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\TestPilotAI\TestPilotAI
+2026-03-30T05:37:35.1661147Z Deleting the contents of 'D:\a\TestPilotAI\TestPilotAI'
+2026-03-30T05:37:35.1662302Z ##[group]Initializing the repository
+2026-03-30T05:37:35.1663186Z [command]"C:\Program Files\Git\bin\git.exe" init D:\a\TestPilotAI\TestPilotAI
+2026-03-30T05:37:35.1667768Z Initialized empty Git repository in D:/a/TestPilotAI/TestPilotAI/.git/
+2026-03-30T05:37:35.1669888Z [command]"C:\Program Files\Git\bin\git.exe" remote add origin https://github.com/zcj220/TestPilotAI
+2026-03-30T05:37:35.1671678Z ##[endgroup]
+2026-03-30T05:37:35.1672366Z ##[group]Disabling automatic garbage collection
+2026-03-30T05:37:35.1673413Z [command]"C:\Program Files\Git\bin\git.exe" config --local gc.auto 0
+2026-03-30T05:37:35.1675068Z ##[endgroup]
+2026-03-30T05:37:35.1675670Z ##[group]Setting up auth
+2026-03-30T05:37:35.1676542Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-03-30T05:37:35.1679071Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-03-30T05:37:36.0368695Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-30T05:37:36.0687591Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-03-30T05:37:36.6455630Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-30T05:37:36.6773703Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-03-30T05:37:37.2107629Z [command]"C:\Program Files\Git\bin\git.exe" config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ***"
+2026-03-30T05:37:37.2433740Z ##[endgroup]
+2026-03-30T05:37:37.2434558Z ##[group]Fetching the repository
+2026-03-30T05:37:37.2455943Z [command]"C:\Program Files\Git\bin\git.exe" -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +5df80a0b62d53d67a4ce88d807eac7d3d18534c2:refs/remotes/origin/main
+2026-03-30T05:37:38.3848013Z From https://github.com/zcj220/TestPilotAI
+2026-03-30T05:37:38.3849014Z  * [new ref]         5df80a0b62d53d67a4ce88d807eac7d3d18534c2 -> origin/main
+2026-03-30T05:37:38.4156563Z ##[endgroup]
+2026-03-30T05:37:38.4168435Z ##[group]Determining the checkout info
+2026-03-30T05:37:38.4169336Z ##[endgroup]
+2026-03-30T05:37:38.4185073Z [command]"C:\Program Files\Git\bin\git.exe" sparse-checkout disable
+2026-03-30T05:37:38.4619992Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all extensions.worktreeConfig
+2026-03-30T05:37:38.5022030Z ##[group]Checking out the ref
+2026-03-30T05:37:38.5043422Z [command]"C:\Program Files\Git\bin\git.exe" checkout --progress --force -B main refs/remotes/origin/main
+2026-03-30T05:37:38.7963384Z Switched to a new branch 'main'
+2026-03-30T05:37:38.7986638Z branch 'main' set up to track 'origin/main'.
+2026-03-30T05:37:38.8039200Z ##[endgroup]
+2026-03-30T05:37:38.8489107Z [command]"C:\Program Files\Git\bin\git.exe" log -1 --format=%H
+2026-03-30T05:37:38.8756330Z 5df80a0b62d53d67a4ce88d807eac7d3d18534c2
+2026-03-30T05:37:38.9192154Z ##[group]Run actions/setup-python@v5
+2026-03-30T05:37:38.9192475Z with:
+2026-03-30T05:37:38.9192649Z   python-version: 3.10
+2026-03-30T05:37:38.9192835Z   check-latest: false
+2026-03-30T05:37:38.9193145Z   token: ***
+2026-03-30T05:37:38.9193316Z   update-environment: true
+2026-03-30T05:37:38.9193521Z   allow-prereleases: false
+2026-03-30T05:37:38.9193727Z   freethreaded: false
+2026-03-30T05:37:38.9193917Z ##[endgroup]
+2026-03-30T05:37:39.2271594Z ##[group]Installed versions
+2026-03-30T05:37:39.2494621Z Successfully set up CPython (3.10.11)
+2026-03-30T05:37:39.2495540Z ##[endgroup]
+2026-03-30T05:37:39.2872461Z ##[group]Run pip install poetry==1.8.5
+2026-03-30T05:37:39.2872824Z [36;1mpip install poetry==1.8.5[0m
+2026-03-30T05:37:39.3518760Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-03-30T05:37:39.3520022Z env:
+2026-03-30T05:37:39.3520378Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:37:39.3521063Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.10.11\x64/lib/pkgconfig
+2026-03-30T05:37:39.3521747Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:37:39.3522337Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:37:39.3522923Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:37:39.3523375Z ##[endgroup]
+2026-03-30T05:37:47.0929737Z Collecting poetry==1.8.5
+2026-03-30T05:37:47.1630908Z   Downloading poetry-1.8.5-py3-none-any.whl.metadata (6.9 kB)
+2026-03-30T05:37:47.2166241Z Collecting build<2.0.0,>=1.0.3 (from poetry==1.8.5)
+2026-03-30T05:37:47.2337363Z   Downloading build-1.4.2-py3-none-any.whl.metadata (5.8 kB)
+2026-03-30T05:37:47.2901818Z Collecting cachecontrol<0.15.0,>=0.14.0 (from cachecontrol[filecache]<0.15.0,>=0.14.0->poetry==1.8.5)
+2026-03-30T05:37:47.3066718Z   Downloading cachecontrol-0.14.4-py3-none-any.whl.metadata (3.1 kB)
+2026-03-30T05:37:47.3586540Z Collecting cleo<3.0.0,>=2.1.0 (from poetry==1.8.5)
+2026-03-30T05:37:47.3755409Z   Downloading cleo-2.1.0-py3-none-any.whl.metadata (12 kB)
+2026-03-30T05:37:47.4309347Z Collecting crashtest<0.5.0,>=0.4.1 (from poetry==1.8.5)
+2026-03-30T05:37:47.4491697Z   Downloading crashtest-0.4.1-py3-none-any.whl.metadata (1.1 kB)
+2026-03-30T05:37:47.6632375Z Collecting dulwich<0.22.0,>=0.21.2 (from poetry==1.8.5)
+2026-03-30T05:37:47.6808969Z   Downloading dulwich-0.21.7-cp310-cp310-win_amd64.whl.metadata (4.4 kB)
+2026-03-30T05:37:47.7356002Z Collecting fastjsonschema<3.0.0,>=2.18.0 (from poetry==1.8.5)
+2026-03-30T05:37:47.7522618Z   Downloading fastjsonschema-2.21.2-py3-none-any.whl.metadata (2.3 kB)
+2026-03-30T05:37:48.3593343Z Collecting installer<0.8.0,>=0.7.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8677236Z   Downloading installer-0.7.0-py3-none-any.whl.metadata (936 bytes)
+2026-03-30T05:37:48.8677992Z Collecting keyring<25.0.0,>=24.0.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8678654Z   Downloading keyring-24.3.1-py3-none-any.whl.metadata (20 kB)
+2026-03-30T05:37:48.8679314Z Collecting packaging>=23.1 (from poetry==1.8.5)
+2026-03-30T05:37:48.8679953Z   Downloading packaging-26.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-30T05:37:48.8680616Z Collecting pexpect<5.0.0,>=4.7.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8681273Z   Downloading pexpect-4.9.0-py2.py3-none-any.whl.metadata (2.5 kB)
+2026-03-30T05:37:48.8681929Z Collecting pkginfo<2.0,>=1.12 (from poetry==1.8.5)
+2026-03-30T05:37:48.8682557Z   Downloading pkginfo-1.12.1.2-py3-none-any.whl.metadata (13 kB)
+2026-03-30T05:37:48.8683218Z Collecting platformdirs<5,>=3.0.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8683933Z   Downloading platformdirs-4.9.4-py3-none-any.whl.metadata (4.7 kB)
+2026-03-30T05:37:48.8684606Z Collecting poetry-core==1.9.1 (from poetry==1.8.5)
+2026-03-30T05:37:48.8685246Z   Downloading poetry_core-1.9.1-py3-none-any.whl.metadata (3.5 kB)
+2026-03-30T05:37:48.8685990Z Collecting poetry-plugin-export<2.0.0,>=1.6.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8686827Z   Downloading poetry_plugin_export-1.10.0-py3-none-any.whl.metadata (3.6 kB)
+2026-03-30T05:37:48.8687615Z Collecting pyproject-hooks<2.0.0,>=1.0.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8688351Z   Downloading pyproject_hooks-1.2.0-py3-none-any.whl.metadata (1.3 kB)
+2026-03-30T05:37:48.8689031Z Collecting requests<3.0,>=2.26 (from poetry==1.8.5)
+2026-03-30T05:37:48.8689679Z   Downloading requests-2.33.0-py3-none-any.whl.metadata (5.1 kB)
+2026-03-30T05:37:48.8690715Z Collecting requests-toolbelt<2.0.0,>=1.0.0 (from poetry==1.8.5)
+2026-03-30T05:37:48.8693977Z   Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl.metadata (14 kB)
+2026-03-30T05:37:48.8694846Z Collecting shellingham<2.0,>=1.5 (from poetry==1.8.5)
+2026-03-30T05:37:48.8695608Z   Downloading shellingham-1.5.4-py2.py3-none-any.whl.metadata (3.5 kB)
+2026-03-30T05:37:48.8696589Z Collecting tomli<3.0.0,>=2.0.1 (from poetry==1.8.5)
+2026-03-30T05:37:48.8697191Z   Downloading tomli-2.4.1-py3-none-any.whl.metadata (10 kB)
+2026-03-30T05:37:48.8697802Z Collecting tomlkit<1.0.0,>=0.11.4 (from poetry==1.8.5)
+2026-03-30T05:37:48.8698446Z   Downloading tomlkit-0.14.0-py3-none-any.whl.metadata (2.8 kB)
+2026-03-30T05:37:48.8809498Z Collecting trove-classifiers>=2022.5.19 (from poetry==1.8.5)
+2026-03-30T05:37:48.8979876Z   Downloading trove_classifiers-2026.1.14.14-py3-none-any.whl.metadata (2.4 kB)
+2026-03-30T05:37:48.9773616Z Collecting virtualenv<21.0.0,>=20.26.6 (from poetry==1.8.5)
+2026-03-30T05:37:48.9951703Z   Downloading virtualenv-20.39.1-py3-none-any.whl.metadata (3.5 kB)
+2026-03-30T05:37:49.0518578Z Collecting colorama (from build<2.0.0,>=1.0.3->poetry==1.8.5)
+2026-03-30T05:37:49.0691408Z   Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)
+2026-03-30T05:37:49.1889343Z Collecting msgpack<2.0.0,>=0.5.2 (from cachecontrol<0.15.0,>=0.14.0->cachecontrol[filecache]<0.15.0,>=0.14.0->poetry==1.8.5)
+2026-03-30T05:37:49.2067566Z   Downloading msgpack-1.1.2-cp310-cp310-win_amd64.whl.metadata (8.4 kB)
+2026-03-30T05:37:49.2695664Z Collecting filelock>=3.8.0 (from cachecontrol[filecache]<0.15.0,>=0.14.0->poetry==1.8.5)
+2026-03-30T05:37:49.2861668Z   Downloading filelock-3.25.2-py3-none-any.whl.metadata (2.0 kB)
+2026-03-30T05:37:49.9387805Z Collecting rapidfuzz<4.0.0,>=3.0.0 (from cleo<3.0.0,>=2.1.0->poetry==1.8.5)
+2026-03-30T05:37:49.9566289Z   Downloading rapidfuzz-3.14.3-cp310-cp310-win_amd64.whl.metadata (12 kB)
+2026-03-30T05:37:50.0238478Z Collecting urllib3>=1.25 (from dulwich<0.22.0,>=0.21.2->poetry==1.8.5)
+2026-03-30T05:37:50.0480913Z   Downloading urllib3-2.6.3-py3-none-any.whl.metadata (6.9 kB)
+2026-03-30T05:37:50.0998735Z Collecting jaraco.classes (from keyring<25.0.0,>=24.0.0->poetry==1.8.5)
+2026-03-30T05:37:50.1165742Z   Downloading jaraco.classes-3.4.0-py3-none-any.whl.metadata (2.6 kB)
+2026-03-30T05:37:50.1844778Z Collecting importlib-metadata>=4.11.4 (from keyring<25.0.0,>=24.0.0->poetry==1.8.5)
+2026-03-30T05:37:50.2012835Z   Downloading importlib_metadata-9.0.0-py3-none-any.whl.metadata (4.5 kB)
+2026-03-30T05:37:50.2516447Z Collecting pywin32-ctypes>=0.2.0 (from keyring<25.0.0,>=24.0.0->poetry==1.8.5)
+2026-03-30T05:37:50.2685754Z   Downloading pywin32_ctypes-0.2.3-py3-none-any.whl.metadata (3.9 kB)
+2026-03-30T05:37:50.3214706Z Collecting ptyprocess>=0.5 (from pexpect<5.0.0,>=4.7.0->poetry==1.8.5)
+2026-03-30T05:37:50.3381488Z   Downloading ptyprocess-0.7.0-py2.py3-none-any.whl.metadata (1.3 kB)
+2026-03-30T05:37:50.3643194Z INFO: pip is looking at multiple versions of poetry-plugin-export to determine which version is compatible with other requirements. This could take a while.
+2026-03-30T05:37:50.3648993Z Collecting poetry-plugin-export<2.0.0,>=1.6.0 (from poetry==1.8.5)
+2026-03-30T05:37:50.3818314Z   Downloading poetry_plugin_export-1.9.0-py3-none-any.whl.metadata (3.1 kB)
+2026-03-30T05:37:50.8345671Z   Downloading poetry_plugin_export-1.8.0-py3-none-any.whl.metadata (2.8 kB)
+2026-03-30T05:37:50.9813596Z Collecting charset_normalizer<4,>=2 (from requests<3.0,>=2.26->poetry==1.8.5)
+2026-03-30T05:37:51.0012933Z   Downloading charset_normalizer-3.4.6-cp310-cp310-win_amd64.whl.metadata (41 kB)
+2026-03-30T05:37:51.0557948Z Collecting idna<4,>=2.5 (from requests<3.0,>=2.26->poetry==1.8.5)
+2026-03-30T05:37:51.0725083Z   Downloading idna-3.11-py3-none-any.whl.metadata (8.4 kB)
+2026-03-30T05:37:51.1326494Z Collecting certifi>=2023.5.7 (from requests<3.0,>=2.26->poetry==1.8.5)
+2026-03-30T05:37:51.1491087Z   Downloading certifi-2026.2.25-py3-none-any.whl.metadata (2.5 kB)
+2026-03-30T05:37:51.2118894Z Collecting distlib<1,>=0.3.7 (from virtualenv<21.0.0,>=20.26.6->poetry==1.8.5)
+2026-03-30T05:37:51.2285777Z   Downloading distlib-0.4.0-py2.py3-none-any.whl.metadata (5.2 kB)
+2026-03-30T05:37:51.2865212Z Collecting typing-extensions>=4.13.2 (from virtualenv<21.0.0,>=20.26.6->poetry==1.8.5)
+2026-03-30T05:37:51.3031665Z   Downloading typing_extensions-4.15.0-py3-none-any.whl.metadata (3.3 kB)
+2026-03-30T05:37:51.3615097Z Collecting zipp>=3.20 (from importlib-metadata>=4.11.4->keyring<25.0.0,>=24.0.0->poetry==1.8.5)
+2026-03-30T05:37:51.3784085Z   Downloading zipp-3.23.0-py3-none-any.whl.metadata (3.6 kB)
+2026-03-30T05:37:51.4354337Z Collecting more-itertools (from jaraco.classes->keyring<25.0.0,>=24.0.0->poetry==1.8.5)
+2026-03-30T05:37:51.4520573Z   Downloading more_itertools-10.8.0-py3-none-any.whl.metadata (39 kB)
+2026-03-30T05:37:51.4876129Z Downloading poetry-1.8.5-py3-none-any.whl (249 kB)
+2026-03-30T05:37:51.5529864Z Downloading poetry_core-1.9.1-py3-none-any.whl (309 kB)
+2026-03-30T05:37:51.6001310Z Downloading build-1.4.2-py3-none-any.whl (24 kB)
+2026-03-30T05:37:51.6311320Z Downloading cachecontrol-0.14.4-py3-none-any.whl (22 kB)
+2026-03-30T05:37:51.6630866Z Downloading cleo-2.1.0-py3-none-any.whl (78 kB)
+2026-03-30T05:37:51.6936487Z Downloading crashtest-0.4.1-py3-none-any.whl (7.6 kB)
+2026-03-30T05:37:51.7281033Z Downloading dulwich-0.21.7-cp310-cp310-win_amd64.whl (487 kB)
+2026-03-30T05:37:51.7786076Z Downloading fastjsonschema-2.21.2-py3-none-any.whl (24 kB)
+2026-03-30T05:37:51.8252461Z Downloading installer-0.7.0-py3-none-any.whl (453 kB)
+2026-03-30T05:37:51.8614031Z Downloading keyring-24.3.1-py3-none-any.whl (38 kB)
+2026-03-30T05:37:51.9141634Z Downloading msgpack-1.1.2-cp310-cp310-win_amd64.whl (71 kB)
+2026-03-30T05:37:51.9449157Z Downloading pexpect-4.9.0-py2.py3-none-any.whl (63 kB)
+2026-03-30T05:37:51.9748597Z Downloading pkginfo-1.12.1.2-py3-none-any.whl (32 kB)
+2026-03-30T05:37:52.0035446Z Downloading platformdirs-4.9.4-py3-none-any.whl (21 kB)
+2026-03-30T05:37:52.0378535Z Downloading poetry_plugin_export-1.8.0-py3-none-any.whl (10 kB)
+2026-03-30T05:37:52.0857324Z Downloading pyproject_hooks-1.2.0-py3-none-any.whl (10 kB)
+2026-03-30T05:37:52.1173930Z Downloading rapidfuzz-3.14.3-cp310-cp310-win_amd64.whl (1.5 MB)
+2026-03-30T05:37:52.1632443Z    ---------------------------------------- 1.5/1.5 MB 41.3 MB/s  0:00:00
+2026-03-30T05:37:52.1797296Z Downloading requests-2.33.0-py3-none-any.whl (65 kB)
+2026-03-30T05:37:52.2150724Z Downloading charset_normalizer-3.4.6-cp310-cp310-win_amd64.whl (154 kB)
+2026-03-30T05:37:52.2501553Z Downloading idna-3.11-py3-none-any.whl (71 kB)
+2026-03-30T05:37:52.2844063Z Downloading requests_toolbelt-1.0.0-py2.py3-none-any.whl (54 kB)
+2026-03-30T05:37:52.3167341Z Downloading shellingham-1.5.4-py2.py3-none-any.whl (9.8 kB)
+2026-03-30T05:37:52.3470305Z Downloading tomli-2.4.1-py3-none-any.whl (14 kB)
+2026-03-30T05:37:52.3763010Z Downloading tomlkit-0.14.0-py3-none-any.whl (39 kB)
+2026-03-30T05:37:52.4123413Z Downloading urllib3-2.6.3-py3-none-any.whl (131 kB)
+2026-03-30T05:37:52.4439899Z Downloading virtualenv-20.39.1-py3-none-any.whl (5.8 MB)
+2026-03-30T05:37:52.5109379Z    ---------------------------------------- 5.8/5.8 MB 118.7 MB/s  0:00:00
+2026-03-30T05:37:52.5301950Z Downloading distlib-0.4.0-py2.py3-none-any.whl (469 kB)
+2026-03-30T05:37:52.5703181Z Downloading filelock-3.25.2-py3-none-any.whl (26 kB)
+2026-03-30T05:37:52.6056943Z Downloading certifi-2026.2.25-py3-none-any.whl (153 kB)
+2026-03-30T05:37:52.6343180Z Downloading importlib_metadata-9.0.0-py3-none-any.whl (27 kB)
+2026-03-30T05:37:52.6720306Z Downloading packaging-26.0-py3-none-any.whl (74 kB)
+2026-03-30T05:37:52.7109258Z Downloading ptyprocess-0.7.0-py2.py3-none-any.whl (13 kB)
+2026-03-30T05:37:52.7419712Z Downloading pywin32_ctypes-0.2.3-py3-none-any.whl (30 kB)
+2026-03-30T05:37:52.7729744Z Downloading trove_classifiers-2026.1.14.14-py3-none-any.whl (14 kB)
+2026-03-30T05:37:52.8036006Z Downloading typing_extensions-4.15.0-py3-none-any.whl (44 kB)
+2026-03-30T05:37:52.8405855Z Downloading zipp-3.23.0-py3-none-any.whl (10 kB)
+2026-03-30T05:37:52.8717855Z Downloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)
+2026-03-30T05:37:52.9040933Z Downloading jaraco.classes-3.4.0-py3-none-any.whl (6.8 kB)
+2026-03-30T05:37:52.9332125Z Downloading more_itertools-10.8.0-py3-none-any.whl (69 kB)
+2026-03-30T05:37:53.1269692Z Installing collected packages: trove-classifiers, ptyprocess, fastjsonschema, distlib, zipp, urllib3, typing-extensions, tomlkit, tomli, shellingham, rapidfuzz, pywin32-ctypes, pyproject-hooks, poetry-core, platformdirs, pkginfo, pexpect, packaging, msgpack, more-itertools, installer, idna, filelock, crashtest, colorama, charset_normalizer, certifi, virtualenv, requests, jaraco.classes, importlib-metadata, dulwich, cleo, build, requests-toolbelt, keyring, cachecontrol, poetry-plugin-export, poetry
+2026-03-30T05:38:00.4572788Z 
+2026-03-30T05:38:00.4745618Z Successfully installed build-1.4.2 cachecontrol-0.14.4 certifi-2026.2.25 charset_normalizer-3.4.6 cleo-2.1.0 colorama-0.4.6 crashtest-0.4.1 distlib-0.4.0 dulwich-0.21.7 fastjsonschema-2.21.2 filelock-3.25.2 idna-3.11 importlib-metadata-9.0.0 installer-0.7.0 jaraco.classes-3.4.0 keyring-24.3.1 more-itertools-10.8.0 msgpack-1.1.2 packaging-26.0 pexpect-4.9.0 pkginfo-1.12.1.2 platformdirs-4.9.4 poetry-1.8.5 poetry-core-1.9.1 poetry-plugin-export-1.8.0 ptyprocess-0.7.0 pyproject-hooks-1.2.0 pywin32-ctypes-0.2.3 rapidfuzz-3.14.3 requests-2.33.0 requests-toolbelt-1.0.0 shellingham-1.5.4 tomli-2.4.1 tomlkit-0.14.0 trove-classifiers-2026.1.14.14 typing-extensions-4.15.0 urllib3-2.6.3 virtualenv-20.39.1 zipp-3.23.0
+2026-03-30T05:38:01.4330792Z ##[group]Run actions/cache@v4
+2026-03-30T05:38:01.4331090Z with:
+2026-03-30T05:38:01.4331245Z   path: .venv
+2026-03-30T05:38:01.4331617Z   key: venv-Windows-py310-ea1abc768556d5a401dadcca56efa518ec12e159be9c89ecda1aba6604c5a286
+2026-03-30T05:38:01.4332107Z   restore-keys: venv-Windows-py310-
+
+2026-03-30T05:38:01.4332343Z   enableCrossOsArchive: false
+2026-03-30T05:38:01.4332549Z   fail-on-cache-miss: false
+2026-03-30T05:38:01.4332729Z   lookup-only: false
+2026-03-30T05:38:01.4332891Z   save-always: false
+2026-03-30T05:38:01.4333034Z env:
+2026-03-30T05:38:01.4333263Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:01.4333682Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.10.11\x64/lib/pkgconfig
+2026-03-30T05:38:01.4334106Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:01.4334474Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:01.4334887Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:01.4335164Z ##[endgroup]
+2026-03-30T05:38:02.0205963Z Cache not found for input keys: venv-Windows-py310-ea1abc768556d5a401dadcca56efa518ec12e159be9c89ecda1aba6604c5a286, venv-Windows-py310-
+2026-03-30T05:38:02.0456957Z ##[group]Run poetry install --no-interaction --no-root
+2026-03-30T05:38:02.0457420Z [36;1mpoetry install --no-interaction --no-root[0m
+2026-03-30T05:38:02.0531456Z shell: C:\Program Files\PowerShell\7\pwsh.EXE -command ". '{0}'"
+2026-03-30T05:38:02.0531973Z env:
+2026-03-30T05:38:02.0532347Z   pythonLocation: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:02.0533063Z   PKG_CONFIG_PATH: C:\hostedtoolcache\windows\Python\3.10.11\x64/lib/pkgconfig
+2026-03-30T05:38:02.0533785Z   Python_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:02.0534418Z   Python2_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:02.0535054Z   Python3_ROOT_DIR: C:\hostedtoolcache\windows\Python\3.10.11\x64
+2026-03-30T05:38:02.0535543Z ##[endgroup]
+2026-03-30T05:38:04.2087088Z Creating virtualenv non-package-mode-ZTbXEB_m-py3.10 in C:\Users\runneradmin\AppData\Local\pypoetry\Cache\virtualenvs
+2026-03-30T05:38:06.7182767Z Installing dependencies from lock file
+2026-03-30T05:38:07.2072984Z The lock file might not be compatible with the current version of Poetry.
+2026-03-30T05:38:07.2076854Z Upgrade Poetry to ensure the lock file is read properly or, alternatively, regenerate the lock file with the `poetry lock` command.
+2026-03-30T05:38:07.2078369Z 
+2026-03-30T05:38:07.2080669Z pyproject.toml changed significantly since poetry.lock was last generated. Run `poetry lock [--no-update]` to fix the lock file.
+2026-03-30T05:38:07.2189569Z ##[error]Process completed with exit code 1.
+2026-03-30T05:38:07.2448699Z Post job cleanup.
+2026-03-30T05:38:08.1352727Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-03-30T05:38:08.1353241Z git version 2.53.0.windows.2
+2026-03-30T05:38:08.1356392Z Temporarily overriding HOME='D:\a\_temp\de40403a-57a3-4d72-afad-d5d20143612f' before making global git config changes
+2026-03-30T05:38:08.1357519Z Adding repository directory to the temporary git global config as a safe directory
+2026-03-30T05:38:08.1358544Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\TestPilotAI\TestPilotAI
+2026-03-30T05:38:08.1360070Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-03-30T05:38:08.1362129Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-03-30T05:38:08.1819988Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-03-30T05:38:08.2088929Z http.https://github.com/.extraheader
+2026-03-30T05:38:08.2145522Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-03-30T05:38:08.2475187Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-03-30T05:38:08.8504883Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-03-30T05:38:08.8820487Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-03-30T05:38:09.4632662Z Cleaning up orphan processes
+2026-03-30T05:38:09.4676126Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/cache@v4, actions/checkout@v4, actions/setup-python@v5. Actions will be forced to run with Node.js 24 by default starting June 2nd, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

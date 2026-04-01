@@ -132,11 +132,26 @@ def create_router(
     async def health_check() -> HealthResponse:
         """服务健康检查。"""
         from src import __version__
+        # 检测 Playwright 浏览器是否可用
+        browser_available = True
+        try:
+            import os
+            cache = os.path.join(
+                os.environ.get("LOCALAPPDATA", os.path.expanduser("~")),
+                "ms-playwright",
+            )
+            chromium_dirs = [
+                d for d in os.listdir(cache) if d.startswith("chromium")
+            ] if os.path.isdir(cache) else []
+            browser_available = len(chromium_dirs) > 0
+        except Exception:
+            browser_available = False
         return HealthResponse(
             status="healthy",
             version=__version__,
             sandbox_count=len(sandbox_manager.list_sandboxes()),
             browser_ready=browser_automator._page is not None,
+            browser_available=browser_available,
         )
 
     @router.get("/preview/apps", tags=["系统"])
@@ -2839,10 +2854,10 @@ def create_router(
     async def version_check() -> dict:
         """返回最新版本和最低支持版本，插件据此决定是否强制更新。"""
         return {
-            "latest":    "1.5.4",
+            "latest":    "1.5.5",
             "minimum":   "1.5.0",
             "model":     "doubao-seed-1-8-251228",
-            "changelog": "AI 全代理模式，引擎无需配置 API Key",
+            "changelog": "修复重复注入规则、引擎停止命令、Playwright浏览器自动安装",
         }
 
     # ── AI 代理（本地 exe 无 API Key 时通过此路由调豆包）──────────────────

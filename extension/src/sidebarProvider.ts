@@ -3247,6 +3247,9 @@ ${commonRules}`;
         if (!wasConnected) {
           wasConnected = true;
           addLog("引擎连接成功 | v" + data.version, "success");
+          if (data.browser_available === false) {
+            addLog("⚠️ 浏览器未就绪，首次运行测试前引擎将自动安装 Chromium", "warning");
+          }
           vscode.postMessage({ command: "scanBlueprints" });
         }
       } else {
