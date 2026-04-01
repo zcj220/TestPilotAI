@@ -265,7 +265,7 @@ export class EngineManager {
 
   /** 版本检查：低于最低版本强制提示，低于最新版本弱提示 */
   private async _checkVersion(): Promise<void> {
-    const VERSION_URL = "https://xinzaoai.com/api/version/check";
+    const VERSION_URL = "https://testpilot.xinzaoai.com/api/v1/version/check";
     const currentVersion = vscode.extensions.getExtension("wenzhouxinzao.testpilot-ai")
       ?.packageJSON?.version as string | undefined;
     if (!currentVersion) { return; }

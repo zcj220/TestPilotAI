@@ -298,7 +298,7 @@ class AIClient:
 
 
 # 代理服务器地址和鉴权 secret（后端随时可切换模型，引擎无需更新）
-_PROXY_URL = "https://xinzaoai.com/api/ai/proxy"
+_PROXY_URL = "https://testpilot.xinzaoai.com/api/v1/ai/proxy"
 _ENGINE_SECRET = "testpilot-engine-secret-2026"
 
 
@@ -383,12 +383,12 @@ class ProxyAIClient:
             "messages": messages,
             "reasoning_effort": reasoning_effort or self._reasoning_effort,
             "max_tokens": max_tokens or self._max_tokens,
+            "_secret": _ENGINE_SECRET,
         }
         try:
             resp = self._http.post(
                 _PROXY_URL,
                 json=payload,
-                headers={"X-Engine-Secret": _ENGINE_SECRET},
                 timeout=timeout or 120.0,
             )
             resp.raise_for_status()

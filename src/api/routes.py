@@ -2833,4 +2833,49 @@ def create_router(
         offline = _device_pool.check_health(req.get("timeout", 60))
         return {"offline_count": len(offline), "offline_devices": offline}
 
+    # ── 版本检查（插件启动时调用）──────────────────────────────────────
+
+    @router.get("/version/check", tags=["系统"])
+    async def version_check() -> dict:
+        """返回最新版本和最低支持版本，插件据此决定是否强制更新。"""
+        return {
+            "latest":    "1.5.4",
+            "minimum":   "1.5.0",
+            "model":     "doubao-seed-1-8-251228",
+            "changelog": "AI 全代理模式，引擎无需配置 API Key",
+        }
+
+    # ── AI 代理（本地 exe 无 API Key 时通过此路由调豆包）──────────────────
+
+    @router.post("/ai/proxy", tags=["系统"])
+    async def ai_proxy(req: dict) -> dict:
+        """代理调用豆包 AI（用于本地 exe 无 API Key 的场景）。
+
+        引擎校验 X-Engine-Secret header，通过后转发请求到方舟平台，
+        返回标准 OpenAI Chat Completions 格式响应。
+        """
+        import os
+        from fastapi import Request
+        secret = req.get("_secret", "")
+        expected = os.environ.get("TP_ENGINE_SECRET", "testpilot-engine-secret-2026")
+        if secret != expected:
+            raise HTTPException(status_code=403, detail="无效的引擎凭证")
+
+        if ai_client is None:
+            raise HTTPException(status_code=503, detail="AI 服务未配置，请联系管理员")
+
+        messages = req.get("messages", [])
+        reasoning = req.get("reasoning_effort", "medium")
+        max_tokens = req.get("max_tokens", 65535)
+        if not messages:
+            raise HTTPException(status_code=400, detail="messages 不能为空")
+
+        try:
+            result = ai_client._call_chat(messages, reasoning, max_tokens=max_tokens)
+            return {
+                "choices": [{"message": {"content": result}, "finish_reason": "stop"}],
+            }
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"AI 调用失败: {e}")
+
     return router
