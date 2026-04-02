@@ -50,7 +50,7 @@ export class EngineManager {
 
   constructor(private _context: vscode.ExtensionContext) {
     this._storageDir = _context.globalStorageUri.fsPath;
-    this._outputChannel = vscode.window.createOutputChannel("TestPilot 引擎");
+    this._outputChannel = vscode.window.createOutputChannel("TestPilot Engine");
 
     // 状态栏项（右侧显示，点击打开引擎日志）
     this._statusBar = vscode.window.createStatusBarItem(
@@ -72,15 +72,15 @@ export class EngineManager {
   /** 更新状态栏显示 */
   private _setStatus(state: "downloading" | "starting" | "ready" | "offline", extra?: string): void {
     const labels: Record<string, string> = {
-      downloading: "$(cloud-download~spin) TestPilot: 下载中",
-      starting:    "$(sync~spin) TestPilot: 启动中",
-      ready:       "$(check) TestPilot: 就绪",
-      offline:     "$(error) TestPilot: 离线",
+      downloading: "$(cloud-download~spin) TestPilot: Downloading",
+      starting:    "$(sync~spin) TestPilot: Starting",
+      ready:       "$(check) TestPilot: Ready",
+      offline:     "$(error) TestPilot: Offline",
     };
     this._statusBar.text = extra ? `${labels[state]} ${extra}` : labels[state];
     this._statusBar.tooltip = state === "ready"
-      ? `TestPilot AI 引擎运行中\n点击查看日志`
-      : `点击查看 TestPilot AI 引擎日志`;
+      ? `TestPilot AI Engine running\nClick to view logs`
+      : `Click to view TestPilot AI Engine logs`;
     this._statusBar.backgroundColor = state === "offline"
       ? new vscode.ThemeColor("statusBarItem.errorBackground")
       : undefined;
@@ -129,12 +129,12 @@ export class EngineManager {
       // 检查 Playwright 浏览器是否可用，如果不可用说明是旧版引擎（未设置PLAYWRIGHT_BROWSERS_PATH）
       const browserOk = await this._checkBrowserAvailable();
       if (browserOk) {
-        this._outputChannel.appendLine("[引擎] 检测到引擎已运行，直接连接");
+        this._outputChannel.appendLine("[Engine] Already running, connecting directly");
         this._setStatus("ready");
         return;
       }
       // 浏览器不可用 → 停掉旧引擎，用新参数重新启动
-      this._outputChannel.appendLine("[引擎] 检测到引擎已运行但浏览器不可用，重新启动以修复...");
+      this._outputChannel.appendLine("[Engine] Running but browser unavailable, restarting to fix...");
       await this._killExistingEngine();
     }
 
@@ -210,12 +210,12 @@ export class EngineManager {
     const tmpPath = this.binaryPath + ".tmp";
 
     this._outputChannel.show(true);
-    this._outputChannel.appendLine(`[引擎] 开始下载: ${downloadUrl}`);
+    this._outputChannel.appendLine(`[Engine] Downloading: ${downloadUrl}`);
 
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: "TestPilot AI：正在下载引擎",
+        title: "TestPilot AI: Downloading engine",
         cancellable: false,
       },
       (progress) => {
@@ -224,7 +224,7 @@ export class EngineManager {
 
           const doGet = (url: string, redirectCount = 0) => {
             if (redirectCount > 5) {
-              reject(new Error("下载重定向次数过多"));
+              reject(new Error("Too many download redirects"));
               return;
             }
             const mod = url.startsWith("https") ? https : http;
@@ -236,7 +236,7 @@ export class EngineManager {
                 return;
               }
               if (res.statusCode !== 200) {
-                reject(new Error(`下载失败，HTTP ${res.statusCode}`));
+                reject(new Error(`Download failed, HTTP ${res.statusCode}`));
                 return;
               }
 
@@ -276,7 +276,7 @@ export class EngineManager {
                   if (process.platform !== "win32") {
                     fs.chmodSync(this.binaryPath, 0o755);
                   }
-                  this._outputChannel.appendLine(`[引擎] 下载完成: ${this.binaryPath}`);
+                  this._outputChannel.appendLine(`[Engine] Download complete: ${this.binaryPath}`);
                   resolve();
                 });
               });
@@ -294,7 +294,7 @@ export class EngineManager {
   /** 启动引擎子进程，等待监听就绪 */
   private _spawnEngine(): Promise<void> {
     return new Promise((resolve, reject) => {
-      this._outputChannel.appendLine(`[引擎] 启动: ${this.binaryPath}`);
+      this._outputChannel.appendLine(`[Engine] Starting: ${this.binaryPath}`);
 
       // 注入 PLAYWRIGHT_BROWSERS_PATH，确保 PyInstaller 打包的引擎能找到已安装的浏览器
       const browsersPath = process.platform === "win32"
@@ -306,7 +306,12 @@ export class EngineManager {
         cwd: os.homedir(),
         detached: false,
         stdio: ["ignore", "pipe", "pipe"],
-        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsersPath },
+        env: {
+          ...process.env,
+          PLAYWRIGHT_BROWSERS_PATH: browsersPath,
+          PYTHONIOENCODING: "utf-8",
+          PYTHONLEGACYWINDOWSSTDIO: "utf-8",
+        },
       };
 
       // 尝试 spawn，遇到 EBUSY（Windows Defender 扫描中）最多重试 3 次
@@ -315,15 +320,15 @@ export class EngineManager {
 
         proc.on("error", (err: NodeJS.ErrnoException) => {
           if (err.code === "EBUSY" && attempt < 3) {
-            this._outputChannel.appendLine(`[引擎] 文件被占用(EBUSY)，${3}秒后重试(${attempt}/3)...`);
+            this._outputChannel.appendLine(`[Engine] File busy (EBUSY), retrying in 3s (${attempt}/3)...`);
             setTimeout(() => trySpawn(attempt + 1), 3000);
           } else {
-            reject(new Error(`引擎进程启动失败: ${err.message}`));
+            reject(new Error(`Engine process start failed: ${err.message}`));
           }
         });
 
         proc.on("exit", (code) => {
-          this._outputChannel.appendLine(`[引擎] 进程已退出，退出码=${code}`);
+          this._outputChannel.appendLine(`[Engine] Process exited, code=${code}`);
           this._engineProc = null;
           this._setStatus("offline");
         });
@@ -346,14 +351,14 @@ export class EngineManager {
       trySpawn(1);
 
       // 超时保护
-      setTimeout(() => reject(new Error("引擎启动超时（120s），请检查 Output 面板日志")), 120000);
+      setTimeout(() => reject(new Error("Engine start timeout (120s), check Output panel logs")), 120000);
     });
   }
 
   /** 停止引擎进程 */
   dispose(): void {
     if (this._engineProc) {
-      this._outputChannel.appendLine("[引擎] 停止引擎子进程");
+      this._outputChannel.appendLine("[Engine] Stopping engine subprocess");
       this._engineProc.kill();
       this._engineProc = null;
     }
@@ -395,11 +400,11 @@ export class EngineManager {
       if (cmp(currentVersion, data.minimum) < 0) {
         // 强制更新：弹出模态提示
         const action = await vscode.window.showErrorMessage(
-          `TestPilot AI 当前版本 v${currentVersion} 已不再支持，请更新至 v${data.latest}。`,
+          `TestPilot AI v${currentVersion} is no longer supported, please update to v${data.latest}.`,
           { modal: true },
-          "前往下载"
+          "Download"
         );
-        if (action === "前往下载") {
+        if (action === "Download") {
           vscode.env.openExternal(
             vscode.Uri.parse("https://testpilot.xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
           );
@@ -407,10 +412,10 @@ export class EngineManager {
       } else if (cmp(currentVersion, data.latest) < 0) {
         // 弱提示：状态栏提醒，不阻塞
         const action = await vscode.window.showInformationMessage(
-          `TestPilot AI 有新版本 v${data.latest}（当前 v${currentVersion}）`,
-          "下载更新", "忽略"
+          `TestPilot AI v${data.latest} available (current: v${currentVersion})`,
+          "Update", "Dismiss"
         );
-        if (action === "下载更新") {
+        if (action === "Update") {
           vscode.env.openExternal(
             vscode.Uri.parse("https://testpilot.xinzaoai.com/downloads/testpilot-ai-" + data.latest + ".vsix")
           );

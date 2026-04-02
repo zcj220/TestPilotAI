@@ -25,17 +25,17 @@ export function activate(context: vscode.ExtensionContext): void {
   // 初始化引擎客户端
   client = new EngineClient();
 
-  // 初始化引擎管理器，后台自动下载 + 启动引擎
+  // Initialize engine manager (no auto-start; user clicks "Launch Engine" button)
   engineManager = new EngineManager(context);
-  engineManager.ensureRunning().then(() => {
-    outputChannel.appendLine("[TestPilot AI] 引擎就绪");
-    client.connectWs();
-  }).catch((err: Error) => {
-    vscode.window.showErrorMessage(`TestPilot AI 引擎启动失败: ${err.message}`);
-    // 失败时也尝试连接（用户可能已手动启动引擎）
-    client.connectWs();
-  });
   context.subscriptions.push(engineManager);
+
+  // Try connecting to an already-running engine (user may have started it manually)
+  engineManager.isEngineRunning().then((running) => {
+    if (running) {
+      outputChannel.appendLine("[TestPilot AI] Engine already running, connecting...");
+      client.connectWs();
+    }
+  }).catch(() => {});
 
   // 注册侧边栏
   const sidebarProvider = new SidebarProvider(context.extensionUri, client, context);

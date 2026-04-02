@@ -58,13 +58,13 @@ def create_app() -> FastAPI:
         try:
             ai_client = AIClient(config.ai)
         except Exception as e:
-            logger.warning("AI 客户端初始化失败，降级为代理模式: {}", e)
+            logger.warning("AI client init failed, falling back to proxy mode: {}", e)
             ai_client = ProxyAIClient(
                 reasoning_effort=config.ai.reasoning_effort,
                 max_tokens=config.ai.max_completion_tokens,
             )
     else:
-        logger.info("TP_AI_API_KEY 未配置，使用代理模式（xinzaoai.com）")
+        logger.info("TP_AI_API_KEY not set, using proxy mode (xinzaoai.com)")
         ai_client = ProxyAIClient(
             reasoning_effort=config.ai.reasoning_effort,
             max_tokens=config.ai.max_completion_tokens,
@@ -82,15 +82,15 @@ def create_app() -> FastAPI:
         )
         yield
         # 关闭时清理所有资源
-        logger.info("正在关闭服务，清理资源...")
+        logger.info("Shutting down, cleaning up resources...")
         await browser_automator.close()
         sandbox_manager.close()
         memory_store.close()
-        logger.info("{} 已安全关闭", __app_name__)
+        logger.info("{} shut down safely", __app_name__)
 
     app = FastAPI(
         title=__app_name__,
-        description="AI驱动的自动化测试机器人 - 像人类一样操作UI、发现Bug、自动修复",
+        description="AI-powered automated testing robot - operates UI like a human, finds bugs, auto-fixes them",
         version=__version__,
         lifespan=lifespan,
         docs_url="/docs",
@@ -165,26 +165,26 @@ def create_app() -> FastAPI:
         async def serve_preview(app_name: str, file_path: str):
             """提供被测应用的静态文件服务。"""
             if app_name not in _preview_dirs:
-                return HTMLResponse("应用不存在", status_code=404)
+                return HTMLResponse("App not found", status_code=404)
             base = _preview_dirs[app_name]
             target = (base / file_path) if file_path else (base / "index.html")
             # 安全检查：防止路径穿越
             try:
                 target = target.resolve()
                 if not str(target).startswith(str(base.resolve())):
-                    return HTMLResponse("禁止访问", status_code=403)
+                    return HTMLResponse("Access forbidden", status_code=403)
             except (OSError, ValueError):
-                return HTMLResponse("无效路径", status_code=400)
+                return HTMLResponse("Invalid path", status_code=400)
             if target.is_file():
                 return FileResponse(target)
             # 默认返回 index.html
             index = base / "index.html"
             if index.is_file():
                 return FileResponse(index)
-            return HTMLResponse("文件不存在", status_code=404)
+            return HTMLResponse("File not found", status_code=404)
 
         for name in sorted(_preview_dirs):
-            logger.info("预览服务已挂载: /preview/{}/", name)
+            logger.info("Preview server mounted: /preview/{}/", name)
 
     # v13.0: 社区门户 / v2.0: Web仪表盘 静态文件服务
     # 优先使用 web/dist（社区门户），回退到 desktop/dist（旧仪表盘）
@@ -208,10 +208,10 @@ def create_app() -> FastAPI:
                 return FileResponse(file_path)
             return FileResponse(spa_dist / "index.html")
 
-        label = "社区门户" if spa_dist == community_dist else "Web仪表盘"
-        logger.info("{}已启用 | 路径={}", label, spa_dist)
+        label = "Community Portal" if spa_dist == community_dist else "Web Dashboard"
+        logger.info("{} enabled | path={}", label, spa_dist)
     else:
-        logger.info("Web前端未构建（web/dist/ 和 desktop/dist/ 都不存在），跳过静态文件服务")
+        logger.info("Web frontend not built (web/dist/ and desktop/dist/ not found), skipping static file serving")
 
     return app
 

@@ -79,13 +79,13 @@ _db_url = _get_database_url()
 engine = _create_engine(_db_url)
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-logger.debug("数据库引擎初始化 | {}", _detect_driver(_db_url))
+logger.debug("Database engine initialized | {}", _detect_driver(_db_url))
 
 
 def init_db() -> None:
     """创建所有表（如不存在）。"""
     Base.metadata.create_all(bind=engine)
-    logger.info("数据库表结构已同步")
+    logger.info("Database schema synced")
 
 
 def get_db() -> Generator[Session, None, None]:

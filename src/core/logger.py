@@ -91,4 +91,4 @@ def setup_logger(log_level: str = "INFO", debug: bool = False) -> None:
         diagnose=True,
     )
 
-    logger.info("日志系统初始化完成 | 级别={} | 调试模式={}", log_level, debug)
+    logger.info("Logging system initialized | level={} | debug_mode={}", log_level, debug)

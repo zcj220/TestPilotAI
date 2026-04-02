@@ -32,20 +32,20 @@ def _ensure_playwright_browsers() -> None:
         ] if os.path.isdir(cache) else []
 
         if chromium_dirs:
-            print(f"[引擎] Playwright 浏览器已就绪: {', '.join(chromium_dirs)}")
+            print(f"[Engine] Playwright browsers ready: {', '.join(chromium_dirs)}")
             return
 
-        print("[引擎] 首次运行，正在安装 Playwright Chromium 浏览器...")
+        print("[Engine] First run, installing Playwright Chromium browser...")
         from playwright._impl._driver import compute_driver_executable
         driver = str(compute_driver_executable())
         subprocess.run(
             [driver, "install", "chromium"],
             timeout=300, check=True,
         )
-        print("[引擎] Playwright 浏览器安装完成")
+        print("[Engine] Playwright browser installed successfully")
     except Exception as e:
-        print(f"[引擎] ⚠️ Playwright 浏览器检查/安装失败: {e}")
-        print("[引擎] 测试功能可能不可用，请手动运行: playwright install chromium")
+        print(f"[Engine] Playwright browser check/install failed: {e}")
+        print("[Engine] Testing may not work, please run manually: playwright install chromium")
 
 
 def main() -> None:

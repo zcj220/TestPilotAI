@@ -1,4 +1,4 @@
-"""
+﻿"""
 FastAPI 路由定义
 
 提供 RESTful API 端点：
@@ -101,7 +101,7 @@ def _auto_preview_url(base_url: str, blueprint_path: str) -> str:
     engine_port = cfg.server.port
     preview_url = f"http://localhost:{engine_port}/preview/{app_dir.name}/"
     logger.info(
-        "自动切换 base_url: {} → {}（原端口不可达）",
+        "Auto-switching base_url: {} -> {} (original port unreachable)",
         base_url, preview_url,
     )
     return preview_url
@@ -314,19 +314,19 @@ def create_router(
         if ai_client is None:
             raise HTTPException(
                 status_code=503,
-                detail="AI 客户端未配置，请设置 TP_AI_API_KEY 环境变量",
+                detail="AI client not configured，请设置 TP_AI_API_KEY 环境变量",
             )
 
         # 确保浏览器健康可用（自动重置损坏的页面，无需重启引擎）
         try:
             await browser_automator.ensure_healthy()
         except BrowserError as e:
-            raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Browser launch failed: {e}")
 
         orchestrator = TestOrchestrator(ai_client, browser_automator, memory_store)
 
         try:
-            await ws_manager.send_log(f"开始测试: {req.url}")
+            await ws_manager.send_log(f"Test started: {req.url}")
             report = await orchestrator.run_test(
                 url=req.url,
                 description=req.description,
@@ -338,7 +338,7 @@ def create_router(
             try:
                 await ws_manager.send_test_done(report.pass_rate, len(report.bugs))
             except Exception as ws_err:
-                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                logger.warning("WS push test_done failed: {}", str(ws_err)[:100])
 
             # 构建响应
             repair_summary = None
@@ -361,8 +361,8 @@ def create_router(
                 fixed_bug_count=fixed_bug_count,
             )
         except Exception as e:
-            logger.error("测试任务执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"测试执行失败: {e}")
+            logger.error("Test task execution failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Test execution failed: {e}")
 
     @router.post("/test/blueprint", response_model=TestReportResponse, tags=["测试"])
     async def run_blueprint_test(req: RunBlueprintRequest) -> TestReportResponse:
@@ -413,15 +413,15 @@ def create_router(
             # 握手：设备检测 → 自动启动 Appium → 创建 Session
             device_check = await android_ctrl.check_device()
             if not device_check["ok"]:
-                raise HTTPException(status_code=400, detail=f"设备连接失败: {device_check['message']}")
+                raise HTTPException(status_code=400, detail=f"Device connection failed: {device_check['message']}")
             appium_result = await android_ctrl.ensure_appium_server(timeout=30)
             if not appium_result["ok"]:
-                raise HTTPException(status_code=500, detail=f"Appium启动失败: {appium_result['message']}")
+                raise HTTPException(status_code=500, detail=f"Appium start failed: {appium_result['message']}")
 
             try:
                 await android_ctrl.launch()
             except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Appium Session创建失败: {e}")
+                raise HTTPException(status_code=500, detail=f"Appium Session creation failed: {e}")
 
             async def _on_step_m(step: int, status: str, desc: str) -> None:
                 if status == "start":
@@ -435,7 +435,7 @@ def create_router(
             )
 
             try:
-                await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+                await ws_manager.send_log(f"Mobile blueprint test started: {blueprint.app_name}")
                 await ws_manager.send_test_started()  # 通知插件显示控制按钮
                 report = await runner.run(blueprint)
                 from src.api.models import StepDetail, BugDetail
@@ -487,11 +487,11 @@ def create_router(
                 try:
                     await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
                 except Exception as ws_err:
-                    logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                    logger.warning("WS push test_done failed: {}", str(ws_err)[:100])
                 return response
             except Exception as e:
-                logger.error("手机蓝本测试执行失败: {}", e)
-                raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
+                logger.error("Mobile blueprint test execution failed: {}", e)
+                raise HTTPException(status_code=500, detail=f"Mobile blueprint test execution failed: {e}")
             finally:
                 try:
                     await android_ctrl.close()
@@ -531,17 +531,17 @@ def create_router(
                             ),
                         )
                     _credit_ctx = {"user_id": _cloud_uid, "required": _required, "app": blueprint.app_name}
-                    logger.info("积分校验通过 | user_id={} required={} balance={}", _cloud_uid, _required, _chk['balance'])
+                    logger.info("Credits check passed | user_id={} required={} balance={}", _cloud_uid, _required, _chk['balance'])
             except HTTPException:
                 raise
             except Exception as _ce:
-                logger.warning("积分校验失败（允许继续，游客模式）: {}", _ce)
+                logger.warning("Credits check failed (continuing as guest): {}", _ce)
 
         # 确保浏览器健康可用（自动重置损坏的页面，无需重启引擎）
         try:
             await browser_automator.ensure_healthy()
         except BrowserError as e:
-            raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Browser launch failed: {e}")
 
         # 执行蓝本测试（v2.0：注入控制器 + 截图推送 + 步骤通知）
         async def _on_screenshot(step: int, img_b64: str) -> None:
@@ -570,7 +570,7 @@ def create_router(
 
         async def _run_test():
             try:
-                await ws_manager.send_log(f"蓝本测试开始: {blueprint.app_name}")
+                await ws_manager.send_log(f"Blueprint test started: {blueprint.app_name}")
                 report = await runner.run(blueprint)
 
                 if memory_store and report.bugs:
@@ -579,7 +579,7 @@ def create_router(
                         compressor = MemoryCompressor(memory_store)
                         compressor.extract_from_report(report)
                     except Exception as mem_err:
-                        logger.warning("蓝本测试记忆提取失败: {}", mem_err)
+                        logger.warning("Blueprint test memory extraction failed: {}", mem_err)
 
                 from src.api.models import StepDetail, BugDetail
                 stopped = test_controller.was_stopped
@@ -630,7 +630,7 @@ def create_router(
                 try:
                     await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
                 except Exception as ws_err:
-                    logger.warning("WS推送test_done失败（不影响结果）: {}", str(ws_err)[:100])
+                    logger.warning("WS push test_done failed (no impact on result): {}", str(ws_err)[:100])
                 result_holder["data"] = report_dict
 
                 # v14.0-D：测试完成后扣减积分
@@ -650,10 +650,10 @@ def create_router(
                         finally:
                             _db2.close()
                     except Exception as _de:
-                        logger.warning("积分扣减失败（不影响测试结果）: {}", _de)
+                        logger.warning("Credits deduction failed (no impact on test result): {}", _de)
 
             except Exception as e:
-                logger.error("蓝本测试执行失败: {}", e)
+                logger.error("Blueprint test execution failed: {}", e)
                 result_holder["error"] = str(e)
 
         async def _stream_with_heartbeat():
@@ -724,31 +724,31 @@ def create_router(
                 await ws_manager.send_log(f"❌ {device_check['message']}")
                 raise HTTPException(
                     status_code=400,
-                    detail=f"设备连接失败: {device_check['message']}",
+                    detail=f"Device connection failed: {device_check['message']}",
                 )
             await ws_manager.send_log(f"✅ {device_check['message']}")
 
             # 第2步：确保 Appium Server 运行（未启动则自动启动）
-            await ws_manager.send_log("🔄 正在检测 Appium Server...")
+            await ws_manager.send_log("Detecting Appium Server...")
             appium_result = await android_ctrl.ensure_appium_server(timeout=30)
             if not appium_result["ok"]:
                 await ws_manager.send_log(f"❌ {appium_result['message']}")
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Appium启动失败: {appium_result['message']}",
+                    detail=f"Appium start failed: {appium_result['message']}",
                 )
             await ws_manager.send_log(f"✅ {appium_result['message']}")
 
             # 第3步：创建 Appium Session
-            logger.info("握手成功，创建 Appium Session...")
-            await ws_manager.send_log("🔄 正在创建 Appium Session...")
+            logger.info("Handshake OK, creating Appium Session...")
+            await ws_manager.send_log("Creating Appium Session...")
             try:
                 await android_ctrl.launch()
                 auto_created_session = True
                 session_id = f"mobile_auto_{len(_mobile_sessions) + 1}"
                 _mobile_sessions[session_id] = android_ctrl
-                logger.info("自动创建 Session 成功 | ID={}", session_id)
-                await ws_manager.send_log("✅ Appium Session 创建成功")
+                logger.info("Auto-created Session OK | ID={}", session_id)
+                await ws_manager.send_log("Appium Session created successfully")
 
                 # 蓝本权限批量授予
                 if blueprint.permissions and blueprint.app_package:
@@ -756,10 +756,10 @@ def create_router(
                         blueprint.app_package, blueprint.permissions
                     )
             except Exception as e:
-                logger.error("自动创建 Appium Session 失败: {}", e)
+                logger.error("Auto-create Appium Session failed: {}", e)
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Appium Session 创建失败: {e}。设备和Appium均已就绪，但Session创建出错。",
+                    detail=f"Appium Session creation failed: {e}. Device and Appium are ready, but Session creation failed.",
                 )
 
         async def _on_step(step: int, status: str, desc: str) -> None:
@@ -774,7 +774,7 @@ def create_router(
         )
 
         try:
-            await ws_manager.send_log(f"手机蓝本测试开始: {blueprint.app_name}")
+            await ws_manager.send_log(f"Mobile blueprint test started: {blueprint.app_name}")
             await ws_manager.send_test_started()  # 通知插件显示控制按钮
             report = await runner.run(blueprint)
             from src.api.models import StepDetail, BugDetail
@@ -828,11 +828,11 @@ def create_router(
             try:
                 await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
             except Exception as ws_err:
-                logger.warning("WS推送test_done失败（不影响HTTP返回）: {}", str(ws_err)[:100])
+                logger.warning("WS push test_done failed (no impact on HTTP return): {}", str(ws_err)[:100])
             return response
         except Exception as e:
-            logger.error("手机蓝本测试执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"手机蓝本测试执行失败: {e}")
+            logger.error("Mobile blueprint test execution failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Mobile blueprint test execution failed: {e}")
 
     # ── 小程序蓝本测试（v10.2）───────────────────────────
 
@@ -856,7 +856,7 @@ def create_router(
 
         bp_file = Path(blueprint_path)
         if not bp_file.exists():
-            raise HTTPException(status_code=400, detail=f"蓝本文件不存在: {blueprint_path}")
+            raise HTTPException(status_code=400, detail=f"Blueprint file not found: {blueprint_path}")
 
         try:
             blueprint = BlueprintParser.parse_file(str(bp_file))
@@ -888,9 +888,9 @@ def create_router(
                         })
 
             if not all_steps:
-                raise HTTPException(status_code=400, detail="蓝本中没有可执行步骤（pages.scenarios.steps为空）")
+                raise HTTPException(status_code=400, detail="Blueprint has no executable steps (pages.scenarios.steps is empty)")
 
-            logger.info("小程序蓝本测试 | 项目:{} | 步骤数:{}", project_path, len(all_steps))
+            logger.info("Miniprogram blueprint test | project:{} | steps:{}", project_path, len(all_steps))
 
             # 写入临时JSON文件
             runner_input = {
@@ -904,13 +904,13 @@ def create_router(
             # 调用Node.js执行器（跟run_blind_test.js一样的逻辑）
             runner_script = BUNDLE_DIR / "controller" / "miniprogram_runner.js"
             if not runner_script.exists():
-                raise RuntimeError(f"执行器脚本不存在: {runner_script}")
+                raise RuntimeError(f"Runner script not found: {runner_script}")
 
-            logger.info("启动Node.js执行器: {}", runner_script.name)
+            logger.info("Starting Node.js runner: {}", runner_script.name)
             start = time.time()
 
             # 用Popen实时读取stderr进度并推送WebSocket
-            await ws_manager.send_log(f"小程序蓝本测试开始: {blueprint.app_name} | {len(all_steps)}步")
+            await ws_manager.send_log(f"Miniprogram blueprint test started: {blueprint.app_name} | {len(all_steps)} steps")
             proc = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: sp.Popen(
@@ -965,13 +965,13 @@ def create_router(
                 pass
 
             duration = time.time() - start
-            logger.info("Node.js执行器完成 | 耗时:{:.1f}秒 | rc:{}", duration, proc.returncode)
+            logger.info("Node.js runner complete | duration:{:.1f}s | rc:{}", duration, proc.returncode)
 
             # 解析结果
             stdout = stdout_data or ""
             stderr = "\n".join(_stderr_buf)
 
-            await ws_manager.send_log(f"小程序蓝本测试完成 | 耗时:{duration:.1f}秒")
+            await ws_manager.send_log(f"Miniprogram blueprint test complete | duration:{duration:.1f}s")
 
             # 从stdout找JSON（最后一行）
             result_data = None
@@ -985,18 +985,17 @@ def create_router(
                         continue
 
             if not result_data:
-                logger.error("执行器无JSON输出:\nstdout:{}\nstderr:{}", stdout[-300:], stderr[-300:])
+                logger.error("Runner produced no JSON output:\nstdout:{}\nstderr:{}", stdout[-300:], stderr[-300:])
                 hint = ""
                 rc = proc.returncode
                 if rc and rc != 0:
-                    hint = f"执行器异常退出(rc={rc})。可能原因：小程序代码修改后未重新编译，或模拟器状态异常。请在微信开发者工具中点击'编译'后重试。"
+                    hint = f"Runner exited abnormally (rc={rc}). Possible cause: miniprogram code was modified but not recompiled, or emulator state is abnormal. Please click 'Compile' in WeChat DevTools and retry."
                 else:
-                    hint = f"执行器无有效输出。stderr: {stderr[-200:]}"
+                    hint = f"Runner produced no valid output. stderr: {stderr[-200:]}"
                 raise RuntimeError(hint)
 
             if not result_data.get("success"):
-                raise RuntimeError(f"执行器失败: {result_data.get('error', '未知错误')}")
-
+                raise RuntimeError(f"Runner failed: {result_data.get('error', 'unknown error')}")
             # 转换为TestReport
             from src.testing.models import StepResult, TestReport, BugReport, ActionType, StepStatus, BugSeverity
             from datetime import datetime, timezone, timedelta
@@ -1023,7 +1022,7 @@ def create_router(
                 if status == StepStatus.FAILED:
                     bugs.append(BugReport(
                         severity=BugSeverity.MEDIUM,
-                        title=f"步骤{r.get('step')}失败: {r.get('action')}",
+                        title=f"Step {r.get('step')} failed: {r.get('action')}",
                         description=r.get("error", ""),
                         step_number=r.get("step"),
                     ))
@@ -1036,7 +1035,7 @@ def create_router(
             start_time = end_time - timedelta(seconds=duration)
 
             report = TestReport(
-                test_name=f"小程序蓝本测试-{blueprint.app_name}",
+                test_name=f"Miniprogram Blueprint Test-{blueprint.app_name}",
                 url=base_url,
                 start_time=start_time,
                 end_time=end_time,
@@ -1090,13 +1089,13 @@ def create_router(
             try:
                 await ws_manager.send_test_done(pass_rate, len(bugs), full_report=report_dict)
             except Exception as ws_err:
-                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                logger.warning("WS push test_done failed: {}", str(ws_err)[:100])
             return response
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("小程序蓝本测试执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"小程序蓝本测试执行失败: {e}")
+            logger.error("Miniprogram blueprint test execution failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Miniprogram blueprint test execution failed: {e}")
 
     # ── 桌面应用蓝本测试（v10.2）───────────────────────────
 
@@ -1114,7 +1113,7 @@ def create_router(
 
         bp_file = Path(blueprint_path)
         if not bp_file.exists():
-            raise HTTPException(status_code=400, detail=f"蓝本文件不存在: {blueprint_path}")
+            raise HTTPException(status_code=400, detail=f"Blueprint file not found: {blueprint_path}")
 
         try:
             blueprint = BlueprintParser.parse_file(str(bp_file))
@@ -1145,7 +1144,7 @@ def create_router(
                 hwnd = user32.FindWindowW(None, window_title)
                 if hwnd:
                     user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
-                    logger.info("已关闭旧窗口: {} (hwnd={})", window_title, hwnd)
+                    logger.info("Closed old window: {} (hwnd={})", window_title, hwnd)
                     time.sleep(2)
                     # 等窗口真正关闭
                     for _ in range(10):
@@ -1166,7 +1165,7 @@ def create_router(
                     time.sleep(0.5)
                     if user32.FindWindowW(None, window_title):
                         break
-                logger.info("已启动被测应用: {} (工作目录: {})", app_exe, bp_dir)
+                logger.info("Launched target app: {} (cwd: {})", app_exe, bp_dir)
 
             config = DesktopConfig(target_title=window_title)
             controller = DesktopController(config)
@@ -1177,7 +1176,7 @@ def create_router(
                 from src.core.ai_client import AIClient
                 ai_client = AIClient()
             except Exception:
-                logger.debug("AI客户端不可用，桌面测试将仅使用UI Automation")
+                logger.debug("AI client unavailable, desktop test will use UI Automation only")
 
             runner = DesktopBlueprintRunner(
                 controller=controller,
@@ -1232,13 +1231,13 @@ def create_router(
             try:
                 await ws_manager.send_test_done(pass_rate, len(report.bugs), full_report=report_dict)
             except Exception as ws_err:
-                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                logger.warning("WS push test_done failed: {}", str(ws_err)[:100])
             return response
         except HTTPException:
             raise
         except Exception as e:
-            logger.error("桌面蓝本测试执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"桌面蓝本测试执行失败: {e}")
+            logger.error("Desktop blueprint test execution failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Desktop blueprint test execution failed: {e}")
 
     # ── 蓝本列表与批量执行（v10.2）───────────────────────
 
@@ -1256,7 +1255,7 @@ def create_router(
 
         dir_path = Path(directory)
         if not dir_path.exists():
-            raise HTTPException(status_code=400, detail=f"目录不存在: {directory}")
+            raise HTTPException(status_code=400, detail=f"Directory not found: {directory}")
 
         bp_files = []
 
@@ -1289,11 +1288,11 @@ def create_router(
                     step_count=bp.total_steps,
                 ))
             except Exception as e:
-                logger.warning("解析蓝本失败 {}: {}", bp_file, e)
+                logger.warning("Failed to parse blueprint {}: {}", bp_file, e)
                 summaries.append(BlueprintSummary(
                     file_path=str(bp_file),
                     file_name=bp_file.name,
-                    description=f"解析失败: {e}",
+                    description=f"Parse failed: {e}",
                 ))
 
         return BlueprintListResponse(blueprints=summaries, total=len(summaries))
@@ -1320,7 +1319,7 @@ def create_router(
                     platform="unknown",
                     total_steps=0, passed_steps=0, failed_steps=0,
                     bug_count=0, pass_rate=0, duration_seconds=0,
-                    report_markdown=f"❌ 蓝本文件不存在: {bp_path}",
+                    report_markdown=f"❌ 蓝本文件 not found: {bp_path}",
                 ))
                 continue
 
@@ -1372,14 +1371,14 @@ def create_router(
                 ))
 
             except Exception as e:
-                logger.error("批量测试-蓝本执行失败 {}: {}", bp_path, e)
+                logger.error("Batch test - blueprint execution failed {}: {}", bp_path, e)
                 results.append(BatchReportItem(
                     blueprint_path=bp_path,
                     app_name=bp_file.stem,
                     platform="unknown",
                     total_steps=0, passed_steps=0, failed_steps=0,
                     bug_count=0, pass_rate=0, duration_seconds=0,
-                    report_markdown=f"❌ 执行异常: {e}",
+                    report_markdown=f"Execution error: {e}",
                 ))
 
         total_duration = _time.time() - total_start
@@ -1436,12 +1435,12 @@ def create_router(
             try:
                 await browser_automator.launch()
             except BrowserError as e:
-                raise HTTPException(status_code=500, detail=f"浏览器启动失败: {e}")
+                raise HTTPException(status_code=500, detail=f"Browser launch failed: {e}")
 
         explorer = PageExplorer(browser_automator, ai_client)
 
         try:
-            await ws_manager.send_log(f"快速探索开始: {req.url}")
+            await ws_manager.send_log(f"Quick explore started: {req.url}")
             report = await explorer.explore(
                 url=req.url,
                 description=req.description,
@@ -1453,7 +1452,7 @@ def create_router(
                     len(report.bugs),
                 )
             except Exception as ws_err:
-                logger.warning("WS推送test_done失败: {}", str(ws_err)[:100])
+                logger.warning("WS push test_done failed: {}", str(ws_err)[:100])
 
             return TestReportResponse(
                 test_name=report.test_name,
@@ -1467,8 +1466,8 @@ def create_router(
                 report_markdown=report.report_markdown,
             )
         except Exception as e:
-            logger.error("快速探索执行失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"快速探索执行失败: {e}")
+            logger.error("Quick explore execution failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Quick explore execution failed: {e}")
 
     # ── 蓝本自动生成（v10.1）───────────────────────────
 
@@ -1499,8 +1498,8 @@ def create_router(
                 saved_path=req.output_path or "",
             )
         except Exception as e:
-            logger.error("蓝本自动生成失败: {}", e)
-            raise HTTPException(status_code=500, detail=f"蓝本生成失败: {e}")
+            logger.error("Blueprint auto-generation failed: {}", e)
+            raise HTTPException(status_code=500, detail=f"Blueprint generation failed: {e}")
 
     # ── 记忆系统 ──────────────────────────────────────
 
@@ -1621,7 +1620,7 @@ def create_router(
             test_controller.set_step_mode(False)
             result["success"] = True
         else:
-            raise HTTPException(status_code=400, detail=f"未知控制动作: {action}")
+            raise HTTPException(status_code=400, detail=f"Unknown control action: {action}")
 
         if step_delay is not None:
             test_controller.set_step_delay(step_delay)
@@ -1671,7 +1670,7 @@ def create_router(
         使用独立的AI角色生成测试输入数据，避免自我一致性偏差。
         """
         if ai_client is None:
-            raise HTTPException(status_code=503, detail="AI 客户端未配置")
+            raise HTTPException(status_code=503, detail="AI client not configured")
 
         validator = CrossValidator(ai_client)
         data = validator.generate_test_data(
@@ -1691,7 +1690,7 @@ def create_router(
             step_description: str - 测试步骤描述
         """
         if ai_client is None:
-            raise HTTPException(status_code=503, detail="AI 客户端未配置")
+            raise HTTPException(status_code=503, detail="AI client not configured")
 
         validator = CrossValidator(ai_client)
         result = validator.review_analyses(
@@ -1715,7 +1714,7 @@ def create_router(
         """
         success = await process_runner.start(command, cwd)
         if not success:
-            raise HTTPException(status_code=400, detail="进程启动失败或已在运行")
+            raise HTTPException(status_code=400, detail="Process start failed or already running")
         return process_runner.status_dict()
 
     @router.post("/app/stop", tags=["应用进程"])
@@ -1760,7 +1759,7 @@ def create_router(
         report = req.get("report", {})
 
         if not webhook_url:
-            raise HTTPException(status_code=400, detail="webhook_url 不能为空")
+            raise HTTPException(status_code=400, detail="webhook_url must not be empty")
 
         handlers = {
             "dingtalk": notifier.send_dingtalk,
@@ -1919,14 +1918,14 @@ def create_router(
                 "message": "手机会话创建成功",
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"连接设备失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Device connection failed: {e}")
 
     @router.post("/mobile/session/{session_id}/tap", tags=["手机测试"])
     async def mobile_tap(session_id: str, req: dict) -> dict:
         """点击手机元素。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.tap(req.get("selector", ""))
             return {"success": True}
@@ -1938,7 +1937,7 @@ def create_router(
         """在手机输入框中输入文本。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
             return {"success": True}
@@ -1950,7 +1949,7 @@ def create_router(
         """手机滑动操作。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.swipe(
                 req.get("start_x", 0), req.get("start_y", 0),
@@ -1966,7 +1965,7 @@ def create_router(
         """截取手机屏幕。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             path = await ctrl.screenshot(name or "mobile_capture")
             # 返回base64用于前端显示
@@ -1981,7 +1980,7 @@ def create_router(
         """获取手机UI层级XML。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             source = await ctrl.get_page_source()
             return {"source": source}
@@ -1993,7 +1992,7 @@ def create_router(
         """打开URL或Activity。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.navigate(req.get("target", ""))
             return {"success": True}
@@ -2005,7 +2004,7 @@ def create_router(
         """按返回键。"""
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.back()
             return {"success": True}
@@ -2017,7 +2016,7 @@ def create_router(
         """关闭手机测试会话。"""
         ctrl = _mobile_sessions.pop(session_id, None)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.close()
             return {"message": "会话已关闭"}
@@ -2034,9 +2033,9 @@ def create_router(
         """
         ctrl = _mobile_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         if not ai_client:
-            raise HTTPException(status_code=503, detail="AI客户端未配置")
+            raise HTTPException(status_code=503, detail="AI client not configured")
 
         req = req or {}
         try:
@@ -2076,7 +2075,7 @@ def create_router(
                 "analysis": analysis,
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"分析失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
     @router.get("/mobile/sessions", tags=["手机测试"])
     async def list_mobile_sessions() -> dict:
@@ -2093,7 +2092,7 @@ def create_router(
                 dead_sids.append(sid)
         # 清理失效session
         for sid in dead_sids:
-            logger.info("清理失效session: {}", sid)
+            logger.info("Cleaning up stale session: {}", sid)
             try:
                 await _mobile_sessions[sid].close()
             except Exception:
@@ -2150,14 +2149,14 @@ def create_router(
                 "message": "桌面会话创建成功",
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"连接窗口失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Window connection failed: {e}")
 
     @router.post("/desktop/session/{session_id}/tap", tags=["桌面测试"])
     async def desktop_tap(session_id: str, req: dict) -> dict:
         """点击桌面元素。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.tap(req.get("selector", ""))
             return {"success": True}
@@ -2169,7 +2168,7 @@ def create_router(
         """在桌面控件中输入文本。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
             return {"success": True}
@@ -2181,7 +2180,7 @@ def create_router(
         """截取桌面窗口。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             path = await ctrl.screenshot(name or "desktop_capture")
             import base64
@@ -2195,7 +2194,7 @@ def create_router(
         """获取桌面窗口UI树。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             source = await ctrl.get_page_source()
             return {"source": source}
@@ -2207,7 +2206,7 @@ def create_router(
         """切换窗口或启动应用。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.navigate(req.get("target", ""))
             return {"success": True, "hwnd": ctrl.target_hwnd}
@@ -2219,7 +2218,7 @@ def create_router(
         """获取桌面元素文本。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             text = await ctrl.get_text(selector)
             return {"text": text}
@@ -2231,7 +2230,7 @@ def create_router(
         """关闭桌面测试会话。"""
         ctrl = _desktop_sessions.pop(session_id, None)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.close()
             return {"message": "桌面会话已关闭"}
@@ -2255,9 +2254,9 @@ def create_router(
         """截图并用AI分析桌面当前窗口。"""
         ctrl = _desktop_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         if not ai_client:
-            raise HTTPException(status_code=400, detail="AI客户端未配置")
+            raise HTTPException(status_code=400, detail="AI client not configured")
         try:
             req = req or {}
             path = await ctrl.screenshot("desktop_analyze")
@@ -2275,7 +2274,7 @@ def create_router(
                 "analysis": analysis,
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"分析失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Analysis failed: {e}")
 
     # ── 小程序测试（v8.0）─────────────────────────
 
@@ -2322,14 +2321,14 @@ def create_router(
                 "message": "小程序会话创建成功",
             }
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"连接小程序失败: {e}")
+            raise HTTPException(status_code=500, detail=f"Miniprogram connection failed: {e}")
 
     @router.post("/miniprogram/session/{session_id}/navigate", tags=["小程序测试"])
     async def miniprogram_navigate(session_id: str, req: dict) -> dict:
         """导航到小程序页面。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.navigate(req.get("url", ""))
             return {"success": True}
@@ -2341,7 +2340,7 @@ def create_router(
         """点击小程序元素。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.tap(req.get("selector", ""))
             return {"success": True}
@@ -2353,7 +2352,7 @@ def create_router(
         """在小程序输入框中输入文本。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.input_text(req.get("selector", ""), req.get("text", ""))
             return {"success": True}
@@ -2365,7 +2364,7 @@ def create_router(
         """截取小程序当前页面。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             path = await ctrl.screenshot(name or "mp_capture")
             import base64
@@ -2379,7 +2378,7 @@ def create_router(
         """获取小程序当前页面 WXML 结构。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             source = await ctrl.get_page_source()
             return {"source": source}
@@ -2391,7 +2390,7 @@ def create_router(
         """获取小程序元素文本。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             text = await ctrl.get_text(selector)
             return {"text": text}
@@ -2403,7 +2402,7 @@ def create_router(
         """获取小程序当前页面 data。"""
         ctrl = _miniprogram_sessions.get(session_id)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             data = await ctrl.get_page_data()
             return {"data": data}
@@ -2415,7 +2414,7 @@ def create_router(
         """关闭小程序测试会话。"""
         ctrl = _miniprogram_sessions.pop(session_id, None)
         if not ctrl:
-            raise HTTPException(status_code=404, detail="会话不存在")
+            raise HTTPException(status_code=404, detail="Session not found")
         try:
             await ctrl.close()
             return {"message": "小程序会话已关闭"}
@@ -2552,7 +2551,7 @@ def create_router(
 
         bp_data = req.get("blueprint", {})
         if not bp_data:
-            raise HTTPException(status_code=400, detail="请提供 blueprint 数据")
+            raise HTTPException(status_code=400, detail="Please provide blueprint data")
         bp = MultiPlayerBlueprint.from_dict(bp_data)
 
         await _orchestrator.reset()
@@ -2613,7 +2612,7 @@ def create_router(
         if engine:
             engine.stop()
             return {"player_id": player_id, "actions_done": engine.action_count}
-        raise HTTPException(status_code=404, detail=f"AI玩家 {player_id} 不存在")
+        raise HTTPException(status_code=404, detail=f"AI player {player_id}  not found")
 
     @router.get("/multiplayer/ai/report/{player_id}", tags=["多端协同-AI"])
     async def ai_player_report(player_id: str) -> dict:
@@ -2621,7 +2620,7 @@ def create_router(
         engine = _ai_engines.get(player_id)
         if engine:
             return engine.get_report()
-        raise HTTPException(status_code=404, detail=f"AI玩家 {player_id} 不存在")
+        raise HTTPException(status_code=404, detail=f"AI player {player_id}  not found")
 
     @router.post("/multiplayer/record/start", tags=["多端协同-录制"])
     async def start_recording() -> dict:
@@ -2646,7 +2645,7 @@ def create_router(
         Body: player_id, action, params(可选)
         """
         if not _recorder.is_recording:
-            raise HTTPException(status_code=400, detail="未在录制状态")
+            raise HTTPException(status_code=400, detail="Not in recording state")
         recorded = _recorder.record(
             player_id=req.get("player_id", ""),
             action=req.get("action", ""),
@@ -2669,7 +2668,7 @@ def create_router(
         req = req or {}
         actions = _recorder.actions
         if not actions:
-            raise HTTPException(status_code=400, detail="无录制数据")
+            raise HTTPException(status_code=400, detail="No recording data")
         _replayer = ActionReplayer(actions)
 
         import asyncio
@@ -2813,7 +2812,7 @@ def create_router(
         device = _device_pool.acquire(req.get("player_id", ""), dtype, req.get("tags"))
         if device:
             return {"device_id": device.device_id, "type": device.device_type.value, "assigned_to": device.assigned_to}
-        raise HTTPException(status_code=404, detail="无可用设备")
+        raise HTTPException(status_code=404, detail="No available device")
 
     @router.post("/multiplayer/devices/release/{device_id}", tags=["多端协同-设备池"])
     async def release_device(device_id: str) -> dict:
@@ -2874,16 +2873,16 @@ def create_router(
         secret = req.get("_secret", "")
         expected = os.environ.get("TP_ENGINE_SECRET", "testpilot-engine-secret-2026")
         if secret != expected:
-            raise HTTPException(status_code=403, detail="无效的引擎凭证")
+            raise HTTPException(status_code=403, detail="Invalid engine credentials")
 
         if ai_client is None:
-            raise HTTPException(status_code=503, detail="AI 服务未配置，请联系管理员")
+            raise HTTPException(status_code=503, detail="AI service not configured, contact administrator")
 
         messages = req.get("messages", [])
         reasoning = req.get("reasoning_effort", "medium")
         max_tokens = req.get("max_tokens", 65535)
         if not messages:
-            raise HTTPException(status_code=400, detail="messages 不能为空")
+            raise HTTPException(status_code=400, detail="messages must not be empty")
 
         try:
             result = ai_client._call_chat(messages, reasoning, max_tokens=max_tokens)
@@ -2891,6 +2890,9 @@ def create_router(
                 "choices": [{"message": {"content": result}, "finish_reason": "stop"}],
             }
         except Exception as e:
-            raise HTTPException(status_code=502, detail=f"AI 调用失败: {e}")
+            raise HTTPException(status_code=502, detail=f"AI call failed: {e}")
 
     return router
+
+
+

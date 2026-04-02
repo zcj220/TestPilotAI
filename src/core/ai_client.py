@@ -1,4 +1,4 @@
-"""
+﻿"""
 AI 客户端模块
 
 基于 OpenAI SDK 封装方舟平台 API 调用，使用 Doubao-Seed-1.8 统一模型。
@@ -166,7 +166,7 @@ class AIClient:
             ],
         })
 
-        logger.info("发送截图分析请求 | 文件={} | 大小={}KB", path.name, len(image_data) // 1024)
+        logger.info("Screenshot analysis request | file={} | size={}KB", path.name, len(image_data) // 1024)
         return self._call_chat(messages, reasoning_effort, timeout=timeout, max_tokens=max_tokens)
 
     def analyze_screenshot_url(
@@ -204,7 +204,7 @@ class AIClient:
             ],
         })
 
-        logger.info("发送截图URL分析请求 | URL={}", image_url[:80])
+        logger.info("Screenshot URL analysis request | URL={}", image_url[:80])
         return self._call_chat(messages, reasoning_effort)
 
     def _call_chat(
@@ -314,7 +314,7 @@ class ProxyAIClient:
         self._reasoning_effort = reasoning_effort
         self._max_tokens = max_tokens
         self._http = httpx.Client(timeout=120.0)
-        logger.info("AI 代理客户端初始化完成 | 代理={}", _PROXY_URL)
+        logger.info("AI proxy client initialized | proxy={}", _PROXY_URL)
 
     def chat(
         self,
@@ -353,7 +353,7 @@ class ProxyAIClient:
             {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
             {"type": "text", "text": prompt},
         ]})
-        logger.info("发送截图分析请求（代理）| 文件={} | 大小={}KB", path.name, len(image_data) // 1024)
+        logger.info("Screenshot analysis request (proxy) | file={} | size={}KB", path.name, len(image_data) // 1024)
         return self._call(messages, reasoning_effort, timeout, max_tokens)
 
     def analyze_screenshot_url(
@@ -401,3 +401,4 @@ class ProxyAIClient:
             raise
         except Exception as e:
             raise AIError(message="代理 AI 请求失败", detail=str(e))
+
