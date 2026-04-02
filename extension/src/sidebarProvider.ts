@@ -23,6 +23,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private _client: EngineClient;
   private _context: vscode.ExtensionContext;
   private _preflightChannel?: vscode.OutputChannel;
+  /** 用户主动断开标记：阻止轮询自动重连 */
+  private _userStopped = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -31,6 +33,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   ) {
     this._client = client;
     this._context = context;
+  }
+
+  /** 设置用户主动断开标记（stopEngine 时调用） */
+  public setUserStopped(stopped: boolean): void {
+    this._userStopped = stopped;
   }
 
   public resolveWebviewView(
@@ -291,6 +298,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   }
 
   private async _handleCheckEngine(): Promise<void> {
+    // 用户主动断开时，跳过健康检查，直接返回未连接
+    if (this._userStopped) {
+      this._postMessage({ command: "engineStatus", data: { connected: false } });
+      return;
+    }
     try {
       const health = await this._client.checkHealth();
       this._postMessage({

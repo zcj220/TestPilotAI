@@ -334,6 +334,8 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── 一键启动引擎（v15.0：自动下载+启动二进制，无需选择目录）──
   context.subscriptions.push(
     vscode.commands.registerCommand("testpilot-ai.launchEngine", async () => {
+      // 清除用户主动断开标记
+      sidebarProvider.setUserStopped(false);
       // 先检查引擎是否已在运行
       if (await engineManager.isEngineRunning()) {
         vscode.window.showInformationMessage("✅ TestPilot AI 引擎已在运行中");
@@ -358,7 +360,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // ── 一键关闭引擎（v10.1）──
   context.subscriptions.push(
     vscode.commands.registerCommand("testpilot-ai.stopEngine", async () => {
-      // 通过 engineManager 杀掉引擎子进程
+      // 设置用户主动断开标记，阻止轮询自动重连
+      sidebarProvider.setUserStopped(true);
+      // 通过 engineManager 杀掉引擎进程（包括端口 8900 上的外部进程）
       engineManager.dispose();
       outputChannel.appendLine("[TestPilot AI] 引擎进程已停止");
       // 断开 WebSocket 连接

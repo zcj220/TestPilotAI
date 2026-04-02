@@ -350,13 +350,15 @@ export class EngineManager {
     });
   }
 
-  /** 停止引擎进程（插件停用时调用） */
+  /** 停止引擎进程 */
   dispose(): void {
     if (this._engineProc) {
-      this._outputChannel.appendLine("[引擎] 停止引擎进程");
+      this._outputChannel.appendLine("[引擎] 停止引擎子进程");
       this._engineProc.kill();
       this._engineProc = null;
     }
+    // 无论是否有子进程引用，都通过端口找到并杀掉 8900 上的进程
+    this._killExistingEngine().catch(() => {});
     this._setStatus("offline");
   }
 
