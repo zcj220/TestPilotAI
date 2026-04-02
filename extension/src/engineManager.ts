@@ -45,6 +45,8 @@ export class EngineManager {
   private _storageDir: string;
   private _outputChannel: vscode.OutputChannel;
   private _statusBar: vscode.StatusBarItem;
+  /** 互斥锁：防止并发调用 ensureRunning() 导致重复下载 */
+  private _ensureRunningPromise: Promise<void> | null = null;
 
   constructor(private _context: vscode.ExtensionContext) {
     this._storageDir = _context.globalStorageUri.fsPath;
@@ -106,8 +108,19 @@ export class EngineManager {
   /**
    * 确保引擎正在运行。
    * 流程：已运行 → 直接返回；已缓存 → 启动；未缓存 → 先下载再启动。
+   * 使用互斥锁防止并发调用导致重复下载（EBUSY）。
    */
   async ensureRunning(): Promise<void> {
+    if (this._ensureRunningPromise) {
+      return this._ensureRunningPromise;
+    }
+    this._ensureRunningPromise = this._doEnsureRunning().finally(() => {
+      this._ensureRunningPromise = null;
+    });
+    return this._ensureRunningPromise;
+  }
+
+  private async _doEnsureRunning(): Promise<void> {
     // 0. 版本检查（异步，不阻塞启动，但强制更新会提示）
     this._checkVersion().catch(() => {});
 
@@ -247,8 +260,18 @@ export class EngineManager {
 
               res.on("end", () => {
                 file.end(() => {
-                  // 重命名临时文件
-                  fs.renameSync(tmpPath, this.binaryPath);
+                  // 删旧文件再重命名（Windows 上 rename 覆盖有时报 EBUSY）
+                  try {
+                    if (fs.existsSync(this.binaryPath)) {
+                      fs.unlinkSync(this.binaryPath);
+                    }
+                    fs.renameSync(tmpPath, this.binaryPath);
+                  } catch (e) {
+                    // 第二次尝试（等 500ms 让杀毒软件释放文件锁）
+                    setTimeout(() => {
+                      try { fs.renameSync(tmpPath, this.binaryPath); } catch {}
+                    }, 500);
+                  }
                   // macOS / Linux 需要可执行权限
                   if (process.platform !== "win32") {
                     fs.chmodSync(this.binaryPath, 0o755);
@@ -274,47 +297,55 @@ export class EngineManager {
       this._outputChannel.appendLine(`[引擎] 启动: ${this.binaryPath}`);
 
       // 注入 PLAYWRIGHT_BROWSERS_PATH，确保 PyInstaller 打包的引擎能找到已安装的浏览器
-      // 避免 Playwright 在 _MEIxxxxxx 临时目录中搜索浏览器
       const browsersPath = process.platform === "win32"
         ? path.join(process.env["LOCALAPPDATA"] || os.homedir(), "ms-playwright")
         : path.join(os.homedir(), ".cache", "ms-playwright");
       this._outputChannel.appendLine(`[引擎] PLAYWRIGHT_BROWSERS_PATH=${browsersPath}`);
 
-      this._engineProc = child_process.spawn(this.binaryPath, [], {
-        cwd: os.homedir(),        // 工作目录设为用户主目录，让 data/ logs/ 写到那里
+      const spawnOptions: child_process.SpawnOptions = {
+        cwd: os.homedir(),
         detached: false,
         stdio: ["ignore", "pipe", "pipe"],
-        env: {
-          ...process.env,
-          PLAYWRIGHT_BROWSERS_PATH: browsersPath,
-        },
-      });
-
-      const onData = (chunk: Buffer) => {
-        const text = chunk.toString();
-        this._outputChannel.append(text);
-        // 检测到 uvicorn 就绪信号
-        if (text.includes("Uvicorn running") || text.includes("Application startup complete")) {
-          this._engineProc!.stdout?.removeListener("data", onData);
-          this._engineProc!.stderr?.removeListener("data", onData);
-          resolve();
-        }
+        env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: browsersPath },
       };
 
-      this._engineProc.stdout?.on("data", onData);
-      this._engineProc.stderr?.on("data", onData);
+      // 尝试 spawn，遇到 EBUSY（Windows Defender 扫描中）最多重试 3 次
+      const trySpawn = (attempt: number) => {
+        const proc = child_process.spawn(this.binaryPath, [], spawnOptions);
 
-      this._engineProc.on("error", (err) => {
-        reject(new Error(`引擎进程启动失败: ${err.message}`));
-      });
+        proc.on("error", (err: NodeJS.ErrnoException) => {
+          if (err.code === "EBUSY" && attempt < 3) {
+            this._outputChannel.appendLine(`[引擎] 文件被占用(EBUSY)，${3}秒后重试(${attempt}/3)...`);
+            setTimeout(() => trySpawn(attempt + 1), 3000);
+          } else {
+            reject(new Error(`引擎进程启动失败: ${err.message}`));
+          }
+        });
 
-      this._engineProc.on("exit", (code) => {
-        this._outputChannel.appendLine(`[引擎] 进程已退出，退出码=${code}`);
-        this._engineProc = null;
-        this._setStatus("offline");
-      });
+        proc.on("exit", (code) => {
+          this._outputChannel.appendLine(`[引擎] 进程已退出，退出码=${code}`);
+          this._engineProc = null;
+          this._setStatus("offline");
+        });
 
-      // 超时保护：120 秒内未就绪视为失败（首次启动可能需要下载 Playwright 浏览器）
+        const onData = (chunk: Buffer) => {
+          const text = chunk.toString();
+          this._outputChannel.append(text);
+          if (text.includes("Uvicorn running") || text.includes("Application startup complete")) {
+            proc.stdout?.removeListener("data", onData);
+            proc.stderr?.removeListener("data", onData);
+            resolve();
+          }
+        };
+        proc.stdout?.on("data", onData);
+        proc.stderr?.on("data", onData);
+
+        this._engineProc = proc;
+      };
+
+      trySpawn(1);
+
+      // 超时保护
       setTimeout(() => reject(new Error("引擎启动超时（120s），请检查 Output 面板日志")), 120000);
     });
   }
